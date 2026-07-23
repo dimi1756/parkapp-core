@@ -168,11 +168,12 @@
   box-shadow: 0 0 0 6px hsla(var(--primary), 0.25), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-.mapbox-pin {
-  width: 16px;
-  height: 16px;
-  border-radius: 9999px;
-  border: 3px solid white;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+.mapbox-pin-wrapper {
   cursor: pointer;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.4));
+  transition: transform 0.15s ease;
+}
+
+.mapbox-pin-wrapper:hover {
+  transform: scale(1.1);
 }
