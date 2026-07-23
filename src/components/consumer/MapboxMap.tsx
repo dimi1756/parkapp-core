@@ -95,16 +95,22 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins
 
       if (!markersRef.current[pin.id]) {
         const el = document.createElement('div');
-        el.className = 'mapbox-pin';
-        el.style.backgroundColor = color;
+        el.className = 'mapbox-pin-wrapper';
+        el.innerHTML = `
+          <svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
+            <circle cx="17" cy="17" r="6" fill="white"/>
+          </svg>
+        `;
+
         if (pin.label) {
-          const popup = new mapboxgl.Popup({ offset: 12 }).setText(pin.label);
-          markersRef.current[pin.id] = new mapboxgl.Marker({ element: el })
+          const popup = new mapboxgl.Popup({ offset: 36 }).setText(pin.label);
+          markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
             .setLngLat([pin.lng, pin.lat])
             .setPopup(popup)
             .addTo(map);
         } else {
-          markersRef.current[pin.id] = new mapboxgl.Marker({ element: el })
+          markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
             .setLngLat([pin.lng, pin.lat])
             .addTo(map);
         }
