@@ -8,6 +8,33 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 
 export const isMapboxConfigured = Boolean(MAPBOX_TOKEN);
 
+export interface GeocodeResult {
+  name: string;
+  lng: number;
+  lat: number;
+}
+
+// Looks up a real place/address using the Mapbox Geocoding API, biased toward
+// results near `proximity`. Returns null if nothing matches (invalid query)
+// or if no token is configured.
+export async function geocodeAddress(query: string, proximity: [number, number]): Promise<GeocodeResult | null> {
+  if (!MAPBOX_TOKEN || !query.trim()) return null;
+
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&proximity=${proximity[0]},${proximity[1]}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const feature = data?.features?.[0];
+    if (!feature || !Array.isArray(feature.center)) return null;
+    const [lng, lat] = feature.center;
+    return { name: feature.place_name ?? query, lng, lat };
+  } catch {
+    return null;
+  }
+}
+
 export interface MapPin {
   id: string;
   lng: number;

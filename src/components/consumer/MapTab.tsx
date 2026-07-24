@@ -4,7 +4,7 @@ import { Search, MapPin, Navigation, Eye, Loader2, X, AlertTriangle, Check } fro
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import chalkidaMap from '@/assets/chalkida-map.png';
-import { MapboxMap, isMapboxConfigured } from './MapboxMap';
+import { MapboxMap, isMapboxConfigured, geocodeAddress } from './MapboxMap';
 
 // Route state type
 type RouteState = 'idle' | 'searching' | 'found';
@@ -20,15 +20,21 @@ interface PinRecord {
   label: string;
 }
 
-// Destination coordinates (relative percentages on the map)
-const DESTINATIONS = {
+interface Destination {
+  name: string;
+  lng: number;
+  lat: number;
+}
+
+// Mock destinations used only when Mapbox isn't configured (no real geocoding available)
+const MOCK_DESTINATIONS = {
   'mikel': { name: 'Mikel Coffee', x: 55, y: 35 },
   'sklavenitis': { name: 'Sklavenitis', x: 70, y: 50 },
   'public': { name: 'Public Chalkida', x: 52, y: 48 },
 };
 
 // Demo center point (Chalkida, Greece) used to project percent coords to real
-// lng/lat for the Mapbox view. Swap this for the real deployment city later.
+// lng/lat for the Mapbox view, and vice versa. Swap for the real deployment city later.
 const MAP_CENTER: [number, number] = [23.5910, 38.4636];
 
 function percentToLngLat(x: number, y: number): [number, number] {
@@ -37,13 +43,19 @@ function percentToLngLat(x: number, y: number): [number, number] {
   return [lng, lat];
 }
 
+function lngLatToPercent(lng: number, lat: number): { x: number; y: number } {
+  const x = 50 + ((lng - MAP_CENTER[0]) / 0.01) * 50;
+  const y = 50 - ((lat - MAP_CENTER[1]) / 0.008) * 50;
+  return { x, y };
+}
+
 export const MapTab = () => {
   const { points, addPoints, incrementSearches } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [routeState, setRouteState] = useState<RouteState>('idle');
   const [showLimitModal, setShowLimitModal] = useState(false);
-  const [activeDestination, setActiveDestination] = useState<{ name: string; x: number; y: number } | null>(null);
-  const [parkingSpot, setParkingSpot] = useState<{ x: number; y: number } | null>(null);
+  const [activeDestination, setActiveDestination] = useState<Destination | null>(null);
+  const [parkingSpot, setParkingSpot] = useState<{ lng: number; lat: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
@@ -72,23 +84,41 @@ export const MapTab = () => {
       return;
     }
 
-    const queryLower = searchQuery.toLowerCase();
-    let destination = Object.entries(DESTINATIONS).find(([key]) =>
-      queryLower.includes(key) || key.includes(queryLower)
-    )?.[1];
+    setRouteState('searching');
 
-    if (!destination) {
-      destination = { name: searchQuery, x: 60, y: 40 };
+    let destination: Destination | null = null;
+
+    if (isMapboxConfigured) {
+      // Real geocoding — only succeeds for places that actually exist
+      const result = await geocodeAddress(searchQuery, MAP_CENTER);
+      if (!result) {
+        setRouteState('idle');
+        toast({
+          title: "Location not found",
+          description: "Try a different address or place name",
+          variant: "destructive",
+        });
+        return;
+      }
+      destination = result;
+    } else {
+      // No Mapbox token configured: fall back to the old mock/demo matching
+      const queryLower = searchQuery.toLowerCase();
+      const mock = Object.entries(MOCK_DESTINATIONS).find(([key]) =>
+        queryLower.includes(key) || key.includes(queryLower)
+      )?.[1] ?? { name: searchQuery, x: 60, y: 40 };
+      const [lng, lat] = percentToLngLat(mock.x, mock.y);
+      destination = { name: mock.name, lng, lat };
     }
 
     setActiveDestination(destination);
-    setRouteState('searching');
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
+    // Simulate a nearby free spot a short walk from the destination
     const spot = {
-      x: destination.x - 5 + Math.random() * 3,
-      y: destination.y + 3 + Math.random() * 2,
+      lng: destination.lng + (Math.random() - 0.5) * 0.0008,
+      lat: destination.lat - 0.0003 - Math.random() * 0.0003,
     };
     setParkingSpot(spot);
     setRouteState('found');
@@ -112,7 +142,7 @@ export const MapTab = () => {
     setSearchQuery('');
   };
 
-  // --- TASK 3: Central Check-out / Check-in button ---
+  // --- Central Check-out / Check-in button ---
   // First tap  ("Emptying a space") -> creates a pin, +10 points
   // Second tap ("Parked")           -> removes that pin
   const handleCentralToggle = () => {
@@ -138,7 +168,7 @@ export const MapTab = () => {
     }
   };
 
-  // --- TASK 3: Secondary passive-crowdsourcing button ---
+  // --- Secondary passive-crowdsourcing button ---
   // "I saw a free space" -> drops a pin near the user, +5 points, auto-expires
   const handleSpotted = () => {
     const id = crypto.randomUUID();
@@ -157,11 +187,10 @@ export const MapTab = () => {
       title: "Reported! +5 points",
       description: "You're helping the community",
     });
-    // Sighting reports are unverified, so let them expire after a while
     setTimeout(() => setPins(prev => prev.filter(p => p.id !== id)), 25000);
   };
 
-  // TASK 2: let people drop a pin by tapping directly on the map
+  // Let people drop a pin by tapping directly on the map
   const handleMapTapDrop = (x: number, y: number) => {
     const id = crypto.randomUUID();
     const pin: PinRecord = { id, x, y, type: 'reported', label: 'Reported free space' };
@@ -179,6 +208,10 @@ export const MapTab = () => {
     handleMapTapDrop(x, y);
   };
 
+  // Destination/spot expressed as percent coords, for the static fallback map only
+  const destinationPercent = activeDestination ? lngLatToPercent(activeDestination.lng, activeDestination.lat) : null;
+  const parkingSpotPercent = parkingSpot ? lngLatToPercent(parkingSpot.lng, parkingSpot.lat) : null;
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       {/* Map: real interactive Mapbox map if a token is configured, otherwise the demo image */}
@@ -186,12 +219,20 @@ export const MapTab = () => {
         <MapboxMap
           center={MAP_CENTER}
           userLocation={MAP_CENTER}
-          pins={pins.map(p => {
-            const [lng, lat] = percentToLngLat(p.x, p.y);
-            return { id: p.id, lng, lat, type: p.type, label: p.label };
-          })}
+          pins={[
+            ...pins.map(p => {
+              const [lng, lat] = percentToLngLat(p.x, p.y);
+              return { id: p.id, lng, lat, type: p.type, label: p.label };
+            }),
+            ...(activeDestination
+              ? [{ id: 'destination', lng: activeDestination.lng, lat: activeDestination.lat, type: 'destination' as const, label: activeDestination.name }]
+              : []),
+            ...(parkingSpot
+              ? [{ id: 'parking-spot', lng: parkingSpot.lng, lat: parkingSpot.lat, type: 'mine' as const, label: 'Available spot' }]
+              : []),
+          ]}
           onMapClick={handleMapTapDrop}
-          routeTo={routeState === 'found' && parkingSpot ? percentToLngLat(parkingSpot.x, parkingSpot.y) : null}
+          routeTo={routeState === 'found' && parkingSpot ? [parkingSpot.lng, parkingSpot.lat] : null}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
@@ -267,14 +308,14 @@ export const MapTab = () => {
           ))}
 
           {/* Destination Pin */}
-          {activeDestination && routeState !== 'idle' && (
+          {destinationPercent && routeState !== 'idle' && (
             <div
               className="absolute transform -translate-x-1/2 -translate-y-full"
-              style={{ left: `${activeDestination.x}%`, top: `${activeDestination.y}%` }}
+              style={{ left: `${destinationPercent.x}%`, top: `${destinationPercent.y}%` }}
             >
               <div className="flex flex-col items-center">
-                <div className="bg-destructive text-destructive-foreground px-2 py-1 rounded-lg text-xs font-medium shadow-lg mb-1 whitespace-nowrap">
-                  {activeDestination.name}
+                <div className="bg-destructive text-destructive-foreground px-2 py-1 rounded-lg text-xs font-medium shadow-lg mb-1 whitespace-nowrap max-w-[160px] truncate">
+                  {activeDestination?.name}
                 </div>
                 <MapPin className="h-8 w-8 text-destructive drop-shadow-lg" fill="currentColor" />
               </div>
@@ -282,10 +323,10 @@ export const MapTab = () => {
           )}
 
           {/* Parking Spot - Neon Green Highlight */}
-          {parkingSpot && routeState === 'found' && (
+          {parkingSpotPercent && routeState === 'found' && (
             <div
               className="absolute transform -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${parkingSpot.x}%`, top: `${parkingSpot.y}%` }}
+              style={{ left: `${parkingSpotPercent.x}%`, top: `${parkingSpotPercent.y}%` }}
             >
               <div className="relative">
                 <div className="absolute inset-0 w-12 h-12 -m-4 rounded-full bg-success/40 animate-pulse" />
@@ -295,22 +336,22 @@ export const MapTab = () => {
           )}
 
           {/* Route Lines */}
-          {parkingSpot && activeDestination && routeState === 'found' && (
+          {parkingSpotPercent && destinationPercent && routeState === 'found' && (
             <svg className="absolute inset-0 w-full h-full" style={{ overflow: 'visible' }}>
               <line
                 x1={`${userLocation.x}%`}
                 y1={`${userLocation.y}%`}
-                x2={`${parkingSpot.x}%`}
-                y2={`${parkingSpot.y}%`}
+                x2={`${parkingSpotPercent.x}%`}
+                y2={`${parkingSpotPercent.y}%`}
                 stroke="hsl(var(--primary))"
                 strokeWidth="4"
                 strokeLinecap="round"
               />
               <line
-                x1={`${parkingSpot.x}%`}
-                y1={`${parkingSpot.y}%`}
-                x2={`${activeDestination.x}%`}
-                y2={`${activeDestination.y}%`}
+                x1={`${parkingSpotPercent.x}%`}
+                y1={`${parkingSpotPercent.y}%`}
+                x2={`${destinationPercent.x}%`}
+                y2={`${destinationPercent.y}%`}
                 stroke="hsl(var(--muted-foreground))"
                 strokeWidth="3"
                 strokeDasharray="8,6"
@@ -321,7 +362,7 @@ export const MapTab = () => {
         </div>
       )}
 
-      {/* TASK 3: Central Check-out/Check-in + Secondary "I saw a free space" buttons */}
+      {/* Central Check-out/Check-in + Secondary "I saw a free space" buttons */}
       <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4">
         <Button
           onClick={handleSpotted}
