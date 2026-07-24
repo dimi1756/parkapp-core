@@ -49,6 +49,24 @@ function lngLatToPercent(lng: number, lat: number): { x: number; y: number } {
   return { x, y };
 }
 
+// Haversine distance in meters between two lng/lat points
+function distanceMeters(lng1: number, lat1: number, lng2: number, lat2: number): number {
+  const R = 6371000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Average walking pace ~80 meters/minute (~4.8 km/h)
+function walkingMinutes(meters: number): number {
+  return Math.max(1, Math.round(meters / 80));
+}
+
 export const MapTab = () => {
   const { points, addPoints, incrementSearches } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,6 +84,8 @@ export const MapTab = () => {
 
   // User location (center of the map / percent position on the fallback image)
   const userLocation = { x: 45, y: 55 };
+  const userLngLat = percentToLngLat(userLocation.x, userLocation.y);
+  const [walkMinutes, setWalkMinutes] = useState<number>(2);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
@@ -123,9 +143,13 @@ export const MapTab = () => {
     setParkingSpot(spot);
     setRouteState('found');
 
+    const meters = distanceMeters(userLngLat[0], userLngLat[1], spot.lng, spot.lat);
+    const minutes = walkingMinutes(meters);
+    setWalkMinutes(minutes);
+
     toast({
       title: "Spot found!",
-      description: "2 min walk from your destination",
+      description: `${minutes} min walk from your destination`,
     });
   };
 
@@ -439,7 +463,7 @@ export const MapTab = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-semibold text-sm">Parking Spot Found</p>
-                <p className="text-xs text-muted-foreground">2 min walk • High availability</p>
+                <p className="text-xs text-muted-foreground">{walkMinutes} min walk • High availability</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-success animate-pulse" />
