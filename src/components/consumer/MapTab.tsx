@@ -1,24 +1,17 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { Search, MapPin, Navigation, Eye, Loader2, X, AlertTriangle, Check } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGeolocation } from '@/hooks/useGeolocation';
+import { useActiveSession } from '@/hooks/useActiveSession';
+import { useNearbySpots } from '@/hooks/useNearbySpots';
+import { declareSpot, claimSpot, manualUnpark } from '@/lib/api/parking';
+import { Search, MapPin, Navigation, Eye, Loader2, X, AlertTriangle, Check, ParkingCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import chalkidaMap from '@/assets/chalkida-map.png';
 import { MapboxMap, isMapboxConfigured, geocodeAddress } from './MapboxMap';
 
-// Route state type
-type RouteState = 'idle' | 'searching' | 'found';
-
-// A pin represents an empty-space signal on the map.
-// 'mine'     -> created by this user's own check-out (central button)
-// 'reported' -> a passive "I saw a free space" sighting, or a manual map tap
-interface PinRecord {
-  id: string;
-  x: number; // percent position, used for the static fallback map
-  y: number;
-  type: 'mine' | 'reported';
-  label: string;
-}
+type RouteState = 'idle' | 'searching' | 'found' | 'not_found';
 
 interface Destination {
   name: string;
@@ -26,15 +19,14 @@ interface Destination {
   lat: number;
 }
 
-// Mock destinations used only when Mapbox isn't configured (no real geocoding available)
 const MOCK_DESTINATIONS = {
-  'mikel': { name: 'Mikel Coffee', x: 55, y: 35 },
-  'sklavenitis': { name: 'Sklavenitis', x: 70, y: 50 },
-  'public': { name: 'Public Chalkida', x: 52, y: 48 },
+  mikel: { name: 'Mikel Coffee', x: 55, y: 35 },
+  sklavenitis: { name: 'Sklavenitis', x: 70, y: 50 },
+  public: { name: 'Public Chalkida', x: 52, y: 48 },
 };
 
-// Demo center point (Chalkida, Greece) used to project percent coords to real
-// lng/lat for the Mapbox view, and vice versa. Swap for the real deployment city later.
+// Fallback center (Chalkida, Greece) used whenever real geolocation isn't
+// available (denied permission, desktop demo browser, etc).
 const MAP_CENTER: [number, number] = [23.5910, 38.4636];
 
 function percentToLngLat(x: number, y: number): [number, number] {
@@ -49,56 +41,61 @@ function lngLatToPercent(lng: number, lat: number): { x: number; y: number } {
   return { x, y };
 }
 
-// Haversine distance in meters between two lng/lat points
 function distanceMeters(lng1: number, lat1: number, lng2: number, lat2: number): number {
   const R = 6371000;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLng = toRad(lng2 - lng1);
   const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
-// Average walking pace ~80 meters/minute (~4.8 km/h)
 function walkingMinutes(meters: number): number {
   return Math.max(1, Math.round(meters / 80));
 }
 
 export const MapTab = () => {
-  const { points, addPoints, incrementSearches } = useApp();
+  const { incrementSearches } = useApp();
+  const { profile } = useAuth();
+  const { getCurrentPosition } = useGeolocation();
+  const { activeSession, refetch: refetchSession } = useActiveSession();
+  const nearbySpots = useNearbySpots();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [routeState, setRouteState] = useState<RouteState>('idle');
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [activeDestination, setActiveDestination] = useState<Destination | null>(null);
-  const [parkingSpot, setParkingSpot] = useState<{ lng: number; lat: number } | null>(null);
+  const [foundSpot, setFoundSpot] = useState<{ lng: number; lat: number } | null>(null);
+  const [walkMinutes, setWalkMinutes] = useState<number>(2);
+  const [busyAction, setBusyAction] = useState<'declare' | 'spotted' | 'claim' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
-  // Crowdsourced empty-space pins
-  const [pins, setPins] = useState<PinRecord[]>([]);
-  const [isSpaceMarkedEmpty, setIsSpaceMarkedEmpty] = useState(false);
-  const myPinIdRef = useRef<string | null>(null);
+  // Real device position; falls back to the demo city center if unavailable.
+  const [userLngLat, setUserLngLat] = useState<[number, number]>(MAP_CENTER);
+  const [userAccuracy, setUserAccuracy] = useState<number>(9999);
 
-  // User location (center of the map / percent position on the fallback image)
-  const userLocation = { x: 45, y: 55 };
-  const userLngLat = percentToLngLat(userLocation.x, userLocation.y);
-  const [walkMinutes, setWalkMinutes] = useState<number>(2);
+  useEffect(() => {
+    getCurrentPosition()
+      .then(({ lat, lng, accuracy }) => {
+        setUserLngLat([lng, lat]);
+        setUserAccuracy(accuracy);
+      })
+      .catch(() => {
+        // No permission / no GPS: stay on the fallback center. Declarations
+        // will simply fail the accuracy/radius check server-side, as intended.
+      });
+  }, [getCurrentPosition]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
-      toast({
-        title: "Enter a destination",
-        description: "Type an address or location",
-        variant: "destructive",
-      });
+      toast({ title: 'Enter a destination', description: 'Type an address or location', variant: 'destructive' });
       return;
     }
 
     const canSearch = incrementSearches();
-
     if (!canSearch) {
       setShowLimitModal(true);
       return;
@@ -109,162 +106,243 @@ export const MapTab = () => {
     let destination: Destination | null = null;
 
     if (isMapboxConfigured) {
-      // Real geocoding — only succeeds for places that actually exist
       const result = await geocodeAddress(searchQuery, MAP_CENTER);
       if (!result) {
         setRouteState('idle');
-        toast({
-          title: "Location not found",
-          description: "Try a different address or place name",
-          variant: "destructive",
-        });
+        toast({ title: 'Location not found', description: 'Try a different address or place name', variant: 'destructive' });
         return;
       }
       destination = result;
     } else {
-      // No Mapbox token configured: fall back to the old mock/demo matching
       const queryLower = searchQuery.toLowerCase();
-      const mock = Object.entries(MOCK_DESTINATIONS).find(([key]) =>
-        queryLower.includes(key) || key.includes(queryLower)
+      const mock = Object.entries(MOCK_DESTINATIONS).find(
+        ([key]) => queryLower.includes(key) || key.includes(queryLower)
       )?.[1] ?? { name: searchQuery, x: 60, y: 40 };
       const [lng, lat] = percentToLngLat(mock.x, mock.y);
       destination = { name: mock.name, lng, lat };
     }
 
     setActiveDestination(destination);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Real nearby spots only -- no more fabricated "94% probability" spot.
+    const candidates = nearbySpots.filter((s) => s.declared_by !== profile?.id);
+    const closest = candidates.reduce<{ lng: number; lat: number; d: number } | null>((best, s) => {
+      const d = distanceMeters(destination!.lng, destination!.lat, s.lng, s.lat);
+      if (!best || d < best.d) return { lng: s.lng, lat: s.lat, d };
+      return best;
+    }, null);
 
-    // Simulate a nearby free spot a short walk from the destination
-    const spot = {
-      lng: destination.lng + (Math.random() - 0.5) * 0.0008,
-      lat: destination.lat - 0.0003 - Math.random() * 0.0003,
-    };
-    setParkingSpot(spot);
+    if (!closest) {
+      setFoundSpot(null);
+      setRouteState('not_found');
+      toast({ title: 'No spots reported near here yet', description: 'Be the first to check the area and report one!' });
+      return;
+    }
+
+    setFoundSpot({ lng: closest.lng, lat: closest.lat });
     setRouteState('found');
-
-    const meters = distanceMeters(userLngLat[0], userLngLat[1], spot.lng, spot.lat);
-    const minutes = walkingMinutes(meters);
+    const minutes = walkingMinutes(closest.d);
     setWalkMinutes(minutes);
-
-    toast({
-      title: "Spot found!",
-      description: `${minutes} min walk from your destination`,
-    });
+    toast({ title: 'Spot found!', description: `${minutes} min walk from your destination` });
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
+    if (e.key === 'Enter') handleSearch();
   };
 
   const clearRoute = () => {
     setRouteState('idle');
     setActiveDestination(null);
-    setParkingSpot(null);
+    setFoundSpot(null);
     setSearchQuery('');
   };
 
-  // --- Central Check-out / Check-in button ---
-  // First tap  ("Emptying a space") -> creates a pin, +10 points
-  // Second tap ("Parked")           -> removes that pin
-  const handleCentralToggle = () => {
-    if (!isSpaceMarkedEmpty) {
-      const id = crypto.randomUUID();
-      const pin: PinRecord = { id, x: userLocation.x, y: userLocation.y, type: 'mine', label: 'Space just emptied' };
-      setPins(prev => [...prev, pin]);
-      myPinIdRef.current = id;
-      setIsSpaceMarkedEmpty(true);
-      addPoints(10);
-      toast({
-        title: "Spot marked as empty! +10 points",
-        description: "Other drivers can now see this space on the map",
-      });
-    } else {
-      setPins(prev => prev.filter(p => p.id !== myPinIdRef.current));
-      myPinIdRef.current = null;
-      setIsSpaceMarkedEmpty(false);
-      toast({
-        title: "Marked as parked",
-        description: "Thanks — the spot was removed from the map",
-      });
-    }
-  };
-
-  // --- Secondary passive-crowdsourcing button ---
-  // "I saw a free space" -> drops a pin near the user, +5 points, auto-expires
-  const handleSpotted = () => {
-    const id = crypto.randomUUID();
-    const jitterX = (Math.random() - 0.5) * 10;
-    const jitterY = (Math.random() - 0.5) * 10;
-    const pin: PinRecord = {
-      id,
-      x: userLocation.x + jitterX,
-      y: userLocation.y + jitterY,
-      type: 'reported',
-      label: 'Reported free space',
-    };
-    setPins(prev => [...prev, pin]);
-    addPoints(5);
-    toast({
-      title: "Reported! +5 points",
-      description: "You're helping the community",
+  // "I'm leaving" -- declares the current spot free and, if the user had an
+  // active claimed session, closes it with the honest-checkout bonus too.
+  const handleDeclare = async () => {
+    setBusyAction('declare');
+    const [lng, lat] = userLngLat;
+    const { data, error } = await declareSpot({
+      spotLat: lat,
+      spotLng: lng,
+      userLat: lat,
+      userLng: lng,
+      accuracy: userAccuracy,
+      kind: 'vacating',
     });
-    setTimeout(() => setPins(prev => prev.filter(p => p.id !== id)), 25000);
+
+    if (error) {
+      toast({ title: "Couldn't mark this spot", description: error, variant: 'destructive' });
+    } else if (data) {
+      toast({ title: `Thanks! +${data.pointsAwarded} points`, description: 'Other drivers can now see this space on the map' });
+    }
+
+    if (activeSession) {
+      const unparkResult = await manualUnpark();
+      if (unparkResult.data) {
+        await refetchSession();
+      }
+    }
+    setBusyAction(null);
   };
 
-  // Let people drop a pin by tapping directly on the map
-  const handleMapTapDrop = (x: number, y: number) => {
-    const id = crypto.randomUUID();
-    const pin: PinRecord = { id, x, y, type: 'reported', label: 'Reported free space' };
-    setPins(prev => [...prev, pin]);
-    addPoints(5);
-    toast({ title: "Pin dropped! +5 points", description: "Marked as a free space" });
-    setTimeout(() => setPins(prev => prev.filter(p => p.id !== id)), 25000);
+  const handleSpotted = async () => {
+    setBusyAction('spotted');
+    const [lng, lat] = userLngLat;
+    const { data, error } = await declareSpot({
+      spotLat: lat,
+      spotLng: lng,
+      userLat: lat,
+      userLng: lng,
+      accuracy: userAccuracy,
+      kind: 'spotted',
+    });
+    if (error) {
+      toast({ title: "Couldn't report this spot", description: error, variant: 'destructive' });
+    } else if (data) {
+      toast({ title: `Reported! +${data.pointsAwarded} points`, description: "You're helping the community" });
+    }
+    setBusyAction(null);
+  };
+
+  // Tapping the map reports a spot at that exact point -- if it's far from
+  // the device's real GPS, the radius check rejects it. That's the anti-
+  // cheat working as intended, not a bug.
+  const handleMapTapDrop = async (lng: number, lat: number) => {
+    setBusyAction('spotted');
+    const [userLng, userLat] = userLngLat;
+    const { data, error } = await declareSpot({
+      spotLat: lat,
+      spotLng: lng,
+      userLat,
+      userLng,
+      accuracy: userAccuracy,
+      kind: 'spotted',
+    });
+    if (error) {
+      toast({ title: "Couldn't report this spot", description: error, variant: 'destructive' });
+    } else if (data) {
+      toast({ title: `Pin dropped! +${data.pointsAwarded} points`, description: 'Marked as a free space' });
+    }
+    setBusyAction(null);
   };
 
   const handleStaticMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!imageContainerRef.current) return;
     const rect = imageContainerRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    handleMapTapDrop(x, y);
+    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+    const [lng, lat] = percentToLngLat(xPct, yPct);
+    handleMapTapDrop(lng, lat);
   };
 
-  // Destination/spot expressed as percent coords, for the static fallback map only
-  const destinationPercent = activeDestination ? lngLatToPercent(activeDestination.lng, activeDestination.lat) : null;
-  const parkingSpotPercent = parkingSpot ? lngLatToPercent(parkingSpot.lng, parkingSpot.lat) : null;
+  const nearestClaimable = nearbySpots
+    .filter((s) => s.declared_by !== profile?.id)
+    .map((s) => ({ ...s, d: distanceMeters(userLngLat[0], userLngLat[1], s.lng, s.lat) }))
+    .sort((a, b) => a.d - b.d)[0];
+
+  const handleClaimNearest = async () => {
+    if (!nearestClaimable) return;
+    setBusyAction('claim');
+    const [lng, lat] = userLngLat;
+    const { data, error } = await claimSpot({
+      spotId: nearestClaimable.id,
+      userLat: lat,
+      userLng: lng,
+      accuracy: userAccuracy,
+    });
+    if (error) {
+      toast({ title: "Couldn't claim this spot", description: error, variant: 'destructive' });
+    } else if (data) {
+      toast({ title: 'Spot claimed!', description: "We'll watch for when you actually leave." });
+      await refetchSession();
+    }
+    setBusyAction(null);
+  };
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* Map: real interactive Mapbox map if a token is configured, otherwise the demo image */}
       {isMapboxConfigured ? (
         <MapboxMap
           center={MAP_CENTER}
-          userLocation={MAP_CENTER}
+          userLocation={userLngLat}
           pins={[
-            ...pins.map(p => {
-              const [lng, lat] = percentToLngLat(p.x, p.y);
-              return { id: p.id, lng, lat, type: p.type, label: p.label };
-            }),
+            ...nearbySpots.map((s) => ({
+              id: s.id,
+              lng: s.lng,
+              lat: s.lat,
+              type: (s.declared_by === profile?.id ? 'mine' : 'reported') as 'mine' | 'reported',
+              label: s.declared_by === profile?.id ? 'Your declared spot' : 'Reported free space',
+            })),
             ...(activeDestination
               ? [{ id: 'destination', lng: activeDestination.lng, lat: activeDestination.lat, type: 'destination' as const, label: activeDestination.name }]
               : []),
-            ...(parkingSpot
-              ? [{ id: 'parking-spot', lng: parkingSpot.lng, lat: parkingSpot.lat, type: 'mine' as const, label: 'Available spot' }]
-              : []),
           ]}
           onMapClick={handleMapTapDrop}
-          routeTo={routeState === 'found' && parkingSpot ? [parkingSpot.lng, parkingSpot.lat] : null}
+          routeTo={routeState === 'found' && foundSpot ? [foundSpot.lng, foundSpot.lat] : null}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
-          <img
-            src={chalkidaMap}
-            alt="Chalkida Map"
-            className="w-full h-full object-cover"
-          />
+          <img src={chalkidaMap} alt="Chalkida Map" className="w-full h-full object-cover" />
+        </div>
+      )}
+
+      {/* Overlay pins for the static fallback map only -- MapboxMap renders its own markers. */}
+      {!isMapboxConfigured && (
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          {(() => {
+            const userPct = lngLatToPercent(userLngLat[0], userLngLat[1]);
+            return (
+              <div className="absolute transform -translate-x-1/2 -translate-y-1/2" style={{ left: `${userPct.x}%`, top: `${userPct.y}%` }}>
+                <div className="relative">
+                  <div className="absolute inset-0 w-8 h-8 -m-2 rounded-full bg-primary/30 animate-ping" />
+                  <div className="absolute inset-0 w-6 h-6 -m-1 rounded-full bg-primary/50" />
+                  <div className="w-4 h-4 rounded-full bg-primary border-2 border-white shadow-lg" />
+                </div>
+              </div>
+            );
+          })()}
+
+          {nearbySpots.map((spot) => {
+            const pct = lngLatToPercent(spot.lng, spot.lat);
+            const mine = spot.declared_by === profile?.id;
+            return (
+              <div
+                key={spot.id}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 animate-fade-in"
+                style={{ left: `${pct.x}%`, top: `${pct.y}%` }}
+              >
+                <div className={`w-4 h-4 rounded-full border-2 border-white shadow-lg ${mine ? 'bg-success' : 'bg-primary'}`} />
+              </div>
+            );
+          })}
+
+          {activeDestination && routeState !== 'idle' && (() => {
+            const pct = lngLatToPercent(activeDestination.lng, activeDestination.lat);
+            return (
+              <div className="absolute transform -translate-x-1/2 -translate-y-full" style={{ left: `${pct.x}%`, top: `${pct.y}%` }}>
+                <div className="flex flex-col items-center">
+                  <div className="bg-destructive text-destructive-foreground px-2 py-1 rounded-lg text-xs font-medium shadow-lg mb-1 whitespace-nowrap max-w-[160px] truncate">
+                    {activeDestination.name}
+                  </div>
+                  <MapPin className="h-8 w-8 text-destructive drop-shadow-lg" fill="currentColor" />
+                </div>
+              </div>
+            );
+          })()}
+
+          {foundSpot && routeState === 'found' && (() => {
+            const pct = lngLatToPercent(foundSpot.lng, foundSpot.lat);
+            return (
+              <div className="absolute transform -translate-x-1/2 -translate-y-1/2" style={{ left: `${pct.x}%`, top: `${pct.y}%` }}>
+                <div className="relative">
+                  <div className="absolute inset-0 w-12 h-12 -m-4 rounded-full bg-success/40 animate-pulse" />
+                  <div className="w-4 h-4 rounded-sm bg-success border-2 border-white shadow-lg rotate-45" />
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -287,136 +365,60 @@ export const MapTab = () => {
             size="icon"
             className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl bg-primary hover:bg-primary/90"
           >
-            {routeState === 'searching' ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Search className="h-5 w-5" />
-            )}
+            {routeState === 'searching' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
           </Button>
         </div>
       </div>
 
-      {/* Points Pill - Below Search */}
+      {/* Points Pill */}
       <div className="absolute top-24 left-4 z-20">
         <div className="points-pill flex items-center gap-2">
           <span>💎</span>
-          <span>{points} Points</span>
+          <span>{profile?.points_balance ?? 0} Points</span>
         </div>
       </div>
 
-      {/* Overlay elements only needed for the static fallback map.
-          In Mapbox mode, MapboxMap renders its own markers/route. */}
-      {!isMapboxConfigured && (
-        <div className="absolute inset-0 z-10 pointer-events-none">
-          {/* User Location - Pulsing Blue Dot */}
-          <div
-            className="absolute transform -translate-x-1/2 -translate-y-1/2"
-            style={{ left: `${userLocation.x}%`, top: `${userLocation.y}%` }}
+      {/* Claimable spot banner */}
+      {!activeSession && nearestClaimable && (
+        <div className="absolute top-24 right-4 z-20">
+          <Button
+            onClick={handleClaimNearest}
+            disabled={busyAction === 'claim'}
+            size="sm"
+            className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground"
           >
-            <div className="relative">
-              <div className="absolute inset-0 w-8 h-8 -m-2 rounded-full bg-primary/30 animate-ping" />
-              <div className="absolute inset-0 w-6 h-6 -m-1 rounded-full bg-primary/50" />
-              <div className="w-4 h-4 rounded-full bg-primary border-2 border-white shadow-lg" />
-            </div>
-          </div>
-
-          {/* Crowdsourced empty-space pins */}
-          {pins.map(pin => (
-            <div
-              key={pin.id}
-              className="absolute transform -translate-x-1/2 -translate-y-1/2 animate-fade-in"
-              style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-            >
-              <div className={`w-4 h-4 rounded-full border-2 border-white shadow-lg ${pin.type === 'mine' ? 'bg-success' : 'bg-primary'}`} />
-            </div>
-          ))}
-
-          {/* Destination Pin */}
-          {destinationPercent && routeState !== 'idle' && (
-            <div
-              className="absolute transform -translate-x-1/2 -translate-y-full"
-              style={{ left: `${destinationPercent.x}%`, top: `${destinationPercent.y}%` }}
-            >
-              <div className="flex flex-col items-center">
-                <div className="bg-destructive text-destructive-foreground px-2 py-1 rounded-lg text-xs font-medium shadow-lg mb-1 whitespace-nowrap max-w-[160px] truncate">
-                  {activeDestination?.name}
-                </div>
-                <MapPin className="h-8 w-8 text-destructive drop-shadow-lg" fill="currentColor" />
-              </div>
-            </div>
-          )}
-
-          {/* Parking Spot - Neon Green Highlight */}
-          {parkingSpotPercent && routeState === 'found' && (
-            <div
-              className="absolute transform -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${parkingSpotPercent.x}%`, top: `${parkingSpotPercent.y}%` }}
-            >
-              <div className="relative">
-                <div className="absolute inset-0 w-12 h-12 -m-4 rounded-full bg-success/40 animate-pulse" />
-                <div className="w-4 h-4 rounded-sm bg-success border-2 border-white shadow-lg rotate-45" />
-              </div>
-            </div>
-          )}
-
-          {/* Route Lines */}
-          {parkingSpotPercent && destinationPercent && routeState === 'found' && (
-            <svg className="absolute inset-0 w-full h-full" style={{ overflow: 'visible' }}>
-              <line
-                x1={`${userLocation.x}%`}
-                y1={`${userLocation.y}%`}
-                x2={`${parkingSpotPercent.x}%`}
-                y2={`${parkingSpotPercent.y}%`}
-                stroke="hsl(var(--primary))"
-                strokeWidth="4"
-                strokeLinecap="round"
-              />
-              <line
-                x1={`${parkingSpotPercent.x}%`}
-                y1={`${parkingSpotPercent.y}%`}
-                x2={`${destinationPercent.x}%`}
-                y2={`${destinationPercent.y}%`}
-                stroke="hsl(var(--muted-foreground))"
-                strokeWidth="3"
-                strokeDasharray="8,6"
-                strokeLinecap="round"
-              />
-            </svg>
-          )}
+            {busyAction === 'claim' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ParkingCircle className="h-3.5 w-3.5" />}
+            Claim nearest spot
+          </Button>
         </div>
       )}
 
-      {/* Central Check-out/Check-in + Secondary "I saw a free space" buttons */}
+      {/* Central Check-out + Secondary "I saw a free space" buttons */}
       <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4">
         <Button
           onClick={handleSpotted}
+          disabled={busyAction !== null}
           variant="outline"
           className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
         >
-          <Eye className="h-4 w-4" />
+          {busyAction === 'spotted' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
           <span className="text-sm">I saw a free space</span>
           <span className="text-xs text-muted-foreground">+5</span>
         </Button>
 
         <Button
-          onClick={handleCentralToggle}
-          className={`h-14 rounded-full px-6 shadow-xl gap-2 font-semibold ${
-            isSpaceMarkedEmpty
-              ? 'bg-success hover:bg-success/90 text-success-foreground'
-              : 'bg-primary hover:bg-primary/90'
-          }`}
+          onClick={handleDeclare}
+          disabled={busyAction !== null}
+          className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
         >
-          {isSpaceMarkedEmpty ? (
-            <>
-              <Check className="h-5 w-5" />
-              Parked
-            </>
+          {busyAction === 'declare' ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : activeSession ? (
+            <Check className="h-5 w-5" />
           ) : (
-            <>
-              <Navigation className="h-5 w-5" />
-              Emptying a space
-            </>
+            <Navigation className="h-5 w-5" />
           )}
+          {activeSession ? 'Leaving — free up my spot' : 'Emptying a space'}
         </Button>
       </div>
 
@@ -426,7 +428,7 @@ export const MapTab = () => {
           <div className="glass-card p-8 mx-4 text-center animate-fade-in">
             <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
             <h3 className="text-lg font-semibold mb-2">Smart Search</h3>
-            <p className="text-sm text-muted-foreground">Analyzing availability in real time...</p>
+            <p className="text-sm text-muted-foreground">Checking real reported spots nearby...</p>
           </div>
         </div>
       )}
@@ -435,40 +437,31 @@ export const MapTab = () => {
       {showLimitModal && (
         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass-card p-6 mx-4 text-center animate-fade-in max-w-sm relative">
-            <button
-              onClick={() => setShowLimitModal(false)}
-              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
-            >
+            <button onClick={() => setShowLimitModal(false)} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground">
               <X className="h-5 w-5" />
             </button>
             <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-warning" />
             <h3 className="text-lg font-semibold mb-2">Daily Limit Reached</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              You've used your free search for today.
-            </p>
-            <Button
-              onClick={() => setShowLimitModal(false)}
-              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-            >
+            <p className="text-sm text-muted-foreground mb-4">You've used your free search for today.</p>
+            <Button onClick={() => setShowLimitModal(false)} className="w-full bg-accent text-accent-foreground hover:bg-accent/90">
               Upgrade to Premium
             </Button>
           </div>
         </div>
       )}
 
-      {/* Route Info Card - Shows when route is found */}
-      {routeState === 'found' && parkingSpot && (
+      {/* Route Info Card */}
+      {routeState === 'found' && foundSpot && (
         <div className="absolute bottom-44 left-4 right-4 z-20">
           <div className="glass-card p-4 animate-fade-in">
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-semibold text-sm">Parking Spot Found</p>
-                <p className="text-xs text-muted-foreground">{walkMinutes} min walk • High availability</p>
+                <p className="text-xs text-muted-foreground">{walkMinutes} min walk • Reported by the community</p>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-success animate-pulse" />
-                <span className="text-sm font-medium text-success">94%</span>
-              </div>
+              <Button size="sm" variant="outline" onClick={clearRoute}>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         </div>

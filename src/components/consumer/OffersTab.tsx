@@ -1,5 +1,6 @@
 import React from 'react';
-import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Gift, Coffee, ShoppingBag, Popcorn, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
@@ -49,23 +50,39 @@ const offers: Offer[] = [
 ];
 
 export const OffersTab = () => {
-  const { points, deductPoints } = useApp();
+  const { session, profile } = useAuth();
+  const points = profile?.points_balance ?? 0;
 
-  const handleRedeem = (offer: Offer) => {
-    const success = deductPoints(offer.cost);
-    
-    if (success) {
-      toast({
-        title: "Success! 🎉",
-        description: `Redeemed: ${offer.reward} from ${offer.business}`,
-      });
-    } else {
+  const handleRedeem = async (offer: Offer) => {
+    if (!session?.user) return;
+
+    if (points < offer.cost) {
       toast({
         title: "Insufficient Balance",
         description: `You need ${offer.cost - points} more points.`,
         variant: "destructive",
       });
+      return;
     }
+
+    // Spending is the one ledger write a client may make directly -- RLS
+    // only allows negative deltas, so this can never award points, only
+    // deduct the user's own (see supabase/migrations/0004_anti_spam_support.sql).
+    const { error } = await supabase.from('points_transactions').insert({
+      user_id: session.user.id,
+      delta: -offer.cost,
+      reason: `redeemed_${offer.business.toLowerCase().replace(/\s+/g, '_')}`,
+    });
+
+    if (error) {
+      toast({ title: "Redemption failed", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    toast({
+      title: "Success! 🎉",
+      description: `Redeemed: ${offer.reward} from ${offer.business}`,
+    });
   };
 
   return (

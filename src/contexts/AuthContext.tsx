@@ -28,6 +28,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   saveVehicleDetails: (details: VehicleDetails) => Promise<{ error: string | null }>;
+  upgradeToPremium: () => Promise<void>;
   assignMunicipality: (municipalityId: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -72,6 +73,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => listener.subscription.unsubscribe();
   }, [fetchProfile]);
 
+  // Live-update points_balance/trust_score the instant an Edge Function
+  // writes to the ledger, instead of waiting for a manual refetch.
+  useEffect(() => {
+    if (!session?.user) return;
+
+    const channel = supabase
+      .channel(`profile-${session.user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${session.user.id}` },
+        (payload) => setProfile(payload.new as Profile)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user]);
+
   const signUp = async ({ fullName, phone, email, password }: SignUpDetails) => {
     // full_name/phone travel as auth metadata; a DB trigger (see
     // supabase/migrations/0003_handle_new_user_trigger.sql) creates the
@@ -111,6 +131,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return { error: error?.message ?? null };
   };
 
+  const upgradeToPremium = async () => {
+    if (!session?.user) return;
+    await supabase.from('profiles').update({ membership_tier: 'premium' }).eq('id', session.user.id);
+    await fetchProfile(session.user.id);
+  };
+
   const assignMunicipality = async (municipalityId: string) => {
     if (!session?.user) return;
     await supabase.from('profiles').update({ municipality_id: municipalityId }).eq('id', session.user.id);
@@ -134,6 +160,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         signIn,
         signOut,
         saveVehicleDetails,
+        upgradeToPremium,
         assignMunicipality,
         refreshProfile,
       }}

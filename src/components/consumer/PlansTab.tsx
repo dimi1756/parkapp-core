@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Check, X, Crown, Zap, Ban, Radar, Gift, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
 
 export const PlansTab = () => {
-  const { plan, verifyCitizen, citizenVerified } = useApp();
+  const { verifyCitizen, citizenVerified } = useApp();
+  const { profile, upgradeToPremium } = useAuth();
+  const plan = profile?.membership_tier === 'premium' ? 'premium' : 'free';
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [citizenId, setCitizenId] = useState('');
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (citizenId.trim()) {
       verifyCitizen();
+      await upgradeToPremium();
       toast({
         title: "Verification Successful! 🎉",
         description: "Premium activated for free as a Chalkida resident.",
@@ -26,8 +30,9 @@ export const PlansTab = () => {
     }
   };
 
-  const monthlyPrice = 2.99;
+  const monthlyPrice = 3;
   const yearlyPrice = monthlyPrice * 12 * 0.8;
+  const trialDays = 15;
 
   return (
     <div className="h-full overflow-y-auto pb-24">
@@ -120,9 +125,10 @@ export const PlansTab = () => {
               <span className="text-sm text-muted-foreground">
                 /{billingCycle === 'monthly' ? 'mo' : 'yr'}
               </span>
+              <p className="text-xs text-success font-medium mt-0.5">{trialDays}-day free trial</p>
             </div>
           </div>
-          
+
           <ul className="space-y-3 mb-5">
             <li className="flex items-center gap-2 text-sm">
               <Zap className="h-4 w-4 text-accent" />
@@ -142,11 +148,12 @@ export const PlansTab = () => {
             </li>
           </ul>
 
-          <Button 
+          <Button
             className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
             disabled={plan === 'premium'}
+            onClick={() => upgradeToPremium()}
           >
-            {plan === 'premium' ? 'Active ✓' : 'Upgrade'}
+            {plan === 'premium' ? 'Active ✓' : `Start ${trialDays}-Day Free Trial`}
           </Button>
         </div>
 

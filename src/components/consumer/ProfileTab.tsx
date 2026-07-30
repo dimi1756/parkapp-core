@@ -6,8 +6,10 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 
 export const ProfileTab = () => {
-  const { darkMode, toggleDarkMode, plan, citizenVerified, setAdminMode, points } = useApp();
+  const { darkMode, toggleDarkMode, citizenVerified, setAdminMode } = useApp();
   const { profile, signOut } = useAuth();
+  const points = profile?.points_balance ?? 0;
+  const isPremium = profile?.membership_tier === 'premium';
 
   const initials = (profile?.full_name ?? '?')
     .split(' ')
@@ -33,7 +35,7 @@ export const ProfileTab = () => {
               </p>
             )}
             <div className="flex items-center gap-2 mt-2">
-              {plan === 'premium' ? (
+              {isPremium ? (
                 <span className="bg-accent text-accent-foreground text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
                   <Crown className="h-3 w-3" /> Premium
                 </span>
@@ -64,9 +66,16 @@ export const ProfileTab = () => {
               <p className="text-2xl font-bold text-foreground">{points} pts</p>
             </div>
           </div>
-          <div className="flex items-center gap-1 text-success text-sm font-medium">
-            <TrendingUp className="h-4 w-4" />
-            Level {Math.floor(points / 100) + 1}
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-1 text-success text-sm font-medium">
+              <TrendingUp className="h-4 w-4" />
+              Level {Math.floor(points / 100) + 1}
+            </div>
+            {profile && (
+              <span className="text-xs text-muted-foreground">
+                Trust {Math.round(profile.trust_score * 100)}%
+              </span>
+            )}
           </div>
         </div>
 

@@ -1,0 +1,133 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const RULES = {
+  CLAIM_RADIUS_M: 30,
+  MAX_GPS_ACCURACY_M: 20,
+};
+
+function toEwkt(lat: number, lng: number): string {
+  return `SRID=4326;POINT(${lng} ${lat})`;
+}
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+async function getRequestUser(req: Request) {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const userClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const {
+    data: { user },
+  } = await userClient.auth.getUser();
+  return user;
+}
+
+function getServiceClient() {
+  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+}
+
+interface ClaimBody {
+  spotId: string;
+  userLat: number;
+  userLng: number;
+  accuracy: number;
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const user = await getRequestUser(req);
+  if (!user) return json({ error: "Not authenticated." }, 401);
+
+  let body: ClaimBody;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid request body." }, 400);
+  }
+
+  const { spotId, userLat, userLng, accuracy } = body;
+  if (!spotId || [userLat, userLng, accuracy].some((n) => typeof n !== "number" || Number.isNaN(n))) {
+    return json({ error: "Missing or invalid input." }, 400);
+  }
+
+  const db = getServiceClient();
+
+  if (accuracy > RULES.MAX_GPS_ACCURACY_M) {
+    return json({ error: "GPS signal too weak to verify your location." }, 400);
+  }
+
+  const { data: existingSession } = await db
+    .from("parking_sessions")
+    .select("id")
+    .eq("user_id", user.id)
+    .is("unparked_at", null)
+    .maybeSingle();
+
+  if (existingSession) {
+    return json({ error: "You already have an active parking session. Unpark first." }, 409);
+  }
+
+  const { data: spot } = await db
+    .from("parking_spots")
+    .select("id, status, expires_at")
+    .eq("id", spotId)
+    .single();
+
+  if (!spot || spot.status !== "active") {
+    return json({ error: "This spot is no longer available." }, 409);
+  }
+  if (new Date(spot.expires_at).getTime() < Date.now()) {
+    return json({ error: "This spot has expired." }, 409);
+  }
+
+  const { data: distance } = await db.rpc("spot_distance_meters", {
+    p_spot_id: spotId,
+    p_lat: userLat,
+    p_lng: userLng,
+  });
+
+  if (typeof distance !== "number" || distance > RULES.CLAIM_RADIUS_M) {
+    return json({ error: "You need to be near the spot to claim it." }, 400);
+  }
+
+  const { error: updateError } = await db
+    .from("parking_spots")
+    .update({ status: "claimed", claimed_by: user.id, claimed_at: new Date().toISOString() })
+    .eq("id", spotId)
+    .eq("status", "active");
+
+  if (updateError) {
+    return json({ error: "Could not claim this spot. It may have just been taken." }, 409);
+  }
+
+  const { data: session, error: sessionError } = await db
+    .from("parking_sessions")
+    .insert({
+      user_id: user.id,
+      spot_id: spotId,
+      parked_location: toEwkt(userLat, userLng),
+      unpark_type: "pending",
+    })
+    .select("id, parked_at")
+    .single();
+
+  if (sessionError || !session) {
+    return json({ error: "Spot claimed, but the session could not be started." }, 500);
+  }
+
+  return json({ session });
+});
