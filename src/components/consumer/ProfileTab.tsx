@@ -1,11 +1,20 @@
 import React from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth, maskPlate } from '@/contexts/AuthContext';
 import { User, Moon, Bell, Shield, LogOut, ChevronRight, Crown, Building2, Gem, TrendingUp } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 
 export const ProfileTab = () => {
   const { darkMode, toggleDarkMode, plan, citizenVerified, setAdminMode, points } = useApp();
+  const { profile, signOut } = useAuth();
+
+  const initials = (profile?.full_name ?? '?')
+    .split(' ')
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <div className="h-full overflow-y-auto pb-24">
@@ -13,11 +22,16 @@ export const ProfileTab = () => {
       <div className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-6 pb-8">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center text-2xl font-bold backdrop-blur-sm">
-            DK
+            {initials}
           </div>
           <div>
-            <h1 className="text-xl font-bold">Dimitris K.</h1>
-            <p className="text-primary-foreground/80 text-sm">dimitris.k@email.com</p>
+            <h1 className="text-xl font-bold">{profile?.full_name ?? 'ParkApp User'}</h1>
+            <p className="text-primary-foreground/80 text-sm">{profile?.email}</p>
+            {profile?.vehicle_plate && (
+              <p className="text-primary-foreground/70 text-xs font-mono mt-0.5">
+                {profile.vehicle_color} {profile.vehicle_make} · {maskPlate(profile.vehicle_plate)}
+              </p>
+            )}
             <div className="flex items-center gap-2 mt-2">
               {plan === 'premium' ? (
                 <span className="bg-accent text-accent-foreground text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
@@ -114,7 +128,11 @@ export const ProfileTab = () => {
         </div>
 
         {/* Logout */}
-        <Button variant="outline" className="w-full text-destructive border-destructive/30 hover:bg-destructive/10">
+        <Button
+          variant="outline"
+          className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+          onClick={() => signOut()}
+        >
           <LogOut className="h-4 w-4 mr-2" />
           Log Out
         </Button>

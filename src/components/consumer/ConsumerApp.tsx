@@ -33,7 +33,7 @@ export const ConsumerApp = () => {
   };
 
   return (
-    <div className="h-screen w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
+    <div className="h-[100dvh] w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
       <div className="flex-1 overflow-hidden">
         {renderTab()}
       </div>
