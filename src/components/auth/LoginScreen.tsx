@@ -11,7 +11,7 @@ const DEMO_PASSWORD = 'demo123456';
 
 export const LoginScreen = () => {
   const { signUp, signIn } = useAuth();
-  const [mode, setMode] = useState<'signin' | 'signup'>('signup');
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [submitting, setSubmitting] = useState(false);
   const [demoSubmitting, setDemoSubmitting] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
@@ -104,27 +104,6 @@ export const LoginScreen = () => {
           Quick Demo Login
         </Button>
 
-        <div className="flex items-center gap-2 bg-secondary rounded-full p-1 mb-6">
-          <button
-            type="button"
-            onClick={() => setMode('signup')}
-            className={`flex-1 py-2 px-4 rounded-full text-sm font-medium transition-all ${
-              mode === 'signup' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
-            }`}
-          >
-            Sign Up
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('signin')}
-            className={`flex-1 py-2 px-4 rounded-full text-sm font-medium transition-all ${
-              mode === 'signin' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
-            }`}
-          >
-            Sign In
-          </button>
-        </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'signup' && (
             <div className="space-y-2">
@@ -164,6 +143,18 @@ export const LoginScreen = () => {
             {mode === 'signup' ? 'Create Account' : 'Sign In'}
           </Button>
         </form>
+
+        <button
+          type="button"
+          onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+          className="text-sm text-muted-foreground text-center mt-6"
+        >
+          {mode === 'signin' ? (
+            <>Don&apos;t have an account? <span className="text-primary font-medium">Sign up</span></>
+          ) : (
+            <>Already have an account? <span className="text-primary font-medium">Sign in</span></>
+          )}
+        </button>
       </div>
     </div>
   );
