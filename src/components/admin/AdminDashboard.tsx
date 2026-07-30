@@ -2,19 +2,36 @@ import React, { useState } from 'react';
 import { AdminSidebar } from './AdminSidebar';
 import { KPICards } from './KPICards';
 import { CityMap } from './CityMap';
+import { WeeklyTrafficChart } from './WeeklyTrafficChart';
 import { BarChart3, TrendingUp, Calendar, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 
 export const AdminDashboard = () => {
   const [activeSection, setActiveSection] = useState('overview');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    // Simulate a real data pull so the spinner has something to show
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    setRefreshKey((k) => k + 1);
+    setLastUpdated(new Date());
+    setIsRefreshing(false);
+    toast({ title: 'Dashboard refreshed', description: 'Latest city data has been loaded.' });
+  };
 
   const renderContent = () => {
     switch (activeSection) {
       case 'overview':
         return (
           <div className="space-y-6">
-            <KPICards />
-            <CityMap />
+            <KPICards refreshKey={refreshKey} />
+            <CityMap refreshKey={refreshKey} />
+            <WeeklyTrafficChart refreshKey={refreshKey} />
           </div>
         );
       case 'analytics':
@@ -64,7 +81,7 @@ export const AdminDashboard = () => {
           </div>
         );
       case 'livemap':
-        return <CityMap />;
+        return <CityMap refreshKey={refreshKey} />;
       case 'settings':
         return (
           <div className="glass-card p-6 animate-fade-in">
@@ -107,11 +124,13 @@ export const AdminDashboard = () => {
               <p className="text-sm text-muted-foreground">
                 <Calendar className="h-3 w-3 inline mr-1" />
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                <span className="mx-2">•</span>
+                Last updated {lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </p>
             </div>
-            <Button variant="outline" size="sm" className="gap-2">
-              <RefreshCw className="h-4 w-4" />
-              Refresh
+            <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing…' : 'Refresh'}
             </Button>
           </div>
         </header>
