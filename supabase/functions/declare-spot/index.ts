@@ -19,6 +19,14 @@ const RULES = {
   TRUST_SHADOWBAN_THRESHOLD: 0.4,
 };
 
+// The shared YC-reviewer demo account is exempt from rate limiting only
+// (hourly/daily caps + the declare-to-declare cooldown) so a live demo can
+// click through many declarations back-to-back with zero rejections. GPS
+// accuracy, the 30m radius check, road-snap, and trust/shadowban all still
+// run for this account exactly as for any real user -- this is a UX carve-out
+// for spam limits, not a bypass of location or identity verification.
+const DEMO_EMAIL = "demo@parkapp.tech";
+
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -114,47 +122,50 @@ Deno.serve(async (req) => {
   }
 
   const db = getServiceClient();
+  const isDemoAccount = user.email === DEMO_EMAIL;
 
   if (accuracy > RULES.MAX_GPS_ACCURACY_M) {
     return json({ error: "GPS signal too weak to verify your location. Move to an open area and try again." }, 400);
   }
 
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  if (!isDemoAccount) {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const { count: hourlyCount } = await db
-    .from("parking_spots")
-    .select("id", { count: "exact", head: true })
-    .eq("declared_by", user.id)
-    .gte("declared_at", oneHourAgo);
+    const { count: hourlyCount } = await db
+      .from("parking_spots")
+      .select("id", { count: "exact", head: true })
+      .eq("declared_by", user.id)
+      .gte("declared_at", oneHourAgo);
 
-  if ((hourlyCount ?? 0) >= RULES.HOURLY_CAP) {
-    return json({ error: `You've reached the hourly limit of ${RULES.HOURLY_CAP} declarations. Try again later.` }, 429);
-  }
+    if ((hourlyCount ?? 0) >= RULES.HOURLY_CAP) {
+      return json({ error: `You've reached the hourly limit of ${RULES.HOURLY_CAP} declarations. Try again later.` }, 429);
+    }
 
-  const { count: dailyCount } = await db
-    .from("parking_spots")
-    .select("id", { count: "exact", head: true })
-    .eq("declared_by", user.id)
-    .gte("declared_at", oneDayAgo);
+    const { count: dailyCount } = await db
+      .from("parking_spots")
+      .select("id", { count: "exact", head: true })
+      .eq("declared_by", user.id)
+      .gte("declared_at", oneDayAgo);
 
-  if ((dailyCount ?? 0) >= RULES.DAILY_CAP) {
-    return json({ error: `You've reached today's limit of ${RULES.DAILY_CAP} declarations.` }, 429);
-  }
+    if ((dailyCount ?? 0) >= RULES.DAILY_CAP) {
+      return json({ error: `You've reached today's limit of ${RULES.DAILY_CAP} declarations.` }, 429);
+    }
 
-  const { data: lastSpot } = await db
-    .from("parking_spots")
-    .select("declared_at")
-    .eq("declared_by", user.id)
-    .order("declared_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    const { data: lastSpot } = await db
+      .from("parking_spots")
+      .select("declared_at")
+      .eq("declared_by", user.id)
+      .order("declared_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (lastSpot) {
-    const minutesSince = (Date.now() - new Date(lastSpot.declared_at).getTime()) / 60000;
-    if (minutesSince < RULES.COOLDOWN_MINUTES) {
-      const wait = Math.ceil(RULES.COOLDOWN_MINUTES - minutesSince);
-      return json({ error: `Please wait ${wait} more minute(s) before declaring another spot.` }, 429);
+    if (lastSpot) {
+      const minutesSince = (Date.now() - new Date(lastSpot.declared_at).getTime()) / 60000;
+      if (minutesSince < RULES.COOLDOWN_MINUTES) {
+        const wait = Math.ceil(RULES.COOLDOWN_MINUTES - minutesSince);
+        return json({ error: `Please wait ${wait} more minute(s) before declaring another spot.` }, 429);
+      }
     }
   }
 
