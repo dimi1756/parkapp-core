@@ -108,80 +108,86 @@ export const LoginScreen = () => {
   return (
     <div className="relative h-[100dvh] w-full max-w-md mx-auto bg-background flex flex-col overflow-y-auto">
       <LanguageToggle />
-      <div className="flex-1 flex flex-col justify-center p-6">
-        <div className="flex flex-col items-center gap-2 mb-8">
-          <img src="/parkapp-logo.png" alt="ParkApp Logo" className="h-16 w-auto object-contain mx-auto" />
-          <p className="text-muted-foreground text-sm text-center">
-            {mode === 'signup' ? t('login.createSubtitle') : t('login.welcomeBack')}
-          </p>
+      <div className="flex-1 flex flex-col p-6">
+        {/* Centered login content -- its own flex-1 keeps it vertically
+            centered in whatever space is left above the footer signature. */}
+        <div className="flex-1 flex flex-col justify-center">
+          <div className="flex flex-col items-center gap-2 mb-8">
+            <img src="/parkapp-logo.png" alt="ParkApp Logo" className="h-16 w-auto object-contain mx-auto" />
+            <p className="text-muted-foreground text-sm text-center">
+              {mode === 'signup' ? t('login.createSubtitle') : t('login.welcomeBack')}
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleDemoLogin}
+            disabled={demoSubmitting}
+            className="w-full mb-6 border-accent/50 bg-accent/10 hover:bg-accent/20 text-accent-foreground font-medium"
+          >
+            {demoSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2 text-accent" />}
+            {t('login.quickDemo')}
+          </Button>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'signup' && (
+              <div className="space-y-2">
+                <Label htmlFor="fullName">{t('login.fullName')}</Label>
+                <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Dimitris K." />
+              </div>
+            )}
+            {mode === 'signup' && (
+              <div className="space-y-2">
+                <Label htmlFor="phone">{t('login.phone')}</Label>
+                <Input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+30 69XXXXXXXX" />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="email">{t('login.email')}</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={mode === 'signin' ? DEMO_EMAIL : 'you@email.com'}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">{t('login.password')}</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={mode === 'signin' ? DEMO_PASSWORD : '••••••••'}
+              />
+            </div>
+
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {mode === 'signup' ? t('login.createAccount') : t('login.signIn')}
+            </Button>
+          </form>
+
+          <button
+            type="button"
+            onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+            className="text-sm text-muted-foreground text-center mt-6"
+          >
+            {mode === 'signin' ? (
+              <>{t('login.noAccount')} <span className="text-primary font-medium">{t('login.signUpLink')}</span></>
+            ) : (
+              <>{t('login.haveAccount')} <span className="text-primary font-medium">{t('login.signInLink')}</span></>
+            )}
+          </button>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleDemoLogin}
-          disabled={demoSubmitting}
-          className="w-full mb-6 border-accent/50 bg-accent/10 hover:bg-accent/20 text-accent-foreground font-medium"
-        >
-          {demoSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2 text-accent" />}
-          {t('login.quickDemo')}
-        </Button>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'signup' && (
-            <div className="space-y-2">
-              <Label htmlFor="fullName">{t('login.fullName')}</Label>
-              <Input id="fullName" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Dimitris K." />
-            </div>
-          )}
-          {mode === 'signup' && (
-            <div className="space-y-2">
-              <Label htmlFor="phone">{t('login.phone')}</Label>
-              <Input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+30 69XXXXXXXX" />
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="email">{t('login.email')}</Label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={mode === 'signin' ? DEMO_EMAIL : 'you@email.com'}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">{t('login.password')}</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'signin' ? DEMO_PASSWORD : '••••••••'}
-            />
-          </div>
-
-          <Button type="submit" className="w-full" disabled={submitting}>
-            {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {mode === 'signup' ? t('login.createAccount') : t('login.signIn')}
-          </Button>
-        </form>
-
-        <button
-          type="button"
-          onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-          className="text-sm text-muted-foreground text-center mt-6"
-        >
-          {mode === 'signin' ? (
-            <>{t('login.noAccount')} <span className="text-primary font-medium">{t('login.signUpLink')}</span></>
-          ) : (
-            <>{t('login.haveAccount')} <span className="text-primary font-medium">{t('login.signInLink')}</span></>
-          )}
-        </button>
-
-        <div className="flex items-center justify-center gap-1.5 mt-8 text-xs text-muted-foreground">
-          <span>{t('login.poweredBy')}</span>
-          <img src="/urbansync-logo.jpg" alt="Urban Sync" className="h-6 w-auto object-contain" />
+        {/* Footer signature -- pinned to the bottom of the card so it reads
+            as a proud company mark rather than a cramped afterthought. */}
+        <div className="flex items-center justify-center gap-2.5 mt-6 pt-4 pb-2">
+          <span className="text-sm font-medium text-foreground/70">{t('login.poweredBy')}</span>
+          <img src="/urbansync-logo.jpg" alt="Urban Sync" className="h-12 w-auto object-contain" />
         </div>
       </div>
     </div>
