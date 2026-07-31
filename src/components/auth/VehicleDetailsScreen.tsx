@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth, maskPlate } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,6 +9,7 @@ import { Car, Loader2, ShieldCheck } from 'lucide-react';
 
 export const VehicleDetailsScreen = () => {
   const { saveVehicleDetails } = useAuth();
+  const { t } = useLanguage();
   const [make, setMake] = useState('');
   const [color, setColor] = useState('');
   const [plate, setPlate] = useState('');
@@ -16,14 +18,14 @@ export const VehicleDetailsScreen = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!make.trim() || !color.trim() || !plate.trim()) {
-      toast({ title: 'Missing details', description: 'Fill in make, color, and license plate.', variant: 'destructive' });
+      toast({ title: t('vehicle.missingDetails'), description: t('vehicle.missingDetailsDesc'), variant: 'destructive' });
       return;
     }
     setSubmitting(true);
     const { error } = await saveVehicleDetails({ make, color, plate: plate.toUpperCase() });
     setSubmitting(false);
     if (error) {
-      toast({ title: 'Could not save vehicle', description: error, variant: 'destructive' });
+      toast({ title: t('vehicle.saveFailed'), description: error, variant: 'destructive' });
     }
   };
 
@@ -34,35 +36,35 @@ export const VehicleDetailsScreen = () => {
           <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
             <Car className="h-7 w-7 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold">One last step</h1>
+          <h1 className="text-2xl font-bold">{t('vehicle.title')}</h1>
           <p className="text-muted-foreground text-sm text-center">
-            Your vehicle details help the community recognize a parked spot as legitimate.
+            {t('vehicle.subtitle')}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="make">Make</Label>
+            <Label htmlFor="make">{t('vehicle.make')}</Label>
             <Input id="make" value={make} onChange={(e) => setMake(e.target.value)} placeholder="Toyota" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="color">Color</Label>
+            <Label htmlFor="color">{t('vehicle.color')}</Label>
             <Input id="color" value={color} onChange={(e) => setColor(e.target.value)} placeholder="Silver" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="plate">License Plate</Label>
+            <Label htmlFor="plate">{t('vehicle.plate')}</Label>
             <Input id="plate" value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="ABC-1234" />
             {plate.trim().length > 0 && (
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Shown to others as: <span className="font-mono font-medium text-foreground">{maskPlate(plate)}</span>
+                {t('vehicle.shownAs')} <span className="font-mono font-medium text-foreground">{maskPlate(plate)}</span>
               </p>
             )}
           </div>
 
           <Button type="submit" className="w-full" disabled={submitting}>
             {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Continue
+            {t('vehicle.continue')}
           </Button>
         </form>
       </div>

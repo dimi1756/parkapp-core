@@ -1,17 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminSidebar } from './AdminSidebar';
 import { KPICards, type CityKpis } from './KPICards';
 import { CityMap, type LiveSpot } from './CityMap';
 import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
-import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Download } from 'lucide-react';
+import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
+import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 
 export const AdminDashboard = () => {
   const { setAdminMode } = useApp();
+  const { isDemoAccount } = useAuth();
+  const { t, locale } = useLanguage();
   const { isAdmin, municipalityId, municipalityName, loading: accessLoading } = useAdminAccess();
 
   const [activeSection, setActiveSection] = useState('overview');
@@ -21,6 +26,7 @@ export const AdminDashboard = () => {
   const [spots, setSpots] = useState<LiveSpot[]>([]);
   const [trend, setTrend] = useState<TrendDay[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [showTour, setShowTour] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!municipalityId) return;
@@ -40,12 +46,20 @@ export const AdminDashboard = () => {
     loadData();
   }, [loadData]);
 
+  // Demo-only tour, once data has actually loaded so the KPI/map targets
+  // it points at are on screen to measure.
+  useEffect(() => {
+    if (isDemoAccount && !dataLoading && activeSection === 'overview' && shouldShowTour('admin')) {
+      setShowTour(true);
+    }
+  }, [isDemoAccount, dataLoading, activeSection]);
+
   const handleRefresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
     await loadData();
     setIsRefreshing(false);
-    toast({ title: 'Dashboard refreshed', description: 'Latest city data has been loaded.' });
+    toast({ title: t('admin.refreshed'), description: t('admin.refreshedDesc') });
   };
 
   // Defense in depth: even if something rendered this component without a
@@ -62,11 +76,11 @@ export const AdminDashboard = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4 p-6 text-center">
         <ShieldAlert className="h-12 w-12 text-destructive" />
-        <h1 className="text-xl font-bold">Not authorized</h1>
+        <h1 className="text-xl font-bold">{t('admin.notAuthorized')}</h1>
         <p className="text-muted-foreground text-sm max-w-sm">
-          Your account isn't registered as a municipality administrator.
+          {t('admin.notAuthorizedDesc')}
         </p>
-        <Button onClick={() => setAdminMode(false)}>Back to App</Button>
+        <Button onClick={() => setAdminMode(false)}>{t('admin.backToApp')}</Button>
       </div>
     );
   }
@@ -76,8 +90,12 @@ export const AdminDashboard = () => {
       case 'overview':
         return (
           <div className="space-y-6">
-            <KPICards kpis={kpis} loading={dataLoading} />
-            <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} />
+            <div data-tour="admin-kpis">
+              <KPICards kpis={kpis} loading={dataLoading} />
+            </div>
+            <div data-tour="admin-map">
+              <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} />
+            </div>
             <WeeklyTrafficChart trend={trend} loading={dataLoading} />
           </div>
         );
@@ -85,24 +103,24 @@ export const AdminDashboard = () => {
         return (
           <div className="space-y-6">
             <div className="glass-card p-6 animate-fade-in">
-              <h3 className="text-lg font-bold mb-4">Analytics</h3>
+              <h3 className="text-lg font-bold mb-4">{t('admin.analytics')}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="p-4 bg-secondary/50 rounded-xl">
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-primary" />
-                    Community Reporting
+                    {t('admin.communityReporting')}
                   </h4>
                   <p className="text-sm text-muted-foreground">
-                    {kpis?.spots_declared_today ?? 0} spots reported today, {kpis?.active_spots_now ?? 0} currently active.
+                    {t('admin.communityReportingDesc', { today: kpis?.spots_declared_today ?? 0, active: kpis?.active_spots_now ?? 0 })}
                   </p>
                 </div>
                 <div className="p-4 bg-secondary/50 rounded-xl">
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-primary" />
-                    Driver Activity
+                    {t('admin.driverActivity')}
                   </h4>
                   <p className="text-sm text-muted-foreground">
-                    {kpis?.active_drivers_24h ?? 0} distinct drivers active in the last 24 hours.
+                    {t('admin.driverActivityDesc', { n: kpis?.active_drivers_24h ?? 0 })}
                   </p>
                 </div>
               </div>
@@ -115,19 +133,19 @@ export const AdminDashboard = () => {
       case 'settings':
         return (
           <div className="glass-card p-6 animate-fade-in">
-            <h3 className="text-lg font-bold mb-4">System Settings</h3>
+            <h3 className="text-lg font-bold mb-4">{t('admin.systemSettings')}</h3>
             <div className="space-y-4">
               <div className="p-4 bg-secondary/50 rounded-xl">
-                <h4 className="font-medium mb-2">Admin Notifications</h4>
-                <p className="text-sm text-muted-foreground">Manage alerts for high occupancy and incidents.</p>
+                <h4 className="font-medium mb-2">{t('admin.adminNotifs')}</h4>
+                <p className="text-sm text-muted-foreground">{t('admin.adminNotifsDesc')}</p>
               </div>
               <div className="p-4 bg-secondary/50 rounded-xl">
-                <h4 className="font-medium mb-2">Occupancy Thresholds</h4>
-                <p className="text-sm text-muted-foreground">Set thresholds for zone occupancy alerts.</p>
+                <h4 className="font-medium mb-2">{t('admin.occupancy')}</h4>
+                <p className="text-sm text-muted-foreground">{t('admin.occupancyDesc')}</p>
               </div>
               <div className="p-4 bg-secondary/50 rounded-xl">
-                <h4 className="font-medium mb-2">Data Export</h4>
-                <p className="text-sm text-muted-foreground">Download reports in CSV or PDF format.</p>
+                <h4 className="font-medium mb-2">{t('admin.dataExport')}</h4>
+                <p className="text-sm text-muted-foreground">{t('admin.dataExportDesc')}</p>
               </div>
             </div>
           </div>
@@ -135,6 +153,13 @@ export const AdminDashboard = () => {
       default:
         return null;
     }
+  };
+
+  const sectionTitle: Record<string, string> = {
+    overview: t('admin.overview'),
+    analytics: t('admin.analytics'),
+    livemap: t('admin.liveMap'),
+    settings: t('admin.settings'),
   };
 
   return (
@@ -147,22 +172,17 @@ export const AdminDashboard = () => {
         <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-10 px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold">
-                {activeSection === 'overview' && 'Overview'}
-                {activeSection === 'analytics' && 'Analytics'}
-                {activeSection === 'livemap' && 'Live Map'}
-                {activeSection === 'settings' && 'Settings'}
-              </h1>
+              <h1 className="text-2xl font-bold">{sectionTitle[activeSection]}</h1>
               <p className="text-sm text-muted-foreground">
                 <Calendar className="h-3 w-3 inline mr-1" />
-                {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                {new Date().toLocaleDateString(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                 <span className="mx-2">•</span>
-                Last updated {lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </p>
             </div>
             <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh} disabled={isRefreshing}>
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Refreshing…' : 'Refresh'}
+              {isRefreshing ? t('admin.refreshing') : t('admin.refresh')}
             </Button>
           </div>
         </header>
@@ -171,6 +191,8 @@ export const AdminDashboard = () => {
           {renderContent()}
         </div>
       </main>
+
+      {showTour && <DemoTour tourId="admin" onClose={() => setShowTour(false)} />}
     </div>
   );
 };

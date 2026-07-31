@@ -2,6 +2,7 @@ import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { TrendingUp } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export interface TrendDay {
   day: string; // ISO date
@@ -14,8 +15,9 @@ interface WeeklyTrafficChartProps {
 }
 
 export const WeeklyTrafficChart: React.FC<WeeklyTrafficChartProps> = ({ trend, loading }) => {
+  const { t, locale } = useLanguage();
   const data = trend.map((d) => ({
-    day: new Date(d.day).toLocaleDateString('en-US', { weekday: 'short' }),
+    day: new Date(d.day).toLocaleDateString(locale, { weekday: 'short' }),
     declarations: Number(d.declarations),
   }));
 
@@ -25,12 +27,12 @@ export const WeeklyTrafficChart: React.FC<WeeklyTrafficChartProps> = ({ trend, l
     <div className="glass-card p-6 h-80 animate-fade-in" style={{ animationDelay: '100ms' }}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-bold">Weekly Spot Declarations</h3>
-          <p className="text-sm text-muted-foreground">Community-reported free spots, last 7 days</p>
+          <h3 className="text-lg font-bold">{t('admin.weeklyTitle')}</h3>
+          <p className="text-sm text-muted-foreground">{t('admin.weeklySubtitle')}</p>
         </div>
         <div className="flex items-center gap-1 text-success text-sm font-semibold">
           <TrendingUp className="h-4 w-4" />
-          {total} total
+          {t('admin.total', { n: total })}
         </div>
       </div>
 
@@ -61,7 +63,7 @@ export const WeeklyTrafficChart: React.FC<WeeklyTrafficChartProps> = ({ trend, l
                 borderRadius: '0.75rem',
                 fontSize: '0.8rem',
               }}
-              formatter={(value: number) => [value, 'Spots declared']}
+              formatter={(value: number) => [value, t('admin.spotsDeclared')]}
             />
             <Bar dataKey="declarations" radius={[8, 8, 0, 0]} fill="hsl(var(--primary))" maxBarSize={48} />
           </BarChart>

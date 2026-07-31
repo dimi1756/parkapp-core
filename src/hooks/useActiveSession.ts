@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useGeolocation } from './useGeolocation';
 import { checkLazyUnpark } from '@/lib/api/parking';
 import { toast } from '@/hooks/use-toast';
@@ -18,6 +19,7 @@ interface ActiveSession {
  */
 export function useActiveSession() {
   const { session: authSession, isDemoAccount } = useAuth();
+  const { t } = useLanguage();
   const { getCurrentPosition } = useGeolocation();
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,15 +51,15 @@ export function useActiveSession() {
       const { data } = await checkLazyUnpark({ lat, lng });
       if (data?.autoUnparked) {
         toast({
-          title: "Looks like you left without telling us!",
-          description: "We freed your spot for others, but you missed out on points this time. Don't forget next time!",
+          title: t('session.autoUnparkTitle'),
+          description: t('session.autoUnparkDesc'),
         });
         setActiveSession(null);
       }
     } catch {
       // No geolocation permission: nothing we can verify, leave the session as-is.
     }
-  }, [authSession?.user, isDemoAccount, getCurrentPosition]);
+  }, [authSession?.user, isDemoAccount, getCurrentPosition, t]);
 
   useEffect(() => {
     refetch();

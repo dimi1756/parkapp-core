@@ -1,38 +1,40 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { MapTab } from './MapTab';
 import { OffersTab } from './OffersTab';
 import { PlansTab } from './PlansTab';
 import { ProfileTab } from './ProfileTab';
-import { DemoTour, shouldShowDemoTour, dismissDemoTour } from './DemoTour';
+import { DemoTour, shouldShowTour, dismissTour, type TourId } from './DemoTour';
 import { Map, Gift, CreditCard, User } from 'lucide-react';
 
 type TabType = 'map' | 'offers' | 'plans' | 'profile';
 
 export const ConsumerApp = () => {
   const { isDemoAccount } = useAuth();
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<TabType>('map');
-  const [showTour, setShowTour] = useState(false);
+  const [activeTour, setActiveTour] = useState<TourId | null>(null);
+  const prevTabRef = useRef<TabType | null>(null);
 
-  // First-run guided tour, for the demo/reviewer account only.
+  // Demo-only: each tab greets the reviewer with its own short tour the
+  // first time they open it. Leaving a tab mid-tour counts as dismissing
+  // that tab's tour — no nagging on the way back.
   useEffect(() => {
-    if (isDemoAccount && shouldShowDemoTour()) setShowTour(true);
-  }, [isDemoAccount]);
-
-  // If the reviewer wanders off mid-tour they're already exploring on their
-  // own — end the tour for good instead of restarting it later.
-  useEffect(() => {
-    if (activeTab !== 'map' && showTour) {
-      dismissDemoTour();
-      setShowTour(false);
+    if (!isDemoAccount) return;
+    const prevTab = prevTabRef.current;
+    if (prevTab && prevTab !== activeTab) {
+      dismissTour(prevTab);
     }
-  }, [activeTab, showTour]);
+    prevTabRef.current = activeTab;
+    setActiveTour(shouldShowTour(activeTab) ? activeTab : null);
+  }, [activeTab, isDemoAccount]);
 
   const tabs = [
-    { id: 'map' as TabType, label: 'Map', icon: Map },
-    { id: 'offers' as TabType, label: 'Offers', icon: Gift },
-    { id: 'plans' as TabType, label: 'Plans', icon: CreditCard },
-    { id: 'profile' as TabType, label: 'Profile', icon: User },
+    { id: 'map' as TabType, label: t('nav.map'), icon: Map },
+    { id: 'offers' as TabType, label: t('nav.offers'), icon: Gift },
+    { id: 'plans' as TabType, label: t('nav.plans'), icon: CreditCard },
+    { id: 'profile' as TabType, label: t('nav.profile'), icon: User },
   ];
 
   const renderTab = () => {
@@ -84,7 +86,9 @@ export const ConsumerApp = () => {
         </div>
       </nav>
 
-      {showTour && activeTab === 'map' && <DemoTour onClose={() => setShowTour(false)} />}
+      {activeTour === activeTab && activeTour && (
+        <DemoTour tourId={activeTour} onClose={() => setActiveTour(null)} />
+      )}
     </div>
   );
 };

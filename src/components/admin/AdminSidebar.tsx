@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import {
   LayoutDashboard,
   Map,
@@ -21,12 +22,13 @@ interface SidebarProps {
 export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName }: SidebarProps) => {
   const { setAdminMode } = useApp();
   const { signOut } = useAuth();
+  const { t } = useLanguage();
 
   const menuItems = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'livemap', label: 'Live Map', icon: Map },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'overview', label: t('admin.overview'), icon: LayoutDashboard },
+    { id: 'analytics', label: t('admin.analytics'), icon: BarChart3 },
+    { id: 'livemap', label: t('admin.liveMap'), icon: Map },
+    { id: 'settings', label: t('admin.settings'), icon: Settings },
   ];
 
   return (
@@ -37,8 +39,8 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
             <Building2 className="h-5 w-5 text-sidebar-primary-foreground" />
           </div>
           <div>
-            <h2 className="font-bold text-sidebar-foreground">{municipalityName ?? 'Municipality'}</h2>
-            <p className="text-xs text-muted-foreground">Control Center</p>
+            <h2 className="font-bold text-sidebar-foreground">{municipalityName ?? t('admin.city')}</h2>
+            <p className="text-xs text-muted-foreground">{t('admin.controlCenter')}</p>
           </div>
         </div>
       </div>
@@ -72,7 +74,7 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
           onClick={() => setAdminMode(false)}
         >
           <ChevronLeft className="h-4 w-4" />
-          Back to App
+          {t('admin.backToApp')}
         </Button>
         <Button
           variant="ghost"
@@ -80,7 +82,7 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
           onClick={() => signOut()}
         >
           <LogOut className="h-4 w-4" />
-          Log Out
+          {t('admin.logOut')}
         </Button>
       </div>
     </aside>

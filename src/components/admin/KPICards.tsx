@@ -1,6 +1,7 @@
 import React from 'react';
 import { Users, Clock, Gauge, ShieldCheck } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export interface CityKpis {
   active_drivers_24h: number;
@@ -37,6 +38,8 @@ interface KPICardsProps {
 }
 
 export const KPICards: React.FC<KPICardsProps> = ({ kpis, loading }) => {
+  const { t, locale } = useLanguage();
+
   if (loading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -49,25 +52,25 @@ export const KPICards: React.FC<KPICardsProps> = ({ kpis, loading }) => {
 
   const cards = [
     {
-      title: 'Active Drivers (24h)',
-      value: (kpis?.active_drivers_24h ?? 0).toLocaleString('en-US'),
+      title: t('admin.kpiDrivers'),
+      value: (kpis?.active_drivers_24h ?? 0).toLocaleString(locale),
       icon: <Users className="h-6 w-6 text-primary-foreground" />,
       color: 'bg-primary',
     },
     {
-      title: 'Spots Reported Today',
-      value: (kpis?.spots_declared_today ?? 0).toLocaleString('en-US'),
+      title: t('admin.kpiSpotsToday'),
+      value: (kpis?.spots_declared_today ?? 0).toLocaleString(locale),
       icon: <Gauge className="h-6 w-6 text-destructive-foreground" />,
       color: 'bg-destructive',
     },
     {
-      title: 'Avg. Parking Time',
-      value: kpis?.avg_parking_minutes != null ? `${kpis.avg_parking_minutes} min` : '—',
+      title: t('admin.kpiAvgTime'),
+      value: kpis?.avg_parking_minutes != null ? `${kpis.avg_parking_minutes} ${t('admin.min')}` : '—',
       icon: <Clock className="h-6 w-6 text-warning-foreground" />,
       color: 'bg-warning',
     },
     {
-      title: 'Avg. Community Trust',
+      title: t('admin.kpiTrust'),
       value: kpis?.avg_trust_score != null ? `${Math.round(kpis.avg_trust_score * 100)}%` : '—',
       icon: <ShieldCheck className="h-6 w-6 text-success-foreground" />,
       color: 'bg-success',

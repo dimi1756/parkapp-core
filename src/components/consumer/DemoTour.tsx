@@ -1,78 +1,122 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { X, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/contexts/LanguageContext';
+import type { StringKey } from '@/i18n/strings';
 
-// Step-by-step first-run tour, shown ONLY to the shared demo/reviewer
-// account (gated by isDemoAccount in ConsumerApp). Targets are located via
+// Per-surface guided tours, shown ONLY to the shared demo/reviewer account
+// (gated by isDemoAccount at every mount site). Targets are located via
 // data-tour attributes so the tour never couples to component internals.
+// Each surface has its own "done" flag, so every tab greets the reviewer
+// exactly once.
 
-const TOUR_DONE_KEY = 'parkapp_demo_tour_done_v1';
-
-export const shouldShowDemoTour = () =>
-  localStorage.getItem(TOUR_DONE_KEY) !== '1';
-
-export const dismissDemoTour = () => {
-  localStorage.setItem(TOUR_DONE_KEY, '1');
-};
+export type TourId = 'map' | 'offers' | 'plans' | 'profile' | 'admin';
 
 interface TourStep {
   target: string;
-  title: string;
-  body: string;
+  titleKey: StringKey;
+  bodyKey: StringKey;
 }
 
-const STEPS: TourStep[] = [
-  {
-    target: 'actions',
-    title: 'Report parking spots',
-    body: 'Declare spots here to help the community and earn points! In demo mode this works from anywhere — no GPS needed.',
-  },
-  {
-    target: 'points',
-    title: 'Points & Trust Score',
-    body: 'This is your points balance. Level up by being accurate — every verified report grows your Trust Score.',
-  },
-  {
-    target: 'nav',
-    title: 'Explore the rest',
-    body: 'Redeem points for offers at local businesses, compare plans, and manage your profile from these tabs.',
-  },
-];
+const TOURS: Record<TourId, TourStep[]> = {
+  map: [
+    { target: 'actions', titleKey: 'tour.map.1.title', bodyKey: 'tour.map.1.body' },
+    { target: 'points', titleKey: 'tour.map.2.title', bodyKey: 'tour.map.2.body' },
+    { target: 'nav', titleKey: 'tour.map.3.title', bodyKey: 'tour.map.3.body' },
+  ],
+  offers: [
+    { target: 'offers-list', titleKey: 'tour.offers.1.title', bodyKey: 'tour.offers.1.body' },
+    { target: 'offers-balance', titleKey: 'tour.offers.2.title', bodyKey: 'tour.offers.2.body' },
+  ],
+  plans: [
+    { target: 'plans-premium', titleKey: 'tour.plans.1.title', bodyKey: 'tour.plans.1.body' },
+    { target: 'plans-resident', titleKey: 'tour.plans.2.title', bodyKey: 'tour.plans.2.body' },
+  ],
+  profile: [
+    { target: 'profile-score', titleKey: 'tour.profile.1.title', bodyKey: 'tour.profile.1.body' },
+    { target: 'profile-settings', titleKey: 'tour.profile.2.title', bodyKey: 'tour.profile.2.body' },
+    { target: 'profile-admin', titleKey: 'tour.profile.3.title', bodyKey: 'tour.profile.3.body' },
+  ],
+  admin: [
+    { target: 'admin-kpis', titleKey: 'tour.admin.1.title', bodyKey: 'tour.admin.1.body' },
+    { target: 'admin-map', titleKey: 'tour.admin.2.title', bodyKey: 'tour.admin.2.body' },
+  ],
+};
+
+const doneKey = (id: TourId) => `parkapp_demo_tour_${id}_done_v1`;
+
+export const shouldShowTour = (id: TourId) => localStorage.getItem(doneKey(id)) !== '1';
+
+export const dismissTour = (id: TourId) => {
+  localStorage.setItem(doneKey(id), '1');
+};
 
 const SPOT_PADDING = 8;
 
 interface DemoTourProps {
+  tourId: TourId;
   onClose: () => void;
 }
 
-export const DemoTour = ({ onClose }: DemoTourProps) => {
+export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
+  const { t } = useLanguage();
+  const steps = TOURS[tourId];
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
 
   const finish = useCallback(() => {
-    dismissDemoTour();
+    dismissTour(tourId);
     onClose();
-  }, [onClose]);
+  }, [tourId, onClose]);
 
-  const measure = useCallback(() => {
-    const el = document.querySelector(`[data-tour="${STEPS[stepIndex].target}"]`);
-    setRect(el ? el.getBoundingClientRect() : null);
-  }, [stepIndex]);
+  // Some targets (e.g. the Admin card, gated behind an async authorization
+  // RPC) aren't in the DOM the instant the tour opens. Poll briefly before
+  // concluding a step's target genuinely isn't there and skipping it.
+  const measure = useCallback(
+    (attempt = 0) => {
+      const el = document.querySelector(`[data-tour="${steps[stepIndex].target}"]`);
+      if (!el) {
+        if (attempt < 8) {
+          setTimeout(() => measure(attempt + 1), 250);
+          return;
+        }
+        // Genuinely not there: skip forward rather than trapping the
+        // reviewer under a dim overlay with no card.
+        if (stepIndex < steps.length - 1) {
+          setStepIndex((i) => i + 1);
+        } else {
+          finish();
+        }
+        return;
+      }
+      // Bring below-the-fold targets (e.g. the resident card in Plans) into
+      // view before measuring the spotlight. A short timeout (rather than
+      // requestAnimationFrame) lets the scroll settle without depending on
+      // an animation-frame callback, which browsers can defer indefinitely
+      // for a backgrounded/non-composited tab.
+      el.scrollIntoView({ block: 'center', behavior: 'auto' });
+      setTimeout(() => setRect(el.getBoundingClientRect()), 50);
+    },
+    [steps, stepIndex, finish]
+  );
 
   useEffect(() => {
-    // Let the tab fade-in animation settle before the first measurement.
-    const timer = setTimeout(measure, 450);
-    window.addEventListener('resize', measure);
+    setRect(null);
+    // Let tab fade-in / data skeletons settle before the first measurement.
+    const timer = setTimeout(() => measure(), 450);
+    const onResize = () => measure();
+    window.addEventListener('resize', onResize);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('resize', measure);
+      window.removeEventListener('resize', onResize);
     };
-  }, [measure]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
 
   if (!rect) return null;
 
-  const step = STEPS[stepIndex];
-  const isLast = stepIndex === STEPS.length - 1;
+  const step = steps[stepIndex];
+  const isLast = stepIndex === steps.length - 1;
 
   const spotTop = rect.top - SPOT_PADDING;
   const spotLeft = rect.left - SPOT_PADDING;
@@ -92,7 +136,7 @@ export const DemoTour = ({ onClose }: DemoTourProps) => {
     : { bottom: window.innerHeight - spotTop + 12, left: cardLeft, width: cardWidth };
 
   return (
-    <div className="fixed inset-0 z-[60]" role="dialog" aria-label="Demo tour">
+    <div className="fixed inset-0 z-[60]" role="dialog" aria-label={t('tour.aria')}>
       {/* Spotlight: the box-shadow dims everything except the target. It is
           pointer-events-none so the reviewer can still tap the real UI. */}
       <div
@@ -113,7 +157,7 @@ export const DemoTour = ({ onClose }: DemoTourProps) => {
       >
         <button
           onClick={finish}
-          aria-label="Skip tour"
+          aria-label={t('tour.skipAria')}
           className="absolute top-2.5 right-2.5 text-muted-foreground hover:text-foreground transition-colors"
         >
           <X className="h-4 w-4" />
@@ -121,31 +165,36 @@ export const DemoTour = ({ onClose }: DemoTourProps) => {
 
         <div className="flex items-center gap-2 mb-1.5 pr-6">
           <Sparkles className="h-4 w-4 text-accent shrink-0" />
-          <h3 className="font-semibold text-sm">{step.title}</h3>
+          <h3 className="font-semibold text-sm">{t(step.titleKey)}</h3>
         </div>
-        <p className="text-xs text-muted-foreground leading-relaxed mb-3">{step.body}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed mb-3">{t(step.bodyKey)}</p>
 
         <div className="flex items-center justify-between">
-          <div className="flex gap-1.5">
-            {STEPS.map((_, i) => (
-              <span
-                key={i}
-                className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                  i === stepIndex ? 'bg-primary' : 'bg-muted-foreground/30'
-                }`}
-              />
-            ))}
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1.5">
+              {steps.map((_, i) => (
+                <span
+                  key={i}
+                  className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                    i === stepIndex ? 'bg-primary' : 'bg-muted-foreground/30'
+                  }`}
+                />
+              ))}
+            </div>
+            <span className="text-[10px] text-muted-foreground font-medium">
+              {stepIndex + 1}/{steps.length}
+            </span>
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={finish}>
-              Skip
+              {t('tour.skip')}
             </Button>
             <Button
               size="sm"
               className="h-8 text-xs"
               onClick={() => (isLast ? finish() : setStepIndex((i) => i + 1))}
             >
-              {isLast ? 'Got it!' : 'Next'}
+              {isLast ? t('tour.gotIt') : t('tour.next')}
             </Button>
           </div>
         </div>

@@ -3,6 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Skeleton } from '@/components/ui/skeleton';
 import { isMapboxConfigured } from '@/components/consumer/MapboxMap';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 
@@ -31,6 +32,7 @@ interface CityMapProps {
 }
 
 export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityName, tall }) => {
+  const { t, locale } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -72,13 +74,13 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
       el.style.background = STATUS_COLOR[spot.status];
 
       const popup = new mapboxgl.Popup({ offset: 12 }).setText(
-        `${spot.status} • declared ${new Date(spot.declared_at).toLocaleTimeString()}`
+        `${spot.status} • ${new Date(spot.declared_at).toLocaleTimeString(locale)}`
       );
 
       const marker = new mapboxgl.Marker({ element: el }).setLngLat([spot.lng, spot.lat]).setPopup(popup).addTo(map);
       markersRef.current.push(marker);
     });
-  }, [spots]);
+  }, [spots, locale]);
 
   const activeCount = spots.filter((s) => s.status === 'active').length;
 
@@ -86,21 +88,21 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
     <div className={`glass-card p-6 ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-bold">Live Map — {municipalityName ?? 'City'}</h3>
-          <p className="text-sm text-muted-foreground">{activeCount} active spots reported in the last 24h</p>
+          <h3 className="text-lg font-bold">{t('admin.liveMapTitle', { name: municipalityName ?? t('admin.city') })}</h3>
+          <p className="text-sm text-muted-foreground">{t('admin.activeSpots24h', { n: activeCount })}</p>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-success" />
-            <span>Active</span>
+            <span>{t('admin.legendActive')}</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-primary" />
-            <span>Claimed</span>
+            <span>{t('admin.legendClaimed')}</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-destructive" />
-            <span>Reported/Fake</span>
+            <span>{t('admin.legendReported')}</span>
           </div>
         </div>
       </div>
@@ -111,7 +113,7 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
         <div ref={containerRef} className="relative h-[calc(100%-60px)] rounded-2xl overflow-hidden border border-border" />
       ) : (
         <div className="h-[calc(100%-60px)] rounded-2xl border border-border flex items-center justify-center text-sm text-muted-foreground">
-          Add VITE_MAPBOX_TOKEN to see the live map.
+          {t('admin.noMapToken')}
         </div>
       )}
     </div>

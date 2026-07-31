@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
@@ -68,6 +69,7 @@ interface MapTabProps {
 export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const { incrementSearches } = useApp();
   const { profile, isDemoAccount } = useAuth();
+  const { t } = useLanguage();
   const { getCurrentPosition } = useGeolocation();
   const { activeSession, refetch: refetchSession } = useActiveSession();
   const nearbySpots = useNearbySpots();
@@ -117,7 +119,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
-      toast({ title: 'Enter a destination', description: 'Type an address or location', variant: 'destructive' });
+      toast({ title: t('map.enterDestination'), description: t('map.enterDestinationDesc'), variant: 'destructive' });
       return;
     }
 
@@ -135,7 +137,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       const result = await geocodeAddress(searchQuery, MAP_CENTER);
       if (!result) {
         setRouteState('idle');
-        toast({ title: 'Location not found', description: 'Try a different address or place name', variant: 'destructive' });
+        toast({ title: t('map.locationNotFound'), description: t('map.locationNotFoundDesc'), variant: 'destructive' });
         return;
       }
       destination = result;
@@ -162,7 +164,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     if (!closest) {
       setFoundSpot(null);
       setRouteState('not_found');
-      toast({ title: 'No spots reported near here yet', description: 'Be the first to check the area and report one!' });
+      toast({ title: t('map.noSpotsNear'), description: t('map.noSpotsNearDesc') });
       return;
     }
 
@@ -170,7 +172,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setRouteState('found');
     const minutes = walkingMinutes(closest.d);
     setWalkMinutes(minutes);
-    toast({ title: 'Spot found!', description: `${minutes} min walk from your destination` });
+    toast({ title: t('map.spotFoundToast'), description: t('map.walkFromDest', { n: minutes }) });
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -199,16 +201,16 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     });
 
     if (error) {
-      toast({ title: "Couldn't mark this spot", description: error, variant: 'destructive' });
+      toast({ title: t('map.declareFailed'), description: error, variant: 'destructive' });
     } else if (data) {
       if (isDemoAccount) {
         setCelebrating(true);
         toast({
-          title: `🎉 +${data.pointsAwarded} points — spot is live!`,
-          description: 'Every driver nearby can now see this space. That’s the crowdsourcing loop in action.',
+          title: t('map.demoDeclareTitle', { n: data.pointsAwarded }),
+          description: t('map.demoDeclareDesc'),
         });
       } else {
-        toast({ title: `Thanks! +${data.pointsAwarded} points`, description: 'Other drivers can now see this space on the map' });
+        toast({ title: t('map.thanksPoints', { n: data.pointsAwarded }), description: t('map.thanksPointsDesc') });
       }
     }
 
@@ -233,16 +235,16 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       kind: 'spotted',
     });
     if (error) {
-      toast({ title: "Couldn't report this spot", description: error, variant: 'destructive' });
+      toast({ title: t('map.reportFailed'), description: error, variant: 'destructive' });
     } else if (data) {
       if (isDemoAccount) {
         setCelebrating(true);
         toast({
-          title: `🎉 Reported! +${data.pointsAwarded} points`,
-          description: 'Your report is instantly visible to the whole community — that’s crowdsourced parking.',
+          title: t('map.demoReportTitle', { n: data.pointsAwarded }),
+          description: t('map.demoReportDesc'),
         });
       } else {
-        toast({ title: `Reported! +${data.pointsAwarded} points`, description: "You're helping the community" });
+        toast({ title: t('map.reportedPoints', { n: data.pointsAwarded }), description: t('map.reportedPointsDesc') });
       }
     }
     setBusyAction(null);
@@ -263,10 +265,10 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       kind: 'spotted',
     });
     if (error) {
-      toast({ title: "Couldn't report this spot", description: error, variant: 'destructive' });
+      toast({ title: t('map.reportFailed'), description: error, variant: 'destructive' });
     } else if (data) {
       if (isDemoAccount) setCelebrating(true);
-      toast({ title: `Pin dropped! +${data.pointsAwarded} points`, description: 'Marked as a free space' });
+      toast({ title: t('map.pinDropped', { n: data.pointsAwarded }), description: t('map.pinDroppedDesc') });
     }
     setBusyAction(null);
   };
@@ -296,9 +298,9 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       accuracy: userAccuracy,
     });
     if (error) {
-      toast({ title: "Couldn't claim this spot", description: error, variant: 'destructive' });
+      toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
     } else if (data) {
-      toast({ title: 'Spot claimed!', description: "We'll watch for when you actually leave." });
+      toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
       await refetchSession();
     }
     setBusyAction(null);
@@ -400,7 +402,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleKeyPress}
             disabled={routeState === 'searching'}
-            placeholder="Where are you going?"
+            placeholder={t('map.searchPlaceholder')}
             className="w-full h-14 pl-12 pr-16 text-base rounded-2xl shadow-xl bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
           />
           <Button
@@ -418,7 +420,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       <div className="absolute top-24 left-4 z-20" data-tour="points">
         <div className="points-pill flex items-center gap-2">
           <span>💎</span>
-          <span>{profile?.points_balance ?? 0} Points</span>
+          <span>{profile?.points_balance ?? 0} {t('map.points')}</span>
         </div>
       </div>
 
@@ -432,7 +434,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground"
           >
             {busyAction === 'claim' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ParkingCircle className="h-3.5 w-3.5" />}
-            Claim nearest spot
+            {t('map.claimNearest')}
           </Button>
         </div>
       )}
@@ -446,7 +448,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
         >
           {busyAction === 'spotted' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-          <span className="text-sm">I saw a free space</span>
+          <span className="text-sm">{t('map.sawFreeSpace')}</span>
           <span className="text-xs text-muted-foreground">+5</span>
         </Button>
 
@@ -462,7 +464,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           ) : (
             <Navigation className="h-5 w-5" />
           )}
-          {activeSession ? 'Leaving — free up my spot' : 'Emptying a space'}
+          {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
         </Button>
       </div>
 
@@ -471,8 +473,8 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="glass-card p-8 mx-4 text-center animate-fade-in">
             <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
-            <h3 className="text-lg font-semibold mb-2">Smart Search</h3>
-            <p className="text-sm text-muted-foreground">Checking real reported spots nearby...</p>
+            <h3 className="text-lg font-semibold mb-2">{t('map.smartSearch')}</h3>
+            <p className="text-sm text-muted-foreground">{t('map.checkingSpots')}</p>
           </div>
         </div>
       )}
@@ -485,8 +487,8 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
               <X className="h-5 w-5" />
             </button>
             <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-warning" />
-            <h3 className="text-lg font-semibold mb-2">Daily Limit Reached</h3>
-            <p className="text-sm text-muted-foreground mb-4">You've used your free search for today.</p>
+            <h3 className="text-lg font-semibold mb-2">{t('map.limitTitle')}</h3>
+            <p className="text-sm text-muted-foreground mb-4">{t('map.limitDesc')}</p>
             <Button
               onClick={() => {
                 setShowLimitModal(false);
@@ -494,7 +496,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
               }}
               className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
             >
-              Upgrade to Premium
+              {t('map.upgradeCta')}
             </Button>
           </div>
         </div>
@@ -509,8 +511,8 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           <div className="glass-card p-4 animate-fade-in">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-semibold text-sm">Parking Spot Found</p>
-                <p className="text-xs text-muted-foreground">{walkMinutes} min walk • Reported by the community</p>
+                <p className="font-semibold text-sm">{t('map.spotFoundCard')}</p>
+                <p className="text-xs text-muted-foreground">{t('map.walkMinutes', { n: walkMinutes })}</p>
               </div>
               <Button size="sm" variant="outline" onClick={clearRoute}>
                 <X className="h-4 w-4" />
