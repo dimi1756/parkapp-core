@@ -53,14 +53,19 @@ interface MapboxMapProps {
   userLocation: [number, number];
   pins: MapPin[];
   onMapClick?: (lng: number, lat: number) => void;
+  /** Fires after every pan/zoom settles with the new map center. */
+  onCenterChange?: (lng: number, lat: number) => void;
   routeTo?: [number, number] | null;
 }
 
-export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins, onMapClick, routeTo }) => {
+export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins, onMapClick, onCenterChange, routeTo }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  // Ref keeps the moveend listener stable while callers pass fresh closures.
+  const onCenterChangeRef = useRef(onCenterChange);
+  onCenterChangeRef.current = onCenterChange;
 
   // Initialize map once
   useEffect(() => {
@@ -83,6 +88,11 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins
         onMapClick(e.lngLat.lng, e.lngLat.lat);
       });
     }
+
+    map.on('moveend', () => {
+      const c = map.getCenter();
+      onCenterChangeRef.current?.(c.lng, c.lat);
+    });
 
     mapRef.current = map;
 

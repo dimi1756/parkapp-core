@@ -1,14 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { MapTab } from './MapTab';
 import { OffersTab } from './OffersTab';
 import { PlansTab } from './PlansTab';
 import { ProfileTab } from './ProfileTab';
+import { DemoTour, shouldShowDemoTour, dismissDemoTour } from './DemoTour';
 import { Map, Gift, CreditCard, User } from 'lucide-react';
 
 type TabType = 'map' | 'offers' | 'plans' | 'profile';
 
 export const ConsumerApp = () => {
+  const { isDemoAccount } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('map');
+  const [showTour, setShowTour] = useState(false);
+
+  // First-run guided tour, for the demo/reviewer account only.
+  useEffect(() => {
+    if (isDemoAccount && shouldShowDemoTour()) setShowTour(true);
+  }, [isDemoAccount]);
+
+  // If the reviewer wanders off mid-tour they're already exploring on their
+  // own — end the tour for good instead of restarting it later.
+  useEffect(() => {
+    if (activeTab !== 'map' && showTour) {
+      dismissDemoTour();
+      setShowTour(false);
+    }
+  }, [activeTab, showTour]);
 
   const tabs = [
     { id: 'map' as TabType, label: 'Map', icon: Map },
@@ -39,19 +57,22 @@ export const ConsumerApp = () => {
         {renderTab()}
       </div>
 
-      <nav className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border px-2 pb-safe">
+      <nav
+        className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border px-2 pb-safe"
+        data-tour="nav"
+      >
         <div className="flex items-center justify-around py-2">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
-            
+
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all ${
-                  isActive 
-                    ? 'text-primary bg-primary/10' 
+                  isActive
+                    ? 'text-primary bg-primary/10'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
@@ -62,6 +83,8 @@ export const ConsumerApp = () => {
           })}
         </div>
       </nav>
+
+      {showTour && activeTab === 'map' && <DemoTour onClose={() => setShowTour(false)} />}
     </div>
   );
 };

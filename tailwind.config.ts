@@ -98,6 +98,11 @@ export default {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
+        "confetti-fall": {
+          "0%": { transform: "translate3d(0, -10vh, 0) rotate(0deg)", opacity: "1" },
+          "85%": { opacity: "1" },
+          "100%": { transform: "translate3d(var(--confetti-drift, 0px), 108vh, 0) rotate(680deg)", opacity: "0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -106,6 +111,7 @@ export default {
         "slide-up": "slide-up 0.5s ease-out",
         "pulse-ring": "pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
         shimmer: "shimmer 2s linear infinite",
+        "confetti-fall": "confetti-fall 2s ease-in both",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],

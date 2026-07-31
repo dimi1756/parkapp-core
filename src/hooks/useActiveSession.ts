@@ -17,7 +17,7 @@ interface ActiveSession {
  * on every app resume/focus) whenever the tab becomes visible again.
  */
 export function useActiveSession() {
-  const { session: authSession } = useAuth();
+  const { session: authSession, isDemoAccount } = useAuth();
   const { getCurrentPosition } = useGeolocation();
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +40,10 @@ export function useActiveSession() {
 
   const runLazyUnparkCheck = useCallback(async () => {
     if (!authSession?.user) return;
+    // Demo reviewers "park" wherever the map is looking, while their real
+    // device can be anywhere on Earth — running the distance check would
+    // instantly (and confusingly) auto-unpark them. Manual unpark still works.
+    if (isDemoAccount) return;
     try {
       const { lat, lng } = await getCurrentPosition();
       const { data } = await checkLazyUnpark({ lat, lng });
@@ -53,7 +57,7 @@ export function useActiveSession() {
     } catch {
       // No geolocation permission: nothing we can verify, leave the session as-is.
     }
-  }, [authSession?.user, getCurrentPosition]);
+  }, [authSession?.user, isDemoAccount, getCurrentPosition]);
 
   useEffect(() => {
     refetch();

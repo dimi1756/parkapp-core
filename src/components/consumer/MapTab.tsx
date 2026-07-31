@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGeolocation } from '@/hooks/useGeolocation';
@@ -10,6 +10,11 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import chalkidaMap from '@/assets/chalkida-map.png';
 import { MapboxMap, isMapboxConfigured, geocodeAddress } from './MapboxMap';
+import { ConfettiBurst } from './ConfettiBurst';
+
+// The mocked GPS accuracy for demo declarations: comfortably inside any
+// server-side accuracy gate so reviewers succeed from a desk anywhere.
+const DEMO_ACCURACY_METERS = 5;
 
 type RouteState = 'idle' | 'searching' | 'found' | 'not_found';
 
@@ -62,7 +67,7 @@ interface MapTabProps {
 
 export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const { incrementSearches } = useApp();
-  const { profile } = useAuth();
+  const { profile, isDemoAccount } = useAuth();
   const { getCurrentPosition } = useGeolocation();
   const { activeSession, refetch: refetchSession } = useActiveSession();
   const nearbySpots = useNearbySpots();
@@ -74,6 +79,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const [foundSpot, setFoundSpot] = useState<{ lng: number; lat: number } | null>(null);
   const [walkMinutes, setWalkMinutes] = useState<number>(2);
   const [busyAction, setBusyAction] = useState<'declare' | 'spotted' | 'claim' | null>(null);
+  const [celebrating, setCelebrating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
@@ -82,6 +88,13 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const [userAccuracy, setUserAccuracy] = useState<number>(9999);
 
   useEffect(() => {
+    if (isDemoAccount) {
+      // Demo reviewers judge from a desk, not a car: skip real geolocation
+      // entirely and pretend the device is at the map center with perfect
+      // accuracy. Real accounts below are completely unaffected.
+      setUserAccuracy(DEMO_ACCURACY_METERS);
+      return;
+    }
     getCurrentPosition()
       .then(({ lat, lng, accuracy }) => {
         setUserLngLat([lng, lat]);
@@ -91,7 +104,16 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         // No permission / no GPS: stay on the fallback center. Declarations
         // will simply fail the accuracy/radius check server-side, as intended.
       });
-  }, [getCurrentPosition]);
+  }, [getCurrentPosition, isDemoAccount]);
+
+  // Demo only: the "user" follows the map, so wherever the reviewer pans,
+  // that's where their declarations land.
+  const handleCenterChange = useCallback(
+    (lng: number, lat: number) => {
+      if (isDemoAccount) setUserLngLat([lng, lat]);
+    },
+    [isDemoAccount]
+  );
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
@@ -179,7 +201,15 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     if (error) {
       toast({ title: "Couldn't mark this spot", description: error, variant: 'destructive' });
     } else if (data) {
-      toast({ title: `Thanks! +${data.pointsAwarded} points`, description: 'Other drivers can now see this space on the map' });
+      if (isDemoAccount) {
+        setCelebrating(true);
+        toast({
+          title: `🎉 +${data.pointsAwarded} points — spot is live!`,
+          description: 'Every driver nearby can now see this space. That’s the crowdsourcing loop in action.',
+        });
+      } else {
+        toast({ title: `Thanks! +${data.pointsAwarded} points`, description: 'Other drivers can now see this space on the map' });
+      }
     }
 
     if (activeSession) {
@@ -205,7 +235,15 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     if (error) {
       toast({ title: "Couldn't report this spot", description: error, variant: 'destructive' });
     } else if (data) {
-      toast({ title: `Reported! +${data.pointsAwarded} points`, description: "You're helping the community" });
+      if (isDemoAccount) {
+        setCelebrating(true);
+        toast({
+          title: `🎉 Reported! +${data.pointsAwarded} points`,
+          description: 'Your report is instantly visible to the whole community — that’s crowdsourced parking.',
+        });
+      } else {
+        toast({ title: `Reported! +${data.pointsAwarded} points`, description: "You're helping the community" });
+      }
     }
     setBusyAction(null);
   };
@@ -227,6 +265,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     if (error) {
       toast({ title: "Couldn't report this spot", description: error, variant: 'destructive' });
     } else if (data) {
+      if (isDemoAccount) setCelebrating(true);
       toast({ title: `Pin dropped! +${data.pointsAwarded} points`, description: 'Marked as a free space' });
     }
     setBusyAction(null);
@@ -284,6 +323,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
               : []),
           ]}
           onMapClick={handleMapTapDrop}
+          onCenterChange={handleCenterChange}
           routeTo={routeState === 'found' && foundSpot ? [foundSpot.lng, foundSpot.lat] : null}
         />
       ) : (
@@ -375,7 +415,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       </div>
 
       {/* Points Pill */}
-      <div className="absolute top-24 left-4 z-20">
+      <div className="absolute top-24 left-4 z-20" data-tour="points">
         <div className="points-pill flex items-center gap-2">
           <span>💎</span>
           <span>{profile?.points_balance ?? 0} Points</span>
@@ -398,7 +438,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       )}
 
       {/* Central Check-out + Secondary "I saw a free space" buttons */}
-      <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4">
+      <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
         <Button
           onClick={handleSpotted}
           disabled={busyAction !== null}
@@ -459,6 +499,9 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           </div>
         </div>
       )}
+
+      {/* Demo-only celebration on successful declarations */}
+      {celebrating && <ConfettiBurst onDone={() => setCelebrating(false)} />}
 
       {/* Route Info Card */}
       {routeState === 'found' && foundSpot && (

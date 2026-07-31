@@ -24,6 +24,12 @@ interface AuthContextType {
   loading: boolean;
   /** true once the account exists AND the mandatory vehicle step is filled in */
   isOnboardingComplete: boolean;
+  /**
+   * True only for the shared demo/reviewer account. Demo-only UX (guided
+   * tour, GPS mocking, confetti) must key off this, so it can never leak
+   * into a real user's session.
+   */
+  isDemoAccount: boolean;
   signUp: (details: SignUpDetails) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -159,6 +165,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const isOnboardingComplete = Boolean(profile?.vehicle_make && profile?.vehicle_plate);
+  const isDemoAccount = session?.user?.email === 'demo@parkapp.tech';
 
   return (
     <AuthContext.Provider
@@ -167,6 +174,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         profile,
         loading,
         isOnboardingComplete,
+        isDemoAccount,
         signUp,
         signIn,
         signOut,

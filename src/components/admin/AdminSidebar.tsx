@@ -30,7 +30,7 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
   ];
 
   return (
-    <aside className="w-64 bg-sidebar border-r border-sidebar-border h-screen flex flex-col">
+    <aside className="w-64 shrink-0 bg-sidebar border-r border-sidebar-border h-full flex flex-col">
       <div className="p-6 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center">
@@ -43,7 +43,7 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
         </div>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;

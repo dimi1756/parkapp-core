@@ -138,10 +138,12 @@ export const AdminDashboard = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
+    // h-screen + overflow-hidden pins the shell to the viewport so <main>
+    // is the one true scroll container — nothing can clip below the fold.
+    <div className="flex h-screen overflow-hidden bg-background">
       <AdminSidebar activeSection={activeSection} onSectionChange={setActiveSection} municipalityName={municipalityName} />
 
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 min-w-0 overflow-y-auto">
         <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-10 px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -165,7 +167,7 @@ export const AdminDashboard = () => {
           </div>
         </header>
 
-        <div className="p-8">
+        <div className="p-8 pb-16">
           {renderContent()}
         </div>
       </main>
