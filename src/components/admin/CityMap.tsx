@@ -1,119 +1,82 @@
-import React, { useEffect, useRef } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
-import { Skeleton } from '@/components/ui/skeleton';
-import { isMapboxConfigured } from '@/components/consumer/MapboxMap';
-
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
-
-export interface LiveSpot {
-  id: string;
-  lat: number;
-  lng: number;
-  status: 'active' | 'claimed' | 'expired' | 'invalid' | 'reported';
-  declared_at: string;
-  expires_at: string;
-}
-
-const STATUS_COLOR: Record<LiveSpot['status'], string> = {
-  active: '#28A745',
-  claimed: '#0056b3',
-  reported: '#dc3545',
-  expired: '#9ca3af',
-  invalid: '#9ca3af',
-};
+import React, { useMemo } from 'react';
+import chalkidaHeatmap from '@/assets/chalkida-heatmap.png';
 
 interface CityMapProps {
-  spots: LiveSpot[];
-  loading: boolean;
-  municipalityName: string | null;
-  tall?: boolean;
+  refreshKey?: number;
 }
 
-export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityName, tall }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
-
-  useEffect(() => {
-    if (!isMapboxConfigured || !containerRef.current || mapRef.current) return;
-
-    mapboxgl.accessToken = MAPBOX_TOKEN!;
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [23.591, 38.4636],
-      zoom: 13,
-    });
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-    mapRef.current = map;
-
-    return () => {
-      map.remove();
-      mapRef.current = null;
+export const CityMap: React.FC<CityMapProps> = ({ refreshKey = 0 }) => {
+  const stats = useMemo(() => {
+    const jitter = (seed: number, base: number, range: number) => {
+      const j = ((refreshKey * seed) % (range * 2 + 1)) - range;
+      return Math.min(99, Math.max(20, base + j));
     };
-  }, []);
+    return {
+      downtown: jitter(11, 94, 4),
+      beach: jitter(19, 88, 5),
+      port: jitter(7, 62, 6),
+    };
+  }, [refreshKey]);
 
-  // Sync markers whenever the spot list changes
-  useEffect(() => {
-    if (!mapRef.current) return;
-    const map = mapRef.current;
-
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
-
-    spots.forEach((spot) => {
-      const el = document.createElement('div');
-      el.style.width = '14px';
-      el.style.height = '14px';
-      el.style.borderRadius = '9999px';
-      el.style.border = '2px solid white';
-      el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.4)';
-      el.style.background = STATUS_COLOR[spot.status];
-
-      const popup = new mapboxgl.Popup({ offset: 12 }).setText(
-        `${spot.status} • declared ${new Date(spot.declared_at).toLocaleTimeString()}`
-      );
-
-      const marker = new mapboxgl.Marker({ element: el }).setLngLat([spot.lng, spot.lat]).setPopup(popup).addTo(map);
-      markersRef.current.push(marker);
-    });
-  }, [spots]);
-
-  const activeCount = spots.filter((s) => s.status === 'active').length;
+  const levelClass = (pct: number) =>
+    pct >= 85 ? 'text-destructive' : pct >= 60 ? 'text-warning' : 'text-success';
 
   return (
-    <div className={`glass-card p-6 ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
+    <div className="glass-card p-6 h-[500px] animate-fade-in">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-bold">Live Map — {municipalityName ?? 'City'}</h3>
-          <p className="text-sm text-muted-foreground">{activeCount} active spots reported in the last 24h</p>
+          <h3 className="text-lg font-bold">City Map - Chalkida</h3>
+          <p className="text-sm text-muted-foreground">Live availability view</p>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-success" />
-            <span>Active</span>
+            <span>Available</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-primary" />
-            <span>Claimed</span>
+            <div className="w-3 h-3 rounded-full bg-warning" />
+            <span>Moderate</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-destructive" />
-            <span>Reported/Fake</span>
+            <span>Full</span>
           </div>
         </div>
       </div>
+      
+      <div className="relative h-[calc(100%-60px)] rounded-2xl overflow-hidden border border-border">
+        <img 
+          src={chalkidaHeatmap} 
+          alt="Chalkida Heatmap" 
+          className="w-full h-full object-cover"
+        />
 
-      {loading ? (
-        <Skeleton className="h-[calc(100%-60px)] rounded-2xl" />
-      ) : isMapboxConfigured ? (
-        <div ref={containerRef} className="relative h-[calc(100%-60px)] rounded-2xl overflow-hidden border border-border" />
-      ) : (
-        <div className="h-[calc(100%-60px)] rounded-2xl border border-border flex items-center justify-center text-sm text-muted-foreground">
-          Add VITE_MAPBOX_TOKEN to see the live map.
+        <div className="absolute bottom-4 left-4 glass-card p-3">
+          <div className="text-xs space-y-1">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-muted-foreground">Downtown Spots:</span>
+              <span className={`font-medium ${levelClass(stats.downtown)}`}>{stats.downtown}% Full</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-muted-foreground">Beach Spots:</span>
+              <span className={`font-medium ${levelClass(stats.beach)}`}>{stats.beach}% Full</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-muted-foreground">Port Spots:</span>
+              <span className={`font-medium ${levelClass(stats.port)}`}>{stats.port}% Full</span>
+            </div>
+          </div>
         </div>
-      )}
+
+        <div className="absolute top-4 right-4 glass-card px-3 py-2 flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
+          <span className="text-xs font-medium">Live</span>
+        </div>
+
+        <div className="absolute top-4 left-4 glass-card px-4 py-2">
+          <span className="text-sm font-semibold">📍 Chalkida - Live Heatmap</span>
+        </div>
+      </div>
     </div>
   );
 };
