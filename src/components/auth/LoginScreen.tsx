@@ -181,7 +181,7 @@ export const LoginScreen = () => {
 
         <div className="flex items-center justify-center gap-1.5 mt-8 text-xs text-muted-foreground">
           <span>{t('login.poweredBy')}</span>
-          <img src="/urbansync-logo.png" alt="Urban Sync" className="h-6 w-auto object-contain" />
+          <img src="/urbansync-logo.jpg" alt="Urban Sync" className="h-6 w-auto object-contain" />
         </div>
       </div>
     </div>
