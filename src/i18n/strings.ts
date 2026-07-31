@@ -88,6 +88,8 @@ const en = {
   'map.confirmSpot': 'Confirm Spot',
   'map.navDistanceEta': '{km} km • {min} min drive',
   'map.routeUnavailable': 'Could not calculate a driving route to this destination',
+  'map.myLocation': 'My Location',
+  'map.exitNavigation': 'Exit Navigation',
 
   // Lazy auto-unpark
   'session.autoUnparkTitle': 'Looks like you left without telling us!',
@@ -340,6 +342,8 @@ const gr: Record<keyof typeof en, string> = {
   'map.confirmSpot': 'Επιβεβαίωση Θέσης',
   'map.navDistanceEta': '{km} χλμ • {min} λεπτά με αμάξι',
   'map.routeUnavailable': 'Δεν βρέθηκε διαδρομή με αυτοκίνητο προς αυτόν τον προορισμό',
+  'map.myLocation': 'Η τοποθεσία μου',
+  'map.exitNavigation': 'Έξοδος από την πλοήγηση',
 
   'session.autoUnparkTitle': 'Φαίνεται πως έφυγες χωρίς να μας το πεις!',
   'session.autoUnparkDesc': 'Ελευθερώσαμε τη θέση σου για τους άλλους, αλλά έχασες τους πόντους αυτή τη φορά. Μην το ξεχάσεις την επόμενη!',

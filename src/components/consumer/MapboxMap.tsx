@@ -78,11 +78,23 @@ export async function searchPlaces(
   }
 }
 
+export interface RouteStep {
+  /** Human-readable maneuver text, already localized by Mapbox via the `language` param. */
+  instruction: string;
+  maneuverType: string;
+  maneuverModifier?: string;
+  maneuverLocation: [number, number];
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
 export interface DirectionsResult {
   /** [lng, lat] pairs tracing the actual driving route, ready for a GeoJSON LineString. */
   coordinates: [number, number][];
   distanceMeters: number;
   durationSeconds: number;
+  /** Turn-by-turn maneuvers for the Google-Maps-style navigation banner. */
+  steps: RouteStep[];
 }
 
 // Real turn-by-turn driving route between two points via the Mapbox
@@ -91,12 +103,13 @@ export interface DirectionsResult {
 // destination pin with no route line.
 export async function getDrivingDirections(
   origin: [number, number],
-  destination: [number, number]
+  destination: [number, number],
+  language: 'en' | 'el' = 'en'
 ): Promise<DirectionsResult | null> {
   if (!MAPBOX_TOKEN) return null;
 
   const coordsParam = `${origin[0]},${origin[1]};${destination[0]},${destination[1]}`;
-  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsParam}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsParam}?geometries=geojson&overview=full&steps=true&language=${language}&access_token=${MAPBOX_TOKEN}`;
 
   try {
     const res = await fetch(url);
@@ -104,10 +117,34 @@ export async function getDrivingDirections(
     const data = await res.json();
     const route = data?.routes?.[0];
     if (!route?.geometry?.coordinates) return null;
+
+    const rawSteps: unknown[] = route?.legs?.[0]?.steps ?? [];
+    const steps: RouteStep[] = rawSteps
+      .filter(
+        (s): s is { maneuver: { location: [number, number] } } =>
+          Array.isArray((s as { maneuver?: { location?: unknown } })?.maneuver?.location)
+      )
+      .map((s) => {
+        const step = s as {
+          maneuver: { instruction: string; type: string; modifier?: string; location: [number, number] };
+          distance: number;
+          duration: number;
+        };
+        return {
+          instruction: step.maneuver.instruction,
+          maneuverType: step.maneuver.type,
+          maneuverModifier: step.maneuver.modifier,
+          maneuverLocation: step.maneuver.location,
+          distanceMeters: step.distance,
+          durationSeconds: step.duration,
+        };
+      });
+
     return {
       coordinates: route.geometry.coordinates,
       distanceMeters: route.distance,
       durationSeconds: route.duration,
+      steps,
     };
   } catch {
     return null;
@@ -138,6 +175,8 @@ interface MapboxMapProps {
   routeCoordinates?: [number, number][] | null;
   /** Confirm-spot button shown above the temporary yellow "selection" pin. */
   onConfirmSelection?: () => void;
+  /** Increment to imperatively re-trigger a fresh GPS fix + camera fly-to (wired to MapTab's "My Location" button). */
+  locateRequestId?: number;
 }
 
 export const MapboxMap: React.FC<MapboxMapProps> = ({
@@ -150,10 +189,12 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onCenterChange,
   routeCoordinates,
   onConfirmSelection,
+  locateRequestId,
 }) => {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const geolocateControlRef = useRef<mapboxgl.GeolocateControl | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
@@ -200,6 +241,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       onUserLocationChangeRef.current?.(longitude, latitude, accuracy);
     });
 
+    geolocateControlRef.current = geolocate;
+
     map.on('click', (e) => {
       onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat);
     });
@@ -226,6 +269,19 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // "My Location" button (rendered by MapTab) bumps this counter to request
+  // a fresh fix. Re-uses GeolocateControl's own trigger(), which prompts for
+  // permission if needed, updates its blue dot, and flies the camera to the
+  // result -- the skip-on-mount guard keeps the initial render from firing.
+  const prevLocateRequestRef = useRef(locateRequestId ?? 0);
+  useEffect(() => {
+    const id = locateRequestId ?? 0;
+    if (id !== prevLocateRequestRef.current) {
+      prevLocateRequestRef.current = id;
+      geolocateControlRef.current?.trigger();
+    }
+  }, [locateRequestId]);
 
   // Demo-only mock dot. Real accounts rely entirely on GeolocateControl's
   // own blue dot, which tracks position independently of React state.

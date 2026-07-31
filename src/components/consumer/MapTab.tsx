@@ -5,7 +5,23 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
 import { declareSpot, claimSpot, manualUnpark } from '@/lib/api/parking';
-import { Search, MapPin, Navigation, Eye, Loader2, X, AlertTriangle, Check, ParkingCircle } from 'lucide-react';
+import {
+  Search,
+  MapPin,
+  Navigation,
+  Eye,
+  Loader2,
+  X,
+  AlertTriangle,
+  Check,
+  ParkingCircle,
+  LocateFixed,
+  ArrowUp,
+  CornerUpLeft,
+  CornerUpRight,
+  RotateCcw,
+  Flag,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import chalkidaMap from '@/assets/chalkida-map.png';
@@ -16,12 +32,17 @@ import {
   searchPlaces,
   getDrivingDirections,
   type PlaceSuggestion,
+  type RouteStep,
 } from './MapboxMap';
 import { ConfettiBurst } from './ConfettiBurst';
 
 // The mocked GPS accuracy for demo declarations: comfortably inside any
 // server-side accuracy gate so reviewers succeed from a desk anywhere.
 const DEMO_ACCURACY_METERS = 5;
+
+// Once the live GPS position gets this close to a maneuver point, the
+// turn-by-turn banner advances to the next step.
+const STEP_ADVANCE_RADIUS_METERS = 30;
 
 type RouteState = 'idle' | 'searching' | 'found' | 'not_found';
 
@@ -31,7 +52,7 @@ interface Destination {
   lat: number;
 }
 
-interface NavInfo {
+interface RouteTotals {
   distanceMeters: number;
   durationSeconds: number;
 }
@@ -73,6 +94,20 @@ function walkingMinutes(meters: number): number {
   return Math.max(1, Math.round(meters / 80));
 }
 
+function formatDistance(meters: number): string {
+  if (meters < 1000) return `${Math.round(meters)}m`;
+  return `${(meters / 1000).toFixed(1)}km`;
+}
+
+// Maps a Mapbox Directions maneuver to a Google-Maps-style arrow icon.
+function ManeuverIcon({ type, modifier, className }: { type: string; modifier?: string; className?: string }) {
+  if (type === 'arrive') return <Flag className={className} />;
+  if (modifier === 'uturn') return <RotateCcw className={className} />;
+  if (modifier?.includes('left')) return <CornerUpLeft className={className} />;
+  if (modifier?.includes('right')) return <CornerUpRight className={className} />;
+  return <ArrowUp className={className} />;
+}
+
 interface MapTabProps {
   onNavigateToPlans?: () => void;
 }
@@ -80,7 +115,7 @@ interface MapTabProps {
 export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const { incrementSearches } = useApp();
   const { profile, isDemoAccount } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { activeSession, refetch: refetchSession } = useActiveSession();
   const nearbySpots = useNearbySpots();
 
@@ -89,12 +124,15 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const [routeState, setRouteState] = useState<RouteState>('idle');
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [activeDestination, setActiveDestination] = useState<Destination | null>(null);
-  const [navInfo, setNavInfo] = useState<NavInfo | null>(null);
+  const [routeTotals, setRouteTotals] = useState<RouteTotals | null>(null);
   const [routeCoords, setRouteCoords] = useState<[number, number][] | null>(null);
+  const [routeSteps, setRouteSteps] = useState<RouteStep[] | null>(null);
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [foundSpot, setFoundSpot] = useState<{ lng: number; lat: number } | null>(null);
   const [walkMinutes, setWalkMinutes] = useState<number>(2);
   const [busyAction, setBusyAction] = useState<'declare' | 'spotted' | 'claim' | null>(null);
   const [celebrating, setCelebrating] = useState(false);
+  const [locateRequestId, setLocateRequestId] = useState(0);
 
   // "I saw a free space" (white button) enters this mode: the next map tap
   // drops a temporary yellow pin instead of declaring immediately, so the
@@ -145,6 +183,13 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     [isDemoAccount]
   );
 
+  // "My Location" button: bumps a counter MapboxMap watches to re-trigger
+  // GeolocateControl (permission prompt + fresh fix + camera fly-to), reusing
+  // the exact same tested path the auto-trigger-on-mount already uses.
+  const handleLocateMe = () => {
+    setLocateRequestId((n) => n + 1);
+  };
+
   // Live autocomplete: debounce keystrokes, ignore stale responses that
   // resolve out of order.
   useEffect(() => {
@@ -164,6 +209,18 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // Turn-by-turn step advancement: once the live position gets close enough
+  // to the current maneuver point, move on to the next instruction.
+  useEffect(() => {
+    if (!routeSteps || routeSteps.length === 0) return;
+    if (currentStepIndex >= routeSteps.length - 1) return;
+    const step = routeSteps[currentStepIndex];
+    const d = distanceMeters(userLngLat[0], userLngLat[1], step.maneuverLocation[0], step.maneuverLocation[1]);
+    if (d < STEP_ADVANCE_RADIUS_METERS) {
+      setCurrentStepIndex((i) => Math.min(i + 1, routeSteps.length - 1));
+    }
+  }, [userLngLat, routeSteps, currentStepIndex]);
+
   const runDestinationSearch = async (destination: Destination) => {
     const canSearch = incrementSearches();
     if (!canSearch) {
@@ -173,14 +230,20 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
 
     setRouteState('searching');
     setActiveDestination(destination);
-    setNavInfo(null);
+    setRouteTotals(null);
     setRouteCoords(null);
+    setRouteSteps(null);
+    setCurrentStepIndex(0);
 
-    const directions = await getDrivingDirections(userLngLat, [destination.lng, destination.lat]);
+    const directions = await getDrivingDirections(
+      userLngLat,
+      [destination.lng, destination.lat],
+      language === 'gr' ? 'el' : 'en'
+    );
     if (directions) {
       setRouteCoords(directions.coordinates);
-      const straightLine = distanceMeters(userLngLat[0], userLngLat[1], destination.lng, destination.lat);
-      setNavInfo({ distanceMeters: straightLine, durationSeconds: directions.durationSeconds });
+      setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+      setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
     } else {
       toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
@@ -255,8 +318,10 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setRouteState('idle');
     setActiveDestination(null);
     setFoundSpot(null);
-    setNavInfo(null);
+    setRouteTotals(null);
     setRouteCoords(null);
+    setRouteSteps(null);
+    setCurrentStepIndex(0);
     setSearchQuery('');
     setSuggestions([]);
   };
@@ -385,6 +450,19 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setBusyAction(null);
   };
 
+  const isNavigating = Boolean(activeDestination && routeSteps && routeSteps.length > 0);
+  const currentStep = routeSteps?.[currentStepIndex] ?? null;
+
+  // Remaining distance/ETA is the sum of the not-yet-passed steps once we
+  // have them; falls back to the whole-route total on the rare route that
+  // came back with no steps at all.
+  const remaining: RouteTotals | null = routeSteps && routeSteps.length > 0
+    ? routeSteps.slice(currentStepIndex).reduce(
+        (acc, s) => ({ distanceMeters: acc.distanceMeters + s.distanceMeters, durationSeconds: acc.durationSeconds + s.durationSeconds }),
+        { distanceMeters: 0, durationSeconds: 0 }
+      )
+    : routeTotals;
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       {isMapboxConfigured ? (
@@ -393,6 +471,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           userLocation={userLngLat}
           showCustomUserDot={isDemoAccount}
           onUserLocationChange={handleUserLocationChange}
+          locateRequestId={locateRequestId}
           pins={[
             ...nearbySpots.map((s) => ({
               id: s.id,
@@ -492,47 +571,61 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         </div>
       )}
 
-      {/* Header - Search Bar */}
-      <div className="absolute top-0 left-0 right-0 z-20 p-4 pt-6">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
-          <input
-            ref={inputRef}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={handleKeyPress}
-            onBlur={() => setTimeout(() => setSuggestions([]), 150)}
-            disabled={routeState === 'searching'}
-            placeholder={t('map.searchPlaceholder')}
-            className="w-full h-14 pl-12 pr-16 text-base rounded-2xl shadow-xl bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-          <Button
-            onClick={handleSearch}
-            disabled={routeState === 'searching'}
-            size="icon"
-            className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl bg-primary hover:bg-primary/90"
-          >
-            {routeState === 'searching' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
-          </Button>
-
-          {suggestions.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-2 glass-card p-1 max-h-64 overflow-y-auto z-30 animate-fade-in">
-              {suggestions.map((s) => (
-                <button
-                  key={s.id}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    handleSelectSuggestion(s);
-                  }}
-                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-secondary/70 transition-colors flex items-center gap-2"
-                >
-                  <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-sm truncate">{s.name}</span>
-                </button>
-              ))}
+      {/* Header: turn-by-turn maneuver banner while navigating, search bar otherwise.
+          The outer strip is pointer-events-none so its padding never blocks the
+          Mapbox controls underneath -- only the actual card/input is clickable. */}
+      <div className="absolute top-0 left-0 right-0 z-20 p-4 pt-6 pointer-events-none">
+        {isNavigating && currentStep ? (
+          <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 pointer-events-auto animate-fade-in">
+            <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+              <ManeuverIcon type={currentStep.maneuverType} modifier={currentStep.maneuverModifier} className="h-7 w-7" />
             </div>
-          )}
-        </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-base leading-tight">{formatDistance(currentStep.distanceMeters)}</p>
+              <p className="text-sm text-primary-foreground/85 truncate">{currentStep.instruction}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="relative pointer-events-auto">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+            <input
+              ref={inputRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleKeyPress}
+              onBlur={() => setTimeout(() => setSuggestions([]), 150)}
+              disabled={routeState === 'searching'}
+              placeholder={t('map.searchPlaceholder')}
+              className="w-full h-14 pl-12 pr-16 text-base rounded-2xl shadow-xl bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <Button
+              onClick={handleSearch}
+              disabled={routeState === 'searching'}
+              size="icon"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl bg-primary hover:bg-primary/90"
+            >
+              {routeState === 'searching' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
+            </Button>
+
+            {suggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-2 glass-card p-1 max-h-64 overflow-y-auto z-30 animate-fade-in">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleSelectSuggestion(s);
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-secondary/70 transition-colors flex items-center gap-2"
+                  >
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm truncate">{s.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Points Pill */}
@@ -556,6 +649,17 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             {t('map.claimNearest')}
           </Button>
         </div>
+      )}
+
+      {/* My Location -- real accounts only; demo intentionally never touches real GPS. */}
+      {!isDemoAccount && (
+        <button
+          onClick={handleLocateMe}
+          aria-label={t('map.myLocation')}
+          className="absolute bottom-60 right-4 z-20 w-11 h-11 rounded-full bg-background shadow-lg border border-border flex items-center justify-center hover:bg-secondary transition-colors"
+        >
+          <LocateFixed className="h-5 w-5 text-primary" />
+        </button>
       )}
 
       {/* Map Selection Mode banner */}
@@ -640,24 +744,25 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       {/* Demo-only celebration on successful declarations */}
       {celebrating && <ConfettiBurst onDone={() => setCelebrating(false)} />}
 
-      {/* Navigation Card: destination + real driving ETA, plus the nearest
-          already-reported free spot near it, if any. */}
-      {activeDestination && routeState !== 'searching' && routeState !== 'idle' && (
+      {/* Bottom bar: destination name, remaining distance + ETA (Exit Navigation
+          clears the whole route), plus the nearest already-reported free spot
+          near it, if any. */}
+      {activeDestination && routeState !== 'searching' && (
         <div className="absolute bottom-44 left-4 right-4 z-20">
           <div className="glass-card p-4 animate-fade-in space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-semibold text-sm truncate">{activeDestination.name}</p>
-                {navInfo && (
+                {remaining && (
                   <p className="text-xs text-muted-foreground">
                     {t('map.navDistanceEta', {
-                      km: (navInfo.distanceMeters / 1000).toFixed(1),
-                      min: Math.round(navInfo.durationSeconds / 60),
+                      km: (remaining.distanceMeters / 1000).toFixed(1),
+                      min: Math.round(remaining.durationSeconds / 60),
                     })}
                   </p>
                 )}
               </div>
-              <Button size="sm" variant="outline" onClick={clearRoute} className="shrink-0">
+              <Button size="sm" variant="outline" onClick={clearRoute} aria-label={t('map.exitNavigation')} className="shrink-0">
                 <X className="h-4 w-4" />
               </Button>
             </div>
