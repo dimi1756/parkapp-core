@@ -1,10 +1,11 @@
 import React from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { 
-  LayoutDashboard, 
-  Map, 
-  BarChart3, 
-  Settings, 
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  LayoutDashboard,
+  Map,
+  BarChart3,
+  Settings,
   LogOut,
   ChevronLeft,
   Building2
@@ -14,10 +15,12 @@ import { Button } from '@/components/ui/button';
 interface SidebarProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
+  municipalityName: string | null;
 }
 
-export const AdminSidebar = ({ activeSection, onSectionChange }: SidebarProps) => {
+export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName }: SidebarProps) => {
   const { setAdminMode } = useApp();
+  const { signOut } = useAuth();
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -34,7 +37,7 @@ export const AdminSidebar = ({ activeSection, onSectionChange }: SidebarProps) =
             <Building2 className="h-5 w-5 text-sidebar-primary-foreground" />
           </div>
           <div>
-            <h2 className="font-bold text-sidebar-foreground">City of Chalkida</h2>
+            <h2 className="font-bold text-sidebar-foreground">{municipalityName ?? 'Municipality'}</h2>
             <p className="text-xs text-muted-foreground">Control Center</p>
           </div>
         </div>
@@ -44,14 +47,14 @@ export const AdminSidebar = ({ activeSection, onSectionChange }: SidebarProps) =
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;
-          
+
           return (
             <button
               key={item.id}
               onClick={() => onSectionChange(item.id)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                isActive 
-                  ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md' 
+                isActive
+                  ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md'
                   : 'text-sidebar-foreground hover:bg-sidebar-accent'
               }`}
             >
@@ -63,17 +66,18 @@ export const AdminSidebar = ({ activeSection, onSectionChange }: SidebarProps) =
       </nav>
 
       <div className="p-4 border-t border-sidebar-border space-y-2">
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           className="w-full justify-start gap-2"
           onClick={() => setAdminMode(false)}
         >
           <ChevronLeft className="h-4 w-4" />
           Back to App
         </Button>
-        <Button 
-          variant="ghost" 
+        <Button
+          variant="ghost"
           className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+          onClick={() => signOut()}
         >
           <LogOut className="h-4 w-4" />
           Log Out

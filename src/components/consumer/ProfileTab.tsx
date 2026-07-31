@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth, maskPlate } from '@/contexts/AuthContext';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { User, Moon, Bell, Shield, LogOut, ChevronRight, Crown, Building2, Gem, TrendingUp } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button';
 export const ProfileTab = () => {
   const { darkMode, toggleDarkMode, citizenVerified, setAdminMode } = useApp();
   const { profile, signOut } = useAuth();
+  const { isAdmin, municipalityName } = useAdminAccess();
   const points = profile?.points_balance ?? 0;
   const isPremium = profile?.membership_tier === 'premium';
 
@@ -117,24 +119,27 @@ export const ProfileTab = () => {
           </button>
         </div>
 
-        {/* Admin Switch */}
-        <div 
-          onClick={() => setAdminMode(true)}
-          className="glass-card p-4 cursor-pointer hover:bg-primary/5 transition-colors border-primary/20 bg-primary/5"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-primary" />
+        {/* Admin Switch -- only rendered for real municipality_admins rows,
+            never a client-side toggle anyone could flip on themselves. */}
+        {isAdmin && (
+          <div
+            onClick={() => setAdminMode(true)}
+            className="glass-card p-4 cursor-pointer hover:bg-primary/5 transition-colors border-primary/20 bg-primary/5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Building2 className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <span className="font-semibold block">Admin Dashboard</span>
+                  <span className="text-sm text-muted-foreground">{municipalityName ?? 'Municipality'} control center</span>
+                </div>
               </div>
-              <div>
-                <span className="font-semibold block">Admin Dashboard</span>
-                <span className="text-sm text-muted-foreground">Switch to Municipality view</span>
-              </div>
+              <ChevronRight className="h-5 w-5 text-primary" />
             </div>
-            <ChevronRight className="h-5 w-5 text-primary" />
           </div>
-        </div>
+        )}
 
         {/* Logout */}
         <Button

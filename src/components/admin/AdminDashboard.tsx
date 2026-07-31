@@ -1,37 +1,84 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useApp } from '@/contexts/AppContext';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
+import { supabase } from '@/integrations/supabase/client';
 import { AdminSidebar } from './AdminSidebar';
-import { KPICards } from './KPICards';
-import { CityMap } from './CityMap';
-import { WeeklyTrafficChart } from './WeeklyTrafficChart';
-import { BarChart3, TrendingUp, Calendar, RefreshCw } from 'lucide-react';
+import { KPICards, type CityKpis } from './KPICards';
+import { CityMap, type LiveSpot } from './CityMap';
+import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
+import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 
 export const AdminDashboard = () => {
+  const { setAdminMode } = useApp();
+  const { isAdmin, municipalityId, municipalityName, loading: accessLoading } = useAdminAccess();
+
   const [activeSection, setActiveSection] = useState('overview');
-  const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [kpis, setKpis] = useState<CityKpis | null>(null);
+  const [spots, setSpots] = useState<LiveSpot[]>([]);
+  const [trend, setTrend] = useState<TrendDay[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  const loadData = useCallback(async () => {
+    if (!municipalityId) return;
+    const [kpiRes, spotsRes, trendRes] = await Promise.all([
+      supabase.rpc('admin_city_kpis', { p_municipality_id: municipalityId }),
+      supabase.rpc('admin_live_spots', { p_municipality_id: municipalityId }),
+      supabase.rpc('admin_weekly_trend', { p_municipality_id: municipalityId }),
+    ]);
+    setKpis(kpiRes.data?.[0] ?? null);
+    setSpots(spotsRes.data ?? []);
+    setTrend(trendRes.data ?? []);
+    setDataLoading(false);
+    setLastUpdated(new Date());
+  }, [municipalityId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleRefresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    // Simulate a real data pull so the spinner has something to show
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    setRefreshKey((k) => k + 1);
-    setLastUpdated(new Date());
+    await loadData();
     setIsRefreshing(false);
     toast({ title: 'Dashboard refreshed', description: 'Latest city data has been loaded.' });
   };
+
+  // Defense in depth: even if something rendered this component without a
+  // real municipality_admins row, it refuses to show real data or the shell.
+  if (accessLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!isAdmin || !municipalityId) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4 p-6 text-center">
+        <ShieldAlert className="h-12 w-12 text-destructive" />
+        <h1 className="text-xl font-bold">Not authorized</h1>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          Your account isn't registered as a municipality administrator.
+        </p>
+        <Button onClick={() => setAdminMode(false)}>Back to App</Button>
+      </div>
+    );
+  }
 
   const renderContent = () => {
     switch (activeSection) {
       case 'overview':
         return (
           <div className="space-y-6">
-            <KPICards refreshKey={refreshKey} />
-            <CityMap refreshKey={refreshKey} />
-            <WeeklyTrafficChart refreshKey={refreshKey} />
+            <KPICards kpis={kpis} loading={dataLoading} />
+            <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} />
+            <WeeklyTrafficChart trend={trend} loading={dataLoading} />
           </div>
         );
       case 'analytics':
@@ -43,45 +90,28 @@ export const AdminDashboard = () => {
                 <div className="p-4 bg-secondary/50 rounded-xl">
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-primary" />
-                    Traffic Trends
+                    Community Reporting
                   </h4>
                   <p className="text-sm text-muted-foreground">
-                    Traffic rose by 15% in the last month, peaking between 12:00 and 14:00.
+                    {kpis?.spots_declared_today ?? 0} spots reported today, {kpis?.active_spots_now ?? 0} currently active.
                   </p>
                 </div>
                 <div className="p-4 bg-secondary/50 rounded-xl">
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-primary" />
-                    App Usage
+                    Driver Activity
                   </h4>
                   <p className="text-sm text-muted-foreground">
-                    3,450 monthly active users, with 68% using search daily.
+                    {kpis?.active_drivers_24h ?? 0} distinct drivers active in the last 24 hours.
                   </p>
                 </div>
               </div>
             </div>
-
-            <div className="glass-card p-6 h-80 animate-fade-in" style={{ animationDelay: '100ms' }}>
-              <h3 className="text-lg font-bold mb-4">Weekly Parking Distribution</h3>
-              <div className="h-[calc(100%-40px)] flex items-end justify-around gap-4 px-4">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
-                  const heights = [75, 82, 90, 78, 95, 60, 45];
-                  return (
-                    <div key={day} className="flex-1 flex flex-col items-center gap-2">
-                      <div 
-                        className="w-full bg-gradient-to-t from-primary to-primary/60 rounded-t-lg transition-all hover:from-primary/90"
-                        style={{ height: `${heights[i]}%` }}
-                      />
-                      <span className="text-xs text-muted-foreground">{day}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <WeeklyTrafficChart trend={trend} loading={dataLoading} />
           </div>
         );
       case 'livemap':
-        return <CityMap refreshKey={refreshKey} />;
+        return <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} tall />;
       case 'settings':
         return (
           <div className="glass-card p-6 animate-fade-in">
@@ -109,8 +139,8 @@ export const AdminDashboard = () => {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <AdminSidebar activeSection={activeSection} onSectionChange={setActiveSection} />
-      
+      <AdminSidebar activeSection={activeSection} onSectionChange={setActiveSection} municipalityName={municipalityName} />
+
       <main className="flex-1 overflow-auto">
         <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-10 px-8 py-4">
           <div className="flex items-center justify-between">

@@ -1,29 +1,28 @@
-import React, { useMemo } from 'react';
-import { TrendingUp, TrendingDown, Users, Clock, Euro, Car } from 'lucide-react';
+import React from 'react';
+import { Users, Clock, Gauge, ShieldCheck } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+
+export interface CityKpis {
+  active_drivers_24h: number;
+  spots_declared_today: number;
+  active_spots_now: number;
+  avg_parking_minutes: number | null;
+  avg_trust_score: number | null;
+}
 
 interface KPICardProps {
   title: string;
   value: string;
-  change?: string;
-  trend?: 'up' | 'down' | 'neutral';
   icon: React.ReactNode;
   color: string;
 }
 
-const KPICard = ({ title, value, change, trend, icon, color }: KPICardProps) => (
+const KPICard = ({ title, value, icon, color }: KPICardProps) => (
   <div className="glass-card p-6 animate-fade-in">
     <div className="flex items-start justify-between">
       <div>
         <p className="text-sm text-muted-foreground mb-1">{title}</p>
         <p className="text-3xl font-bold">{value}</p>
-        {change && (
-          <div className={`flex items-center gap-1 mt-2 text-sm ${
-            trend === 'up' ? 'text-success' : trend === 'down' ? 'text-destructive' : 'text-muted-foreground'
-          }`}>
-            {trend === 'up' ? <TrendingUp className="h-4 w-4" /> : trend === 'down' ? <TrendingDown className="h-4 w-4" /> : null}
-            <span>{change}</span>
-          </div>
-        )}
       </div>
       <div className={`w-12 h-12 rounded-2xl ${color} flex items-center justify-center`}>
         {icon}
@@ -33,62 +32,51 @@ const KPICard = ({ title, value, change, trend, icon, color }: KPICardProps) => 
 );
 
 interface KPICardsProps {
-  refreshKey?: number;
+  kpis: CityKpis | null;
+  loading: boolean;
 }
 
-export const KPICards: React.FC<KPICardsProps> = ({ refreshKey = 0 }) => {
-  // Deterministic-per-refresh jitter so pressing "Refresh" visibly nudges the
-  // numbers, like a real live dashboard pulling fresh data.
-  const kpis = useMemo(() => {
-    const occupancyJitter = ((refreshKey * 3) % 7) - 3; // -3..+3
-    const driversJitter = ((refreshKey * 17) % 41) - 20; // -20..+20
-    const parkingTimeJitter = ((refreshKey * 5) % 3) - 1; // -1..+1
-    const revenueJitter = ((refreshKey * 23) % 61) - 30; // -30..+30
+export const KPICards: React.FC<KPICardsProps> = ({ kpis, loading }) => {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-32 rounded-2xl" />
+        ))}
+      </div>
+    );
+  }
 
-    const occupancy = Math.min(99, Math.max(60, 85 + occupancyJitter));
-    const drivers = Math.max(900, 1240 + driversJitter);
-    const parkingTime = Math.max(6, 12 + parkingTimeJitter);
-    const revenue = Math.max(200, 450 + revenueJitter);
-
-    return [
-      {
-        title: 'City Occupancy',
-        value: `${occupancy}%`,
-        change: `${occupancyJitter >= 0 ? '+' : ''}${occupancyJitter}% from yesterday`,
-        trend: occupancyJitter >= 0 ? ('up' as const) : ('down' as const),
-        icon: <Car className="h-6 w-6 text-destructive-foreground" />,
-        color: 'bg-destructive',
-      },
-      {
-        title: 'Active Drivers',
-        value: drivers.toLocaleString('en-US'),
-        change: `${driversJitter >= 0 ? '+' : ''}${driversJitter} this hour`,
-        trend: driversJitter >= 0 ? ('up' as const) : ('down' as const),
-        icon: <Users className="h-6 w-6 text-primary-foreground" />,
-        color: 'bg-primary',
-      },
-      {
-        title: 'Avg. Parking Time',
-        value: `${parkingTime} min`,
-        change: `${parkingTimeJitter <= 0 ? '' : '+'}${parkingTimeJitter} min`,
-        trend: parkingTimeJitter <= 0 ? ('down' as const) : ('up' as const),
-        icon: <Clock className="h-6 w-6 text-warning-foreground" />,
-        color: 'bg-warning',
-      },
-      {
-        title: 'Revenue Today',
-        value: `€${revenue.toFixed(2)}`,
-        change: `${revenueJitter >= 0 ? '+' : ''}${Math.round((revenueJitter / 450) * 100)}% from yesterday`,
-        trend: revenueJitter >= 0 ? ('up' as const) : ('down' as const),
-        icon: <Euro className="h-6 w-6 text-success-foreground" />,
-        color: 'bg-success',
-      },
-    ];
-  }, [refreshKey]);
+  const cards = [
+    {
+      title: 'Active Drivers (24h)',
+      value: (kpis?.active_drivers_24h ?? 0).toLocaleString('en-US'),
+      icon: <Users className="h-6 w-6 text-primary-foreground" />,
+      color: 'bg-primary',
+    },
+    {
+      title: 'Spots Reported Today',
+      value: (kpis?.spots_declared_today ?? 0).toLocaleString('en-US'),
+      icon: <Gauge className="h-6 w-6 text-destructive-foreground" />,
+      color: 'bg-destructive',
+    },
+    {
+      title: 'Avg. Parking Time',
+      value: kpis?.avg_parking_minutes != null ? `${kpis.avg_parking_minutes} min` : '—',
+      icon: <Clock className="h-6 w-6 text-warning-foreground" />,
+      color: 'bg-warning',
+    },
+    {
+      title: 'Avg. Community Trust',
+      value: kpis?.avg_trust_score != null ? `${Math.round(kpis.avg_trust_score * 100)}%` : '—',
+      icon: <ShieldCheck className="h-6 w-6 text-success-foreground" />,
+      color: 'bg-success',
+    },
+  ];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      {kpis.map((kpi, index) => (
+      {cards.map((kpi, index) => (
         <div key={kpi.title} style={{ animationDelay: `${index * 100}ms` }}>
           <KPICard {...kpi} />
         </div>

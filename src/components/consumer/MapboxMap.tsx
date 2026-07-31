@@ -6,7 +6,12 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 // Add VITE_MAPBOX_TOKEN=pk.xxxxx to a .env file at the project root.
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 
-export const isMapboxConfigured = Boolean(MAPBOX_TOKEN);
+// Guards against the easy mistake of copying .env.example verbatim into
+// .env: the placeholder string is non-empty, so a naive Boolean(token)
+// check would treat it as "configured" and silently fail every map load.
+const PLACEHOLDER_TOKEN = 'pk.your_mapbox_token_here';
+
+export const isMapboxConfigured = Boolean(MAPBOX_TOKEN && MAPBOX_TOKEN !== PLACEHOLDER_TOKEN);
 
 export interface GeocodeResult {
   name: string;

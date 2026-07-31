@@ -167,6 +167,35 @@ export type Database = {
         Args: { target_municipality_id: string };
         Returns: boolean;
       };
+      my_admin_municipality: {
+        Args: Record<string, never>;
+        Returns: { municipality_id: string; municipality_name: string; role: string }[];
+      };
+      admin_city_kpis: {
+        Args: { p_municipality_id: string };
+        Returns: {
+          active_drivers_24h: number;
+          spots_declared_today: number;
+          active_spots_now: number;
+          avg_parking_minutes: number | null;
+          avg_trust_score: number | null;
+        }[];
+      };
+      admin_live_spots: {
+        Args: { p_municipality_id: string };
+        Returns: {
+          id: string;
+          lat: number;
+          lng: number;
+          status: "active" | "claimed" | "expired" | "invalid" | "reported";
+          declared_at: string;
+          expires_at: string;
+        }[];
+      };
+      admin_weekly_trend: {
+        Args: { p_municipality_id: string };
+        Returns: { day: string; declarations: number }[];
+      };
     };
   };
 };
