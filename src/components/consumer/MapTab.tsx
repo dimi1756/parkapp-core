@@ -678,33 +678,60 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         </div>
       )}
 
-      {/* Central Check-out + Secondary "I saw a free space" buttons */}
+      {/* Central Check-out + Secondary "I saw a free space" buttons -- while
+          Map Selection Mode is active, these are fully replaced by a
+          Cancel/Confirm pair so the reviewer's thumb only ever sees actions
+          relevant to what they're doing right now. */}
       <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
-        <Button
-          onClick={handleToggleSelectionMode}
-          disabled={busyAction !== null}
-          variant="outline"
-          className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
-        >
-          {selectionMode ? <X className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          <span className="text-sm">{selectionMode ? t('profile.cancel') : t('map.sawFreeSpace')}</span>
-          {!selectionMode && <span className="text-xs text-muted-foreground">+5</span>}
-        </Button>
+        {selectionMode ? (
+          <>
+            <Button
+              onClick={handleToggleSelectionMode}
+              disabled={busyAction !== null}
+              variant="outline"
+              className="h-12 rounded-full px-5 shadow-lg bg-background/95 backdrop-blur-sm border-destructive/30 text-destructive hover:text-destructive gap-2"
+            >
+              <X className="h-4 w-4" />
+              {t('map.cancelSelection')}
+            </Button>
+            <Button
+              onClick={handleConfirmSelection}
+              disabled={busyAction !== null || !selectedSpot}
+              className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
+            >
+              {busyAction === 'spotted' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
+              {t('map.confirmSpot')}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              onClick={handleToggleSelectionMode}
+              disabled={busyAction !== null}
+              variant="outline"
+              className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
+            >
+              <Eye className="h-4 w-4" />
+              <span className="text-sm">{t('map.sawFreeSpace')}</span>
+              <span className="text-xs text-muted-foreground">+5</span>
+            </Button>
 
-        <Button
-          onClick={handleDeclare}
-          disabled={busyAction !== null}
-          className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
-        >
-          {busyAction === 'declare' ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : activeSession ? (
-            <Check className="h-5 w-5" />
-          ) : (
-            <Navigation className="h-5 w-5" />
-          )}
-          {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
-        </Button>
+            <Button
+              onClick={handleDeclare}
+              disabled={busyAction !== null}
+              className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
+            >
+              {busyAction === 'declare' ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : activeSession ? (
+                <Check className="h-5 w-5" />
+              ) : (
+                <Navigation className="h-5 w-5" />
+              )}
+              {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Searching Modal */}

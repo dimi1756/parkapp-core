@@ -5,10 +5,16 @@ import { MapTab } from './MapTab';
 import { OffersTab } from './OffersTab';
 import { PlansTab } from './PlansTab';
 import { ProfileTab } from './ProfileTab';
+import { LeaderboardTab } from './LeaderboardTab';
 import { DemoTour, shouldShowTour, dismissTour, type TourId } from './DemoTour';
-import { Map, Gift, CreditCard, User } from 'lucide-react';
+import { Map, Gift, CreditCard, User, Trophy } from 'lucide-react';
 
-type TabType = 'map' | 'offers' | 'plans' | 'profile';
+type TabType = 'map' | 'offers' | 'plans' | 'profile' | 'leaderboard';
+
+// The guided demo tour only covers the original 4 tabs; Leaderboard has no
+// tour steps defined (see DemoTour.tsx's TOURS map) so it's excluded here
+// rather than widening TourId for a tab with nothing to point at yet.
+const isTourableTab = (tab: TabType): tab is Exclude<TabType, 'leaderboard'> => tab !== 'leaderboard';
 
 export const ConsumerApp = () => {
   const { isDemoAccount } = useAuth();
@@ -23,17 +29,18 @@ export const ConsumerApp = () => {
   useEffect(() => {
     if (!isDemoAccount) return;
     const prevTab = prevTabRef.current;
-    if (prevTab && prevTab !== activeTab) {
+    if (prevTab && prevTab !== activeTab && isTourableTab(prevTab)) {
       dismissTour(prevTab);
     }
     prevTabRef.current = activeTab;
-    setActiveTour(shouldShowTour(activeTab) ? activeTab : null);
+    setActiveTour(isTourableTab(activeTab) && shouldShowTour(activeTab) ? activeTab : null);
   }, [activeTab, isDemoAccount]);
 
   const tabs = [
     { id: 'map' as TabType, label: t('nav.map'), icon: Map },
     { id: 'offers' as TabType, label: t('nav.offers'), icon: Gift },
     { id: 'plans' as TabType, label: t('nav.plans'), icon: CreditCard },
+    { id: 'leaderboard' as TabType, label: t('nav.leaderboard'), icon: Trophy },
     { id: 'profile' as TabType, label: t('nav.profile'), icon: User },
   ];
 
@@ -45,6 +52,8 @@ export const ConsumerApp = () => {
         return <OffersTab />;
       case 'plans':
         return <PlansTab />;
+      case 'leaderboard':
+        return <LeaderboardTab />;
       case 'profile':
         return <ProfileTab />;
       default:
@@ -72,14 +81,14 @@ export const ConsumerApp = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all ${
+                className={`flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all ${
                   isActive
                     ? 'text-primary bg-primary/10'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''} transition-transform`} />
-                <span className="text-xs font-medium">{tab.label}</span>
+                <span className="text-[11px] font-medium">{tab.label}</span>
               </button>
             );
           })}

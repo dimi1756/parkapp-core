@@ -1,6 +1,7 @@
 // Full EN/GR dictionary for the app UI. `en` is the source of truth for the
 // key set; `gr` is compile-time checked against it so a missing translation
 // is a tsc error, not a silent English fallback.
+// TODO: Turkish (TR) language support planned for future roadmap.
 
 const en = {
   // Bottom navigation
@@ -8,6 +9,7 @@ const en = {
   'nav.offers': 'Offers',
   'nav.plans': 'Plans',
   'nav.profile': 'Profile',
+  'nav.leaderboard': 'Leaderboard',
 
   // Login / signup
   'login.welcomeBack': 'Welcome back',
@@ -23,6 +25,7 @@ const en = {
   'login.signUpLink': 'Sign up',
   'login.haveAccount': 'Already have an account?',
   'login.signInLink': 'Sign in',
+  'login.poweredBy': 'Powered by',
   'login.checkInbox': 'Check your inbox',
   'login.confirmationSent': 'We sent a confirmation link to {email}. Confirm it, then come back and sign in.',
   'login.backToSignIn': 'Back to Sign In',
@@ -86,6 +89,7 @@ const en = {
   'map.selectionModeDesc': 'Select on the map where you spotted the free space',
   'map.selectionBannerText': 'Tap the map to mark the spot',
   'map.confirmSpot': 'Confirm Spot',
+  'map.cancelSelection': 'Cancel',
   'map.navDistanceEta': '{km} km • {min} min drive',
   'map.routeUnavailable': 'Could not calculate a driving route to this destination',
   'map.myLocation': 'My Location',
@@ -258,6 +262,12 @@ const en = {
   'tour.admin.1.body': 'Live metrics a municipality actually buys: active drivers, daily reports, average parking time, and community trust.',
   'tour.admin.2.title': 'Live city map',
   'tour.admin.2.body': 'Every community-reported spot, color-coded in real time — parking pressure at street level for planning and enforcement.',
+
+  // Leaderboard (gamification placeholder)
+  'leaderboard.title': 'Top Drivers',
+  'leaderboard.comingSoon': 'Coming Soon',
+  'leaderboard.futureTitle': 'Compete with your city',
+  'leaderboard.futureDesc': 'Weekly rankings, badges, and city-wide challenges are on the way.',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -265,6 +275,7 @@ const gr: Record<keyof typeof en, string> = {
   'nav.offers': 'Προσφορές',
   'nav.plans': 'Πλάνα',
   'nav.profile': 'Προφίλ',
+  'nav.leaderboard': 'Κατάταξη',
 
   'login.welcomeBack': 'Καλώς ήρθες ξανά',
   'login.createSubtitle': 'Δημιούργησε λογαριασμό για να ξεκινήσεις να κερδίζεις πόντους',
@@ -279,6 +290,7 @@ const gr: Record<keyof typeof en, string> = {
   'login.signUpLink': 'Εγγραφή',
   'login.haveAccount': 'Έχεις ήδη λογαριασμό;',
   'login.signInLink': 'Σύνδεση',
+  'login.poweredBy': 'Με την υποστήριξη της',
   'login.checkInbox': 'Έλεγξε τα εισερχόμενά σου',
   'login.confirmationSent': 'Στείλαμε σύνδεσμο επιβεβαίωσης στο {email}. Επιβεβαίωσέ τον και μετά συνδέσου.',
   'login.backToSignIn': 'Πίσω στη Σύνδεση',
@@ -340,6 +352,7 @@ const gr: Record<keyof typeof en, string> = {
   'map.selectionModeDesc': 'Επιλέξτε στο χάρτη πού βρίσκεται η ελεύθερη θέση που εντοπίσατε',
   'map.selectionBannerText': 'Πάτησε στον χάρτη για να σημειώσεις τη θέση',
   'map.confirmSpot': 'Επιβεβαίωση Θέσης',
+  'map.cancelSelection': 'Ακύρωση',
   'map.navDistanceEta': '{km} χλμ • {min} λεπτά με αμάξι',
   'map.routeUnavailable': 'Δεν βρέθηκε διαδρομή με αυτοκίνητο προς αυτόν τον προορισμό',
   'map.myLocation': 'Η τοποθεσία μου',
@@ -505,6 +518,11 @@ const gr: Record<keyof typeof en, string> = {
   'tour.admin.1.body': 'Ζωντανές μετρήσεις που αγοράζει ένας δήμος: ενεργοί οδηγοί, ημερήσιες αναφορές, μέσος χρόνος στάθμευσης και αξιοπιστία κοινότητας.',
   'tour.admin.2.title': 'Ζωντανός χάρτης πόλης',
   'tour.admin.2.body': 'Κάθε αναφερόμενη θέση, χρωματισμένη σε πραγματικό χρόνο — η πίεση στάθμευσης σε επίπεδο δρόμου για σχεδιασμό και επιτήρηση.',
+
+  'leaderboard.title': 'Κορυφαίοι Οδηγοί',
+  'leaderboard.comingSoon': 'Έρχεται Σύντομα',
+  'leaderboard.futureTitle': 'Συναγωνίσου την πόλη σου',
+  'leaderboard.futureDesc': 'Εβδομαδιαίες κατατάξεις, παράσημα και προκλήσεις σε επίπεδο πόλης έρχονται σύντομα.',
 };
 
 export type StringKey = keyof typeof en;

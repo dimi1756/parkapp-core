@@ -110,10 +110,7 @@ export const LoginScreen = () => {
       <LanguageToggle />
       <div className="flex-1 flex flex-col justify-center p-6">
         <div className="flex flex-col items-center gap-2 mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
-            <MapPin className="h-7 w-7 text-primary-foreground" />
-          </div>
-          <h1 className="text-2xl font-bold">ParkApp</h1>
+          <img src="/parkapp-logo.png" alt="ParkApp Logo" className="h-16 w-auto object-contain mx-auto" />
           <p className="text-muted-foreground text-sm text-center">
             {mode === 'signup' ? t('login.createSubtitle') : t('login.welcomeBack')}
           </p>
@@ -181,6 +178,11 @@ export const LoginScreen = () => {
             <>{t('login.haveAccount')} <span className="text-primary font-medium">{t('login.signInLink')}</span></>
           )}
         </button>
+
+        <div className="flex items-center justify-center gap-1.5 mt-8 text-xs text-muted-foreground">
+          <span>{t('login.poweredBy')}</span>
+          <img src="/urbansync-logo.png" alt="Urban Sync" className="h-6 w-auto object-contain" />
+        </div>
       </div>
     </div>
   );
