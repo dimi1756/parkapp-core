@@ -205,3 +205,10 @@
 .mapbox-pin-wrapper:hover {
   transform: scale(1.1);
 }
+
+/* The consumer map's search bar floats over the top of the canvas -- push
+   Mapbox's own zoom/compass/geolocate controls down clear of it so they
+   stay fully clickable instead of hiding underneath. */
+.parkapp-map-shell .mapboxgl-ctrl-top-right {
+  margin-top: 5rem;
+}

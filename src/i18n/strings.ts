@@ -82,6 +82,12 @@ const en = {
   'map.demoDeclareDesc': 'Every driver nearby can now see this space. That’s the crowdsourcing loop in action.',
   'map.demoReportTitle': '🎉 Reported! +{n} points',
   'map.demoReportDesc': 'Your report is instantly visible to the whole community — that’s crowdsourced parking.',
+  'map.selectionModeTitle': 'Mark the spot',
+  'map.selectionModeDesc': 'Select on the map where you spotted the free space',
+  'map.selectionBannerText': 'Tap the map to mark the spot',
+  'map.confirmSpot': 'Confirm Spot',
+  'map.navDistanceEta': '{km} km • {min} min drive',
+  'map.routeUnavailable': 'Could not calculate a driving route to this destination',
 
   // Lazy auto-unpark
   'session.autoUnparkTitle': 'Looks like you left without telling us!',
@@ -328,6 +334,12 @@ const gr: Record<keyof typeof en, string> = {
   'map.demoDeclareDesc': 'Κάθε οδηγός τριγύρω βλέπει τώρα αυτή τη θέση. Αυτό είναι το crowdsourcing σε δράση.',
   'map.demoReportTitle': '🎉 Αναφέρθηκε! +{n} πόντοι',
   'map.demoReportDesc': 'Η αναφορά σου είναι άμεσα ορατή σε όλη την κοινότητα — αυτό είναι το crowdsourced parking.',
+  'map.selectionModeTitle': 'Σημείωσε τη θέση',
+  'map.selectionModeDesc': 'Επιλέξτε στο χάρτη πού βρίσκεται η ελεύθερη θέση που εντοπίσατε',
+  'map.selectionBannerText': 'Πάτησε στον χάρτη για να σημειώσεις τη θέση',
+  'map.confirmSpot': 'Επιβεβαίωση Θέσης',
+  'map.navDistanceEta': '{km} χλμ • {min} λεπτά με αμάξι',
+  'map.routeUnavailable': 'Δεν βρέθηκε διαδρομή με αυτοκίνητο προς αυτόν τον προορισμό',
 
   'session.autoUnparkTitle': 'Φαίνεται πως έφυγες χωρίς να μας το πεις!',
   'session.autoUnparkDesc': 'Ελευθερώσαμε τη θέση σου για τους άλλους, αλλά έχασες τους πόντους αυτή τη φορά. Μην το ξεχάσεις την επόμενη!',

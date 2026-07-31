@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 // Reads the token from an env variable so it's never hardcoded in source.
 // Add VITE_MAPBOX_TOKEN=pk.xxxxx to a .env file at the project root.
@@ -25,7 +26,7 @@ export interface GeocodeResult {
 export async function geocodeAddress(query: string, proximity: [number, number]): Promise<GeocodeResult | null> {
   if (!MAPBOX_TOKEN || !query.trim()) return null;
 
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&proximity=${proximity[0]},${proximity[1]}`;
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=gr&proximity=${proximity[0]},${proximity[1]}`;
 
   try {
     const res = await fetch(url);
@@ -40,32 +41,137 @@ export async function geocodeAddress(query: string, proximity: [number, number])
   }
 }
 
+export interface PlaceSuggestion {
+  id: string;
+  name: string;
+  lng: number;
+  lat: number;
+}
+
+// Autocomplete-style multi-result search for the live search dropdown, biased
+// toward `proximity`. Returns an empty array (never throws) on any failure so
+// callers can render "no results" instead of crashing mid-keystroke.
+export async function searchPlaces(
+  query: string,
+  proximity: [number, number],
+  limit = 5
+): Promise<PlaceSuggestion[]> {
+  if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
+
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=${limit}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const features = Array.isArray(data?.features) ? data.features : [];
+    return features
+      .filter((f: { center?: unknown }) => Array.isArray(f.center))
+      .map((f: { id: string; place_name?: string; text?: string; center: [number, number] }) => ({
+        id: f.id,
+        name: f.place_name ?? f.text ?? query,
+        lng: f.center[0],
+        lat: f.center[1],
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export interface DirectionsResult {
+  /** [lng, lat] pairs tracing the actual driving route, ready for a GeoJSON LineString. */
+  coordinates: [number, number][];
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
+// Real turn-by-turn driving route between two points via the Mapbox
+// Directions API. Returns null on any failure (no route found, offline,
+// misconfigured token) so the caller can fall back to showing just the
+// destination pin with no route line.
+export async function getDrivingDirections(
+  origin: [number, number],
+  destination: [number, number]
+): Promise<DirectionsResult | null> {
+  if (!MAPBOX_TOKEN) return null;
+
+  const coordsParam = `${origin[0]},${origin[1]};${destination[0]},${destination[1]}`;
+  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsParam}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const route = data?.routes?.[0];
+    if (!route?.geometry?.coordinates) return null;
+    return {
+      coordinates: route.geometry.coordinates,
+      distanceMeters: route.distance,
+      durationSeconds: route.duration,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface MapPin {
   id: string;
   lng: number;
   lat: number;
-  type: 'mine' | 'reported' | 'destination';
+  type: 'mine' | 'reported' | 'destination' | 'selection';
   label?: string;
 }
 
 interface MapboxMapProps {
   center: [number, number]; // [lng, lat]
+  /** Mock position for the demo account; ignored once real GPS is live. */
   userLocation: [number, number];
+  /** Demo accounts render a custom mock dot; real accounts rely on Mapbox's own GeolocateControl blue dot. */
+  showCustomUserDot: boolean;
+  /** Fires with each real GPS fix once GeolocateControl starts tracking (real accounts only). */
+  onUserLocationChange?: (lng: number, lat: number, accuracy: number) => void;
   pins: MapPin[];
   onMapClick?: (lng: number, lat: number) => void;
   /** Fires after every pan/zoom settles with the new map center. */
   onCenterChange?: (lng: number, lat: number) => void;
-  routeTo?: [number, number] | null;
+  /** Full driving-route geometry from the Directions API; null clears the line. */
+  routeCoordinates?: [number, number][] | null;
+  /** Confirm-spot button shown above the temporary yellow "selection" pin. */
+  onConfirmSelection?: () => void;
 }
 
-export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins, onMapClick, onCenterChange, routeTo }) => {
+export const MapboxMap: React.FC<MapboxMapProps> = ({
+  center,
+  userLocation,
+  showCustomUserDot,
+  onUserLocationChange,
+  pins,
+  onMapClick,
+  onCenterChange,
+  routeCoordinates,
+  onConfirmSelection,
+}) => {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
-  // Ref keeps the moveend listener stable while callers pass fresh closures.
+
+  // Refs keep the map's native event listeners (bound once, at mount) wired
+  // to whatever the latest render's callbacks/values are, without needing to
+  // tear down and recreate the whole mapboxgl.Map every time a prop changes.
+  const onMapClickRef = useRef(onMapClick);
+  onMapClickRef.current = onMapClick;
   const onCenterChangeRef = useRef(onCenterChange);
   onCenterChangeRef.current = onCenterChange;
+  const onUserLocationChangeRef = useRef(onUserLocationChange);
+  onUserLocationChangeRef.current = onUserLocationChange;
+  const onConfirmSelectionRef = useRef(onConfirmSelection);
+  onConfirmSelectionRef.current = onConfirmSelection;
+  const showCustomUserDotRef = useRef(showCustomUserDot);
+  showCustomUserDotRef.current = showCustomUserDot;
+  const confirmLabelRef = useRef(t('map.confirmSpot'));
+  confirmLabelRef.current = t('map.confirmSpot');
 
   // Initialize map once
   useEffect(() => {
@@ -81,17 +187,35 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-    map.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), 'top-right');
 
-    if (onMapClick) {
-      map.on('click', (e) => {
-        onMapClick(e.lngLat.lng, e.lngLat.lat);
-      });
-    }
+    const geolocate = new mapboxgl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showUserHeading: true,
+    });
+    map.addControl(geolocate, 'top-right');
+
+    geolocate.on('geolocate', (e) => {
+      const { longitude, latitude, accuracy } = (e as GeolocationPosition).coords;
+      onUserLocationChangeRef.current?.(longitude, latitude, accuracy);
+    });
+
+    map.on('click', (e) => {
+      onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat);
+    });
 
     map.on('moveend', () => {
       const c = map.getCenter();
       onCenterChangeRef.current?.(c.lng, c.lat);
+    });
+
+    map.on('load', () => {
+      // Real accounts: prompt for location permission immediately and start
+      // live tracking. Demo accounts keep the mocked map-center position and
+      // never trigger a real GPS prompt.
+      if (!showCustomUserDotRef.current) {
+        geolocate.trigger();
+      }
     });
 
     mapRef.current = map;
@@ -103,9 +227,16 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep user location marker in sync
+  // Demo-only mock dot. Real accounts rely entirely on GeolocateControl's
+  // own blue dot, which tracks position independently of React state.
   useEffect(() => {
     if (!mapRef.current) return;
+
+    if (!showCustomUserDot) {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      return;
+    }
 
     if (!userMarkerRef.current) {
       const el = document.createElement('div');
@@ -114,7 +245,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins
     } else {
       userMarkerRef.current.setLngLat(userLocation);
     }
-  }, [userLocation]);
+  }, [userLocation, showCustomUserDot]);
 
   // Sync pins with markers
   useEffect(() => {
@@ -133,69 +264,90 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins
 
     // Add or update markers
     pins.forEach((pin) => {
-      const color = pin.type === 'mine' ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : '#dc2626';
+      if (markersRef.current[pin.id]) {
+        markersRef.current[pin.id].setLngLat([pin.lng, pin.lat]);
+        return;
+      }
 
-      if (!markersRef.current[pin.id]) {
-        const el = document.createElement('div');
-        el.className = 'mapbox-pin-wrapper';
-        el.innerHTML = `
-          <svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
-            <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
+      if (pin.type === 'selection') {
+        // Temporary "drop pin" marker for the Map Selection Mode flow: a
+        // yellow pin with a Confirm button anchored right above it. Mapbox
+        // repositions the whole element together on every pan/zoom, so the
+        // button never drifts away from its pin.
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex flex-col items-center gap-1.5';
+        wrapper.innerHTML = `
+          <button type="button" class="confirm-spot-btn inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap hover:bg-primary/90 transition-colors">
+            ${confirmLabelRef.current}
+          </button>
+          <svg width="30" height="38" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="#f59e0b" stroke="white" stroke-width="2"/>
             <circle cx="17" cy="17" r="6" fill="white"/>
           </svg>
         `;
+        wrapper.querySelector('.confirm-spot-btn')?.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          onConfirmSelectionRef.current?.();
+        });
+        markersRef.current[pin.id] = new mapboxgl.Marker({ element: wrapper, anchor: 'bottom' })
+          .setLngLat([pin.lng, pin.lat])
+          .addTo(map);
+        return;
+      }
 
-        if (pin.label) {
-          const popup = new mapboxgl.Popup({ offset: 36 }).setText(pin.label);
-          markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
-            .setLngLat([pin.lng, pin.lat])
-            .setPopup(popup)
-            .addTo(map);
-        } else {
-          markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
-            .setLngLat([pin.lng, pin.lat])
-            .addTo(map);
-        }
+      const color = pin.type === 'mine' ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : '#dc2626';
+      const el = document.createElement('div');
+      el.className = 'mapbox-pin-wrapper';
+      el.innerHTML = `
+        <svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
+          <circle cx="17" cy="17" r="6" fill="white"/>
+        </svg>
+      `;
+
+      if (pin.label) {
+        const popup = new mapboxgl.Popup({ offset: 36 }).setText(pin.label);
+        markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+          .setLngLat([pin.lng, pin.lat])
+          .setPopup(popup)
+          .addTo(map);
       } else {
-        markersRef.current[pin.id].setLngLat([pin.lng, pin.lat]);
+        markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+          .setLngLat([pin.lng, pin.lat])
+          .addTo(map);
       }
     });
   }, [pins]);
 
-  // Route line to destination
+  // Real driving-route polyline from the Directions API
   useEffect(() => {
     if (!mapRef.current) return;
     const map = mapRef.current;
 
     const drawRoute = () => {
+      const data: GeoJSON.Feature<GeoJSON.LineString> = {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: routeCoordinates ?? [],
+        },
+      };
+
       if (map.getSource('route')) {
-        (map.getSource('route') as mapboxgl.GeoJSONSource).setData({
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates: routeTo ? [userLocation, routeTo] : [],
-          },
-        });
+        (map.getSource('route') as mapboxgl.GeoJSONSource).setData(data);
         return;
       }
 
-      if (!routeTo) return;
+      if (!routeCoordinates) return;
 
-      map.addSource('route', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: [userLocation, routeTo] },
-        },
-      });
+      map.addSource('route', { type: 'geojson', data });
       map.addLayer({
         id: 'route',
         type: 'line',
         source: 'route',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#0059B3', 'line-width': 4 },
+        paint: { 'line-color': '#0059B3', 'line-width': 5 },
       });
     };
 
@@ -204,7 +356,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({ center, userLocation, pins
     } else {
       map.once('load', drawRoute);
     }
-  }, [routeTo, userLocation]);
+  }, [routeCoordinates]);
 
-  return <div ref={containerRef} className="absolute inset-0 w-full h-full" />;
+  return <div ref={containerRef} className="parkapp-map-shell absolute inset-0 w-full h-full" />;
 };

@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useGeolocation } from '@/hooks/useGeolocation';
 import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
 import { declareSpot, claimSpot, manualUnpark } from '@/lib/api/parking';
@@ -10,7 +9,14 @@ import { Search, MapPin, Navigation, Eye, Loader2, X, AlertTriangle, Check, Park
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import chalkidaMap from '@/assets/chalkida-map.png';
-import { MapboxMap, isMapboxConfigured, geocodeAddress } from './MapboxMap';
+import {
+  MapboxMap,
+  isMapboxConfigured,
+  geocodeAddress,
+  searchPlaces,
+  getDrivingDirections,
+  type PlaceSuggestion,
+} from './MapboxMap';
 import { ConfettiBurst } from './ConfettiBurst';
 
 // The mocked GPS accuracy for demo declarations: comfortably inside any
@@ -23,6 +29,11 @@ interface Destination {
   name: string;
   lng: number;
   lat: number;
+}
+
+interface NavInfo {
+  distanceMeters: number;
+  durationSeconds: number;
 }
 
 const MOCK_DESTINATIONS = {
@@ -70,20 +81,34 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const { incrementSearches } = useApp();
   const { profile, isDemoAccount } = useAuth();
   const { t } = useLanguage();
-  const { getCurrentPosition } = useGeolocation();
   const { activeSession, refetch: refetchSession } = useActiveSession();
   const nearbySpots = useNearbySpots();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [routeState, setRouteState] = useState<RouteState>('idle');
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [activeDestination, setActiveDestination] = useState<Destination | null>(null);
+  const [navInfo, setNavInfo] = useState<NavInfo | null>(null);
+  const [routeCoords, setRouteCoords] = useState<[number, number][] | null>(null);
   const [foundSpot, setFoundSpot] = useState<{ lng: number; lat: number } | null>(null);
   const [walkMinutes, setWalkMinutes] = useState<number>(2);
   const [busyAction, setBusyAction] = useState<'declare' | 'spotted' | 'claim' | null>(null);
   const [celebrating, setCelebrating] = useState(false);
+
+  // "I saw a free space" (white button) enters this mode: the next map tap
+  // drops a temporary yellow pin instead of declaring immediately, so the
+  // reporter can mark a spot they saw elsewhere rather than under their feet.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedSpot, setSelectedSpot] = useState<{ lng: number; lat: number } | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
+  const searchRequestIdRef = useRef(0);
+  // Set right before we programmatically fill the search box with a chosen
+  // suggestion's full name, so that text change doesn't re-trigger the
+  // autocomplete effect and pop the dropdown back open over the selection.
+  const suppressNextAutocompleteRef = useRef(false);
 
   // Real device position; falls back to the demo city center if unavailable.
   const [userLngLat, setUserLngLat] = useState<[number, number]>(MAP_CENTER);
@@ -93,20 +118,11 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     if (isDemoAccount) {
       // Demo reviewers judge from a desk, not a car: skip real geolocation
       // entirely and pretend the device is at the map center with perfect
-      // accuracy. Real accounts below are completely unaffected.
+      // accuracy. Real accounts get their position from MapboxMap's own
+      // GeolocateControl instead (see handleUserLocationChange below).
       setUserAccuracy(DEMO_ACCURACY_METERS);
-      return;
     }
-    getCurrentPosition()
-      .then(({ lat, lng, accuracy }) => {
-        setUserLngLat([lng, lat]);
-        setUserAccuracy(accuracy);
-      })
-      .catch(() => {
-        // No permission / no GPS: stay on the fallback center. Declarations
-        // will simply fail the accuracy/radius check server-side, as intended.
-      });
-  }, [getCurrentPosition, isDemoAccount]);
+  }, [isDemoAccount]);
 
   // Demo only: the "user" follows the map, so wherever the reviewer pans,
   // that's where their declarations land.
@@ -117,12 +133,38 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     [isDemoAccount]
   );
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      toast({ title: t('map.enterDestination'), description: t('map.enterDestinationDesc'), variant: 'destructive' });
+  // Real accounts only: MapboxMap's GeolocateControl prompts for permission
+  // on mount and calls this on every live GPS fix, so userLngLat always
+  // reflects the actual device position rather than a one-time snapshot.
+  const handleUserLocationChange = useCallback(
+    (lng: number, lat: number, accuracy: number) => {
+      if (isDemoAccount) return;
+      setUserLngLat([lng, lat]);
+      setUserAccuracy(accuracy);
+    },
+    [isDemoAccount]
+  );
+
+  // Live autocomplete: debounce keystrokes, ignore stale responses that
+  // resolve out of order.
+  useEffect(() => {
+    if (suppressNextAutocompleteRef.current) {
+      suppressNextAutocompleteRef.current = false;
       return;
     }
+    if (searchQuery.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const requestId = ++searchRequestIdRef.current;
+    const timer = setTimeout(async () => {
+      const results = await searchPlaces(searchQuery, MAP_CENTER);
+      if (searchRequestIdRef.current === requestId) setSuggestions(results);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
+  const runDestinationSearch = async (destination: Destination) => {
     const canSearch = incrementSearches();
     if (!canSearch) {
       setShowLimitModal(true);
@@ -130,7 +172,59 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
 
     setRouteState('searching');
+    setActiveDestination(destination);
+    setNavInfo(null);
+    setRouteCoords(null);
 
+    const directions = await getDrivingDirections(userLngLat, [destination.lng, destination.lat]);
+    if (directions) {
+      setRouteCoords(directions.coordinates);
+      const straightLine = distanceMeters(userLngLat[0], userLngLat[1], destination.lng, destination.lat);
+      setNavInfo({ distanceMeters: straightLine, durationSeconds: directions.durationSeconds });
+    } else {
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
+    }
+
+    // Nearest already-reported free spot near the destination -- the actual
+    // parking value-add, kept alongside the new turn-by-turn navigation.
+    const candidates = nearbySpots.filter((s) => s.declared_by !== profile?.id);
+    const closest = candidates.reduce<{ lng: number; lat: number; d: number } | null>((best, s) => {
+      const d = distanceMeters(destination.lng, destination.lat, s.lng, s.lat);
+      if (!best || d < best.d) return { lng: s.lng, lat: s.lat, d };
+      return best;
+    }, null);
+
+    if (!closest) {
+      setFoundSpot(null);
+      setRouteState('not_found');
+    } else {
+      setFoundSpot({ lng: closest.lng, lat: closest.lat });
+      setRouteState('found');
+      setWalkMinutes(walkingMinutes(closest.d));
+      toast({ title: t('map.spotFoundToast'), description: t('map.walkFromDest', { n: walkingMinutes(closest.d) }) });
+    }
+  };
+
+  const handleSelectSuggestion = async (place: PlaceSuggestion) => {
+    setSuggestions([]);
+    suppressNextAutocompleteRef.current = true;
+    setSearchQuery(place.name);
+    inputRef.current?.blur();
+    await runDestinationSearch({ name: place.name, lng: place.lng, lat: place.lat });
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      toast({ title: t('map.enterDestination'), description: t('map.enterDestinationDesc'), variant: 'destructive' });
+      return;
+    }
+
+    if (suggestions.length > 0) {
+      await handleSelectSuggestion(suggestions[0]);
+      return;
+    }
+
+    setRouteState('searching');
     let destination: Destination | null = null;
 
     if (isMapboxConfigured) {
@@ -150,29 +244,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       destination = { name: mock.name, lng, lat };
     }
 
-    setActiveDestination(destination);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-
-    // Real nearby spots only -- no more fabricated "94% probability" spot.
-    const candidates = nearbySpots.filter((s) => s.declared_by !== profile?.id);
-    const closest = candidates.reduce<{ lng: number; lat: number; d: number } | null>((best, s) => {
-      const d = distanceMeters(destination!.lng, destination!.lat, s.lng, s.lat);
-      if (!best || d < best.d) return { lng: s.lng, lat: s.lat, d };
-      return best;
-    }, null);
-
-    if (!closest) {
-      setFoundSpot(null);
-      setRouteState('not_found');
-      toast({ title: t('map.noSpotsNear'), description: t('map.noSpotsNearDesc') });
-      return;
-    }
-
-    setFoundSpot({ lng: closest.lng, lat: closest.lat });
-    setRouteState('found');
-    const minutes = walkingMinutes(closest.d);
-    setWalkMinutes(minutes);
-    toast({ title: t('map.spotFoundToast'), description: t('map.walkFromDest', { n: minutes }) });
+    await runDestinationSearch(destination);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -183,12 +255,20 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setRouteState('idle');
     setActiveDestination(null);
     setFoundSpot(null);
+    setNavInfo(null);
+    setRouteCoords(null);
     setSearchQuery('');
+    setSuggestions([]);
   };
 
-  // "I'm leaving" -- declares the current spot free and, if the user had an
+  // "I'm leaving" -- declares the current spot free (right where the live
+  // GPS/GeolocateControl says the user is standing) and, if the user had an
   // active claimed session, closes it with the honest-checkout bonus too.
   const handleDeclare = async () => {
+    if (selectionMode) {
+      setSelectionMode(false);
+      setSelectedSpot(null);
+    }
     setBusyAction('declare');
     const [lng, lat] = userLngLat;
     const { data, error } = await declareSpot({
@@ -223,14 +303,34 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setBusyAction(null);
   };
 
-  const handleSpotted = async () => {
+  // Toggles Map Selection Mode: the reviewer taps anywhere on the map to
+  // drop a temporary pin, then confirms it from the floating button that
+  // appears right above that pin.
+  const handleToggleSelectionMode = () => {
+    if (selectionMode) {
+      setSelectionMode(false);
+      setSelectedSpot(null);
+      return;
+    }
+    setSelectionMode(true);
+    setSelectedSpot(null);
+    toast({ title: t('map.selectionModeTitle'), description: t('map.selectionModeDesc') });
+  };
+
+  const handleMapTap = (lng: number, lat: number) => {
+    if (!selectionMode) return;
+    setSelectedSpot({ lng, lat });
+  };
+
+  const handleConfirmSelection = async () => {
+    if (!selectedSpot) return;
     setBusyAction('spotted');
-    const [lng, lat] = userLngLat;
+    const [userLng, userLat] = userLngLat;
     const { data, error } = await declareSpot({
-      spotLat: lat,
-      spotLng: lng,
-      userLat: lat,
-      userLng: lng,
+      spotLat: selectedSpot.lat,
+      spotLng: selectedSpot.lng,
+      userLat,
+      userLng,
       accuracy: userAccuracy,
       kind: 'spotted',
     });
@@ -247,29 +347,8 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         toast({ title: t('map.reportedPoints', { n: data.pointsAwarded }), description: t('map.reportedPointsDesc') });
       }
     }
-    setBusyAction(null);
-  };
-
-  // Tapping the map reports a spot at that exact point -- if it's far from
-  // the device's real GPS, the radius check rejects it. That's the anti-
-  // cheat working as intended, not a bug.
-  const handleMapTapDrop = async (lng: number, lat: number) => {
-    setBusyAction('spotted');
-    const [userLng, userLat] = userLngLat;
-    const { data, error } = await declareSpot({
-      spotLat: lat,
-      spotLng: lng,
-      userLat,
-      userLng,
-      accuracy: userAccuracy,
-      kind: 'spotted',
-    });
-    if (error) {
-      toast({ title: t('map.reportFailed'), description: error, variant: 'destructive' });
-    } else if (data) {
-      if (isDemoAccount) setCelebrating(true);
-      toast({ title: t('map.pinDropped', { n: data.pointsAwarded }), description: t('map.pinDroppedDesc') });
-    }
+    setSelectionMode(false);
+    setSelectedSpot(null);
     setBusyAction(null);
   };
 
@@ -279,7 +358,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     const xPct = ((e.clientX - rect.left) / rect.width) * 100;
     const yPct = ((e.clientY - rect.top) / rect.height) * 100;
     const [lng, lat] = percentToLngLat(xPct, yPct);
-    handleMapTapDrop(lng, lat);
+    handleMapTap(lng, lat);
   };
 
   const nearestClaimable = nearbySpots
@@ -312,6 +391,8 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         <MapboxMap
           center={MAP_CENTER}
           userLocation={userLngLat}
+          showCustomUserDot={isDemoAccount}
+          onUserLocationChange={handleUserLocationChange}
           pins={[
             ...nearbySpots.map((s) => ({
               id: s.id,
@@ -323,10 +404,14 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             ...(activeDestination
               ? [{ id: 'destination', lng: activeDestination.lng, lat: activeDestination.lat, type: 'destination' as const, label: activeDestination.name }]
               : []),
+            ...(selectedSpot
+              ? [{ id: 'selection', lng: selectedSpot.lng, lat: selectedSpot.lat, type: 'selection' as const }]
+              : []),
           ]}
-          onMapClick={handleMapTapDrop}
+          onMapClick={handleMapTap}
           onCenterChange={handleCenterChange}
-          routeTo={routeState === 'found' && foundSpot ? [foundSpot.lng, foundSpot.lat] : null}
+          onConfirmSelection={handleConfirmSelection}
+          routeCoordinates={routeCoords}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
@@ -389,6 +474,21 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
               </div>
             );
           })()}
+
+          {selectedSpot && (() => {
+            const pct = lngLatToPercent(selectedSpot.lng, selectedSpot.lat);
+            return (
+              <div
+                className="absolute transform -translate-x-1/2 -translate-y-full flex flex-col items-center gap-1.5 pointer-events-auto"
+                style={{ left: `${pct.x}%`, top: `${pct.y}%` }}
+              >
+                <Button size="sm" className="rounded-full shadow-lg text-xs h-8" onClick={handleConfirmSelection}>
+                  {t('map.confirmSpot')}
+                </Button>
+                <div className="w-4 h-4 rounded-sm bg-warning border-2 border-white shadow-lg rotate-45" />
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -401,6 +501,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleKeyPress}
+            onBlur={() => setTimeout(() => setSuggestions([]), 150)}
             disabled={routeState === 'searching'}
             placeholder={t('map.searchPlaceholder')}
             className="w-full h-14 pl-12 pr-16 text-base rounded-2xl shadow-xl bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
@@ -413,6 +514,24 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           >
             {routeState === 'searching' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
           </Button>
+
+          {suggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full mt-2 glass-card p-1 max-h-64 overflow-y-auto z-30 animate-fade-in">
+              {suggestions.map((s) => (
+                <button
+                  key={s.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleSelectSuggestion(s);
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-secondary/70 transition-colors flex items-center gap-2"
+                >
+                  <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm truncate">{s.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -439,17 +558,33 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         </div>
       )}
 
+      {/* Map Selection Mode banner */}
+      {selectionMode && (
+        <div className="absolute top-40 left-4 right-4 z-20 flex justify-center">
+          <div className="glass-card px-4 py-2.5 flex items-center gap-3 shadow-lg animate-fade-in">
+            <span className="text-xs font-medium">{t('map.selectionBannerText')}</span>
+            <button
+              onClick={handleToggleSelectionMode}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+              aria-label={t('profile.cancel')}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Central Check-out + Secondary "I saw a free space" buttons */}
       <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
         <Button
-          onClick={handleSpotted}
+          onClick={handleToggleSelectionMode}
           disabled={busyAction !== null}
           variant="outline"
           className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
         >
-          {busyAction === 'spotted' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-          <span className="text-sm">{t('map.sawFreeSpace')}</span>
-          <span className="text-xs text-muted-foreground">+5</span>
+          {selectionMode ? <X className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          <span className="text-sm">{selectionMode ? t('profile.cancel') : t('map.sawFreeSpace')}</span>
+          {!selectionMode && <span className="text-xs text-muted-foreground">+5</span>}
         </Button>
 
         <Button
@@ -505,19 +640,33 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       {/* Demo-only celebration on successful declarations */}
       {celebrating && <ConfettiBurst onDone={() => setCelebrating(false)} />}
 
-      {/* Route Info Card */}
-      {routeState === 'found' && foundSpot && (
+      {/* Navigation Card: destination + real driving ETA, plus the nearest
+          already-reported free spot near it, if any. */}
+      {activeDestination && routeState !== 'searching' && routeState !== 'idle' && (
         <div className="absolute bottom-44 left-4 right-4 z-20">
-          <div className="glass-card p-4 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-sm">{t('map.spotFoundCard')}</p>
-                <p className="text-xs text-muted-foreground">{t('map.walkMinutes', { n: walkMinutes })}</p>
+          <div className="glass-card p-4 animate-fade-in space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{activeDestination.name}</p>
+                {navInfo && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('map.navDistanceEta', {
+                      km: (navInfo.distanceMeters / 1000).toFixed(1),
+                      min: Math.round(navInfo.durationSeconds / 60),
+                    })}
+                  </p>
+                )}
               </div>
-              <Button size="sm" variant="outline" onClick={clearRoute}>
+              <Button size="sm" variant="outline" onClick={clearRoute} className="shrink-0">
                 <X className="h-4 w-4" />
               </Button>
             </div>
+            {foundSpot && (
+              <div className="pt-2 border-t border-border flex items-center gap-2 text-xs text-success font-medium">
+                <ParkingCircle className="h-3.5 w-3.5" />
+                {t('map.walkMinutes', { n: walkMinutes })}
+              </div>
+            )}
           </div>
         </div>
       )}
