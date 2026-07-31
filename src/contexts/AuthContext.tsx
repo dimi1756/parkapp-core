@@ -28,6 +28,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   saveVehicleDetails: (details: VehicleDetails) => Promise<{ error: string | null }>;
+  updateProfileDetails: (details: { fullName: string } & VehicleDetails) => Promise<{ error: string | null }>;
   upgradeToPremium: () => Promise<void>;
   assignMunicipality: (municipalityId: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -131,6 +132,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return { error: error?.message ?? null };
   };
 
+  const updateProfileDetails = async ({ fullName, make, color, plate }: { fullName: string } & VehicleDetails) => {
+    if (!session?.user) return { error: 'Not authenticated.' };
+    const { error } = await supabase
+      .from('profiles')
+      .update({ full_name: fullName, vehicle_make: make, vehicle_color: color, vehicle_plate: plate })
+      .eq('id', session.user.id);
+    if (!error) await fetchProfile(session.user.id);
+    return { error: error?.message ?? null };
+  };
+
   const upgradeToPremium = async () => {
     if (!session?.user) return;
     await supabase.from('profiles').update({ membership_tier: 'premium' }).eq('id', session.user.id);
@@ -160,6 +171,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         signIn,
         signOut,
         saveVehicleDetails,
+        updateProfileDetails,
         upgradeToPremium,
         assignMunicipality,
         refreshProfile,

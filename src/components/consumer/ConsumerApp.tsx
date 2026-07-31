@@ -20,7 +20,7 @@ export const ConsumerApp = () => {
   const renderTab = () => {
     switch (activeTab) {
       case 'map':
-        return <MapTab />;
+        return <MapTab onNavigateToPlans={() => setActiveTab('plans')} />;
       case 'offers':
         return <OffersTab />;
       case 'plans':
@@ -28,13 +28,14 @@ export const ConsumerApp = () => {
       case 'profile':
         return <ProfileTab />;
       default:
-        return <MapTab />;
+        return <MapTab onNavigateToPlans={() => setActiveTab('plans')} />;
     }
   };
 
   return (
     <div className="h-[100dvh] w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
-      <div className="flex-1 overflow-hidden">
+      {/* key remounts the pane per tab so each switch gets the fade-in */}
+      <div key={activeTab} className="flex-1 overflow-hidden animate-fade-in">
         {renderTab()}
       </div>
 

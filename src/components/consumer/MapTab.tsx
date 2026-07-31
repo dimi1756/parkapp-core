@@ -56,7 +56,11 @@ function walkingMinutes(meters: number): number {
   return Math.max(1, Math.round(meters / 80));
 }
 
-export const MapTab = () => {
+interface MapTabProps {
+  onNavigateToPlans?: () => void;
+}
+
+export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const { incrementSearches } = useApp();
   const { profile } = useAuth();
   const { getCurrentPosition } = useGeolocation();
@@ -443,7 +447,13 @@ export const MapTab = () => {
             <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-warning" />
             <h3 className="text-lg font-semibold mb-2">Daily Limit Reached</h3>
             <p className="text-sm text-muted-foreground mb-4">You've used your free search for today.</p>
-            <Button onClick={() => setShowLimitModal(false)} className="w-full bg-accent text-accent-foreground hover:bg-accent/90">
+            <Button
+              onClick={() => {
+                setShowLimitModal(false);
+                onNavigateToPlans?.();
+              }}
+              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+            >
               Upgrade to Premium
             </Button>
           </div>
