@@ -42,7 +42,7 @@ export const KPICards: React.FC<KPICardsProps> = ({ kpis, loading }) => {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-32 rounded-2xl" />
         ))}
@@ -78,7 +78,7 @@ export const KPICards: React.FC<KPICardsProps> = ({ kpis, loading }) => {
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       {cards.map((kpi, index) => (
         <div key={kpi.title} style={{ animationDelay: `${index * 100}ms` }}>
           <KPICard {...kpi} />

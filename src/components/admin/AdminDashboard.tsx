@@ -9,7 +9,7 @@ import { KPICards, type CityKpis } from './KPICards';
 import { CityMap, type LiveSpot } from './CityMap';
 import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
 import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
-import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2 } from 'lucide-react';
+import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 
@@ -27,6 +27,7 @@ export const AdminDashboard = () => {
   const [trend, setTrend] = useState<TrendDay[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [showTour, setShowTour] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!municipalityId) return;
@@ -166,28 +167,45 @@ export const AdminDashboard = () => {
     // h-screen + overflow-hidden pins the shell to the viewport so <main>
     // is the one true scroll container — nothing can clip below the fold.
     <div className="flex h-screen overflow-hidden bg-background">
-      <AdminSidebar activeSection={activeSection} onSectionChange={setActiveSection} municipalityName={municipalityName} />
+      <AdminSidebar
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        municipalityName={municipalityName}
+        mobileOpen={mobileNavOpen}
+        onMobileOpenChange={setMobileNavOpen}
+      />
 
-      <main className="flex-1 min-w-0 overflow-y-auto">
-        <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-10 px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">{sectionTitle[activeSection]}</h1>
-              <p className="text-sm text-muted-foreground">
-                <Calendar className="h-3 w-3 inline mr-1" />
-                {new Date().toLocaleDateString(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                <span className="mx-2">•</span>
-                {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </p>
+      <main className="w-full flex-1 min-w-0 overflow-y-auto">
+        <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-10 px-4 md:px-8 py-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden shrink-0"
+                onClick={() => setMobileNavOpen(true)}
+                aria-label={t('admin.openMenu')}
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold truncate">{sectionTitle[activeSection]}</h1>
+                <p className="text-sm text-muted-foreground truncate">
+                  <Calendar className="h-3 w-3 inline mr-1" />
+                  {new Date().toLocaleDateString(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  <span className="mx-2">•</span>
+                  {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </p>
+              </div>
             </div>
-            <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh} disabled={isRefreshing}>
+            <Button variant="outline" size="sm" className="gap-2 shrink-0" onClick={handleRefresh} disabled={isRefreshing}>
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? t('admin.refreshing') : t('admin.refresh')}
+              <span className="hidden sm:inline">{isRefreshing ? t('admin.refreshing') : t('admin.refresh')}</span>
             </Button>
           </div>
         </header>
 
-        <div className="p-8 pb-16">
+        <div className="p-4 md:p-8 pb-16">
           {renderContent()}
         </div>
       </main>

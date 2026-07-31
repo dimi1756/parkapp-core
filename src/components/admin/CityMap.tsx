@@ -85,13 +85,13 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
   const activeCount = spots.filter((s) => s.status === 'active').length;
 
   return (
-    <div className={`glass-card p-6 ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-lg font-bold">{t('admin.liveMapTitle', { name: municipalityName ?? t('admin.city') })}</h3>
+    <div className={`glass-card p-4 md:p-6 ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <h3 className="text-lg font-bold truncate">{t('admin.liveMapTitle', { name: municipalityName ?? t('admin.city') })}</h3>
           <p className="text-sm text-muted-foreground">{t('admin.activeSpots24h', { n: activeCount })}</p>
         </div>
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-success" />
             <span>{t('admin.legendActive')}</span>
@@ -110,7 +110,7 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
       {loading ? (
         <Skeleton className="h-[calc(100%-60px)] rounded-2xl" />
       ) : isMapboxConfigured ? (
-        <div ref={containerRef} className="relative h-[calc(100%-60px)] rounded-2xl overflow-hidden border border-border" />
+        <div ref={containerRef} className="relative w-full h-[calc(100%-60px)] rounded-2xl overflow-hidden border border-border" />
       ) : (
         <div className="h-[calc(100%-60px)] rounded-2xl border border-border flex items-center justify-center text-sm text-muted-foreground">
           {t('admin.noMapToken')}

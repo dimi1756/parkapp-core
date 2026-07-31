@@ -24,13 +24,13 @@ export const WeeklyTrafficChart: React.FC<WeeklyTrafficChartProps> = ({ trend, l
   const total = data.reduce((sum, d) => sum + d.declarations, 0);
 
   return (
-    <div className="glass-card p-6 h-80 animate-fade-in" style={{ animationDelay: '100ms' }}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-lg font-bold">{t('admin.weeklyTitle')}</h3>
-          <p className="text-sm text-muted-foreground">{t('admin.weeklySubtitle')}</p>
+    <div className="glass-card p-4 md:p-6 h-80 animate-fade-in" style={{ animationDelay: '100ms' }}>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="min-w-0">
+          <h3 className="text-lg font-bold truncate">{t('admin.weeklyTitle')}</h3>
+          <p className="text-sm text-muted-foreground truncate">{t('admin.weeklySubtitle')}</p>
         </div>
-        <div className="flex items-center gap-1 text-success text-sm font-semibold">
+        <div className="flex items-center gap-1 text-success text-sm font-semibold shrink-0">
           <TrendingUp className="h-4 w-4" />
           {t('admin.total', { n: total })}
         </div>

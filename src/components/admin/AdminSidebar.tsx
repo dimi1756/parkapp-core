@@ -12,14 +12,17 @@ import {
   Building2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 
 interface SidebarProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
   municipalityName: string | null;
+  mobileOpen: boolean;
+  onMobileOpenChange: (open: boolean) => void;
 }
 
-export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName }: SidebarProps) => {
+export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName, mobileOpen, onMobileOpenChange }: SidebarProps) => {
   const { setAdminMode } = useApp();
   const { signOut } = useAuth();
   const { t } = useLanguage();
@@ -31,8 +34,10 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
     { id: 'settings', label: t('admin.settings'), icon: Settings },
   ];
 
-  return (
-    <aside className="w-64 shrink-0 bg-sidebar border-r border-sidebar-border h-full flex flex-col">
+  // Shared between the fixed desktop aside and the mobile Sheet drawer so
+  // the two surfaces can never drift out of sync.
+  const sidebarContent = (
+    <>
       <div className="p-6 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center">
@@ -53,7 +58,10 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
           return (
             <button
               key={item.id}
-              onClick={() => onSectionChange(item.id)}
+              onClick={() => {
+                onSectionChange(item.id);
+                onMobileOpenChange(false);
+              }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 isActive
                   ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md'
@@ -85,6 +93,22 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName 
           {t('admin.logOut')}
         </Button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop / tablet: fixed sidebar, unchanged from the original layout */}
+      <aside className="hidden md:flex w-64 shrink-0 bg-sidebar border-r border-sidebar-border h-full flex-col">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile: slide-over drawer, opened via the header hamburger button */}
+      <Sheet open={mobileOpen} onOpenChange={onMobileOpenChange}>
+        <SheetContent side="left" className="w-64 max-w-[80vw] p-0 flex flex-col bg-sidebar border-sidebar-border">
+          {sidebarContent}
+        </SheetContent>
+      </Sheet>
+    </>
   );
 };
