@@ -34,6 +34,20 @@ export type Database = {
         };
         Update: Partial<Database["public"]["Tables"]["municipality_admins"]["Row"]>;
       };
+      municipality_settings: {
+        Row: {
+          municipality_id: string;
+          notify_high_occupancy: boolean;
+          moderate_spot_threshold: number;
+          full_spot_threshold: number;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["municipality_settings"]["Row"]> & {
+          municipality_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["municipality_settings"]["Row"]>;
+      };
       profiles: {
         Row: {
           id: string;

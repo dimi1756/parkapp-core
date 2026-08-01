@@ -8,6 +8,7 @@ import { AdminSidebar } from './AdminSidebar';
 import { KPICards, type CityKpis } from './KPICards';
 import { CityMap, type LiveSpot } from './CityMap';
 import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
+import { AdminSettings } from './AdminSettings';
 import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
 import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -132,25 +133,7 @@ export const AdminDashboard = () => {
       case 'livemap':
         return <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} tall />;
       case 'settings':
-        return (
-          <div className="glass-card p-6 animate-fade-in">
-            <h3 className="text-lg font-bold mb-4">{t('admin.systemSettings')}</h3>
-            <div className="space-y-4">
-              <div className="p-4 bg-secondary/50 rounded-xl">
-                <h4 className="font-medium mb-2">{t('admin.adminNotifs')}</h4>
-                <p className="text-sm text-muted-foreground">{t('admin.adminNotifsDesc')}</p>
-              </div>
-              <div className="p-4 bg-secondary/50 rounded-xl">
-                <h4 className="font-medium mb-2">{t('admin.occupancy')}</h4>
-                <p className="text-sm text-muted-foreground">{t('admin.occupancyDesc')}</p>
-              </div>
-              <div className="p-4 bg-secondary/50 rounded-xl">
-                <h4 className="font-medium mb-2">{t('admin.dataExport')}</h4>
-                <p className="text-sm text-muted-foreground">{t('admin.dataExportDesc')}</p>
-              </div>
-            </div>
-          </div>
-        );
+        return <AdminSettings municipalityId={municipalityId} spots={spots} trend={trend} />;
       default:
         return null;
     }
