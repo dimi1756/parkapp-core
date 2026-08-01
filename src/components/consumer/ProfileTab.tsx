@@ -19,6 +19,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 
 const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
+const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR' };
 
 export const ProfileTab = () => {
   const { darkMode, toggleDarkMode, citizenVerified, setAdminMode } = useApp();
@@ -169,7 +170,7 @@ export const ProfileTab = () => {
               <span className="font-medium">{t('profile.language')}</span>
             </div>
             <div className="flex rounded-full border border-border bg-secondary/50 p-0.5">
-              {(['en', 'gr'] as Language[]).map((lang) => (
+              {(['en', 'gr', 'tr'] as Language[]).map((lang) => (
                 <button
                   key={lang}
                   type="button"
@@ -180,7 +181,7 @@ export const ProfileTab = () => {
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  {lang === 'en' ? 'EN' : 'GR'}
+                  {LANGUAGE_LABELS[lang]}
                 </button>
               ))}
             </div>

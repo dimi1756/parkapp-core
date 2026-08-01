@@ -10,11 +10,13 @@ import { MapPin, Loader2, Sparkles } from 'lucide-react';
 const DEMO_EMAIL = 'demo@parkapp.tech';
 const DEMO_PASSWORD = 'demo123456';
 
+const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR' };
+
 const LanguageToggle = () => {
   const { language, setLanguage } = useLanguage();
   return (
     <div className="absolute top-4 right-4 z-10 flex rounded-full border border-border bg-background/80 backdrop-blur-sm p-0.5 shadow-sm">
-      {(['en', 'gr'] as Language[]).map((lang) => (
+      {(['en', 'gr', 'tr'] as Language[]).map((lang) => (
         <button
           key={lang}
           type="button"
@@ -25,7 +27,7 @@ const LanguageToggle = () => {
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          {lang === 'en' ? 'EN' : 'GR'}
+          {LANGUAGE_LABELS[lang]}
         </button>
       ))}
     </div>
@@ -185,8 +187,8 @@ export const LoginScreen = () => {
 
         {/* Footer signature -- pinned to the bottom of the card so it reads
             as a proud company mark rather than a cramped afterthought. */}
-        <div className="flex items-center justify-center gap-2.5 mt-6 pt-4 pb-2">
-          <span className="text-sm font-medium text-foreground/70">{t('login.poweredBy')}</span>
+        <div className="flex items-center justify-center gap-3 mt-10 pt-4 pb-2">
+          <span className="text-base font-semibold text-foreground/80">{t('login.poweredBy')}</span>
           <img src="/urbansync-logo.jpg" alt="Urban Sync" className="h-12 w-auto object-contain" />
         </div>
       </div>

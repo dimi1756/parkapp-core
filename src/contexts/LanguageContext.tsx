@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { STRINGS, StringKey } from '@/i18n/strings';
 
-export type Language = 'en' | 'gr';
+export type Language = 'en' | 'gr' | 'tr';
 
 const LANGUAGE_KEY = 'parkapp_language';
+const VALID_LANGUAGES: Language[] = ['en', 'gr', 'tr'];
 
 interface LanguageContextType {
   language: Language;
@@ -17,9 +18,10 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-  const [language, setLanguageState] = useState<Language>(() =>
-    localStorage.getItem(LANGUAGE_KEY) === 'gr' ? 'gr' : 'en'
-  );
+  const [language, setLanguageState] = useState<Language>(() => {
+    const stored = localStorage.getItem(LANGUAGE_KEY);
+    return VALID_LANGUAGES.includes(stored as Language) ? (stored as Language) : 'en';
+  });
 
   const setLanguage = useCallback((lang: Language) => {
     localStorage.setItem(LANGUAGE_KEY, lang);
@@ -39,10 +41,10 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     [language]
   );
 
-  const locale = language === 'gr' ? 'el-GR' : 'en-US';
+  const locale = language === 'gr' ? 'el-GR' : language === 'tr' ? 'tr-TR' : 'en-US';
 
   useEffect(() => {
-    document.documentElement.lang = language === 'gr' ? 'el' : 'en';
+    document.documentElement.lang = language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en';
   }, [language]);
 
   return (
