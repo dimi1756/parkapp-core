@@ -50,7 +50,17 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
 
+    // Mapbox GL renders a blank canvas if the container's size isn't settled
+    // yet when the map is created (very common on mobile, where the header
+    // wraps to a taller multi-line layout and the flex sizing above it
+    // resolves a beat later) -- and it never repaints on its own afterward.
+    // Watching the container and calling resize() whenever its box changes
+    // fixes that permanently, on every screen size.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
+
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
@@ -85,8 +95,8 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
   const activeCount = spots.filter((s) => s.status === 'active').length;
 
   return (
-    <div className={`glass-card p-4 md:p-6 ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+    <div className={`glass-card p-4 md:p-6 flex flex-col ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 shrink-0">
         <div className="min-w-0">
           <h3 className="text-lg font-bold truncate">{t('admin.liveMapTitle', { name: municipalityName ?? t('admin.city') })}</h3>
           <p className="text-sm text-muted-foreground">{t('admin.activeSpots24h', { n: activeCount })}</p>
@@ -108,11 +118,11 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
       </div>
 
       {loading ? (
-        <Skeleton className="h-[calc(100%-60px)] rounded-2xl" />
+        <Skeleton className="flex-1 min-h-0 rounded-2xl" />
       ) : isMapboxConfigured ? (
-        <div ref={containerRef} className="relative w-full h-[calc(100%-60px)] rounded-2xl overflow-hidden border border-border" />
+        <div ref={containerRef} className="relative w-full flex-1 min-h-0 rounded-2xl overflow-hidden border border-border" />
       ) : (
-        <div className="h-[calc(100%-60px)] rounded-2xl border border-border flex items-center justify-center text-sm text-muted-foreground">
+        <div className="flex-1 min-h-0 rounded-2xl border border-border flex items-center justify-center text-sm text-muted-foreground">
           {t('admin.noMapToken')}
         </div>
       )}
