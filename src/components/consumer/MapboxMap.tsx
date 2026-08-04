@@ -224,7 +224,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
       center,
-      zoom: 15,
+      zoom: 17,
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
