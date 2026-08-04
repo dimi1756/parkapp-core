@@ -11,11 +11,6 @@ import { Map, Gift, CreditCard, User, Trophy } from 'lucide-react';
 
 type TabType = 'map' | 'offers' | 'plans' | 'profile' | 'leaderboard';
 
-// The guided demo tour only covers the original 4 tabs; Leaderboard has no
-// tour steps defined (see DemoTour.tsx's TOURS map) so it's excluded here
-// rather than widening TourId for a tab with nothing to point at yet.
-const isTourableTab = (tab: TabType): tab is Exclude<TabType, 'leaderboard'> => tab !== 'leaderboard';
-
 export const ConsumerApp = () => {
   const { isDemoAccount } = useAuth();
   const { t } = useLanguage();
@@ -29,11 +24,11 @@ export const ConsumerApp = () => {
   useEffect(() => {
     if (!isDemoAccount) return;
     const prevTab = prevTabRef.current;
-    if (prevTab && prevTab !== activeTab && isTourableTab(prevTab)) {
+    if (prevTab && prevTab !== activeTab) {
       dismissTour(prevTab);
     }
     prevTabRef.current = activeTab;
-    setActiveTour(isTourableTab(activeTab) && shouldShowTour(activeTab) ? activeTab : null);
+    setActiveTour(shouldShowTour(activeTab) ? activeTab : null);
   }, [activeTab, isDemoAccount]);
 
   const tabs = [

@@ -276,6 +276,12 @@ const en = {
   'tour.admin.1.body': 'Live metrics a municipality actually buys: active drivers, daily reports, average parking time, and community trust.',
   'tour.admin.2.title': 'Live city map',
   'tour.admin.2.body': 'Every community-reported spot, color-coded in real time — parking pressure at street level for planning and enforcement.',
+  'tour.leaderboard.1.title': 'Meet the podium',
+  'tour.leaderboard.1.body': "These are your city's top point-earners this season, ranked highest first.",
+  'tour.leaderboard.2.title': 'Rank badges & points',
+  'tour.leaderboard.2.body': 'Gold, silver, bronze — plus a crown for #1. Every point comes from accurate, verified spot reports.',
+  'tour.leaderboard.3.title': "There's more coming",
+  'tour.leaderboard.3.body': "This is a preview of the top 3. Full city-wide rankings, your own position, and weekly challenges are next.",
 
   // Leaderboard (gamification placeholder)
   'leaderboard.title': 'Top Drivers',
@@ -547,6 +553,12 @@ const gr: Record<keyof typeof en, string> = {
   'tour.admin.1.body': 'Ζωντανές μετρήσεις που αγοράζει ένας δήμος: ενεργοί οδηγοί, ημερήσιες αναφορές, μέσος χρόνος στάθμευσης και αξιοπιστία κοινότητας.',
   'tour.admin.2.title': 'Ζωντανός χάρτης πόλης',
   'tour.admin.2.body': 'Κάθε αναφερόμενη θέση, χρωματισμένη σε πραγματικό χρόνο — η πίεση στάθμευσης σε επίπεδο δρόμου για σχεδιασμό και επιτήρηση.',
+  'tour.leaderboard.1.title': 'Γνώρισε το βάθρο',
+  'tour.leaderboard.1.body': 'Αυτοί είναι οι κορυφαίοι της πόλης σου σε πόντους φέτος, με τον πρώτο στην κορυφή.',
+  'tour.leaderboard.2.title': 'Παράσημα κατάταξης & πόντοι',
+  'tour.leaderboard.2.body': 'Χρυσό, ασήμι, χαλκός — και κορώνα για το #1. Κάθε πόντος προέρχεται από ακριβείς, επιβεβαιωμένες αναφορές θέσεων.',
+  'tour.leaderboard.3.title': 'Έρχονται περισσότερα',
+  'tour.leaderboard.3.body': 'Αυτή είναι μια προεπισκόπηση του Top 3. Πλήρης κατάταξη πόλης, η δική σου θέση και εβδομαδιαίες προκλήσεις έρχονται σύντομα.',
 
   'leaderboard.title': 'Κορυφαίοι Οδηγοί',
   'leaderboard.comingSoon': 'Έρχεται Σύντομα',
@@ -817,6 +829,12 @@ const tr: Record<keyof typeof en, string> = {
   'tour.admin.1.body': 'Bir belediyenin gerçekten satın aldığı canlı metrikler: aktif sürücüler, günlük bildirimler, ortalama park süresi ve topluluk güveni.',
   'tour.admin.2.title': 'Canlı şehir haritası',
   'tour.admin.2.body': 'Topluluk tarafından bildirilen her yer, gerçek zamanlı olarak renklendirilir — planlama ve denetim için sokak seviyesinde park baskısı.',
+  'tour.leaderboard.1.title': 'Podyumu tanı',
+  'tour.leaderboard.1.body': 'Bunlar bu sezon şehrinin en çok puan toplayan sürücüleri — en yüksek puan en üstte.',
+  'tour.leaderboard.2.title': 'Sıralama rozetleri ve puanlar',
+  'tour.leaderboard.2.body': 'Altın, gümüş, bronz — ve #1 için taç. Her puan, doğru ve doğrulanmış yer bildirimlerinden gelir.',
+  'tour.leaderboard.3.title': 'Daha fazlası geliyor',
+  'tour.leaderboard.3.body': 'Bu, ilk 3\'ün bir önizlemesi. Tam şehir sıralaması, kendi sıran ve haftalık yarışmalar yakında.',
 
   'leaderboard.title': 'En İyi Sürücüler',
   'leaderboard.comingSoon': 'Yakında Geliyor',

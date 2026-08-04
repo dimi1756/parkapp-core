@@ -147,9 +147,12 @@ export const AdminDashboard = () => {
   };
 
   return (
-    // h-screen + overflow-hidden pins the shell to the viewport so <main>
-    // is the one true scroll container — nothing can clip below the fold.
-    <div className="flex h-screen overflow-hidden bg-background">
+    // h-[100dvh] + overflow-hidden pins the shell to the *actual visible*
+    // viewport (matching #root's own 100dvh in index.css) so <main> is the
+    // one true scroll container. Plain h-screen (100vh) can be taller than
+    // the visible area on iOS Safari while the address bar is showing,
+    // clipping content at the bottom against #root's overflow:hidden.
+    <div className="flex h-[100dvh] overflow-hidden bg-background">
       <AdminSidebar
         activeSection={activeSection}
         onSectionChange={setActiveSection}

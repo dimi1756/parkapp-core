@@ -18,7 +18,7 @@ export const LeaderboardTab = () => {
 
   return (
     <div className="h-full overflow-y-auto pb-24">
-      <div className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-6 pb-10 text-center">
+      <div className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-6 pb-10 text-center" data-tour="leaderboard-title">
         <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-3 backdrop-blur-sm">
           <Trophy className="h-8 w-8" />
         </div>
@@ -29,31 +29,33 @@ export const LeaderboardTab = () => {
       </div>
 
       <div className="p-4 -mt-6 space-y-3">
-        {MOCK_TOP_3.map((entry, i) => (
-          <div
-            key={entry.name}
-            className={`glass-card p-4 flex items-center gap-4 animate-fade-in ${i === 0 ? 'ring-2 ring-accent' : ''}`}
-            style={{ animationDelay: `${i * 100}ms` }}
-          >
-            <div className="relative shrink-0">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                {entry.initials}
+        <div className="space-y-3" data-tour="leaderboard-podium">
+          {MOCK_TOP_3.map((entry, i) => (
+            <div
+              key={entry.name}
+              className={`glass-card p-4 flex items-center gap-4 animate-fade-in ${i === 0 ? 'ring-2 ring-accent' : ''}`}
+              style={{ animationDelay: `${i * 100}ms` }}
+            >
+              <div className="relative shrink-0">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
+                  {entry.initials}
+                </div>
+                <div
+                  className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold text-white ${RANK_BADGE_COLOR[i]}`}
+                >
+                  {i + 1}
+                </div>
               </div>
-              <div
-                className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold text-white ${RANK_BADGE_COLOR[i]}`}
-              >
-                {i + 1}
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold truncate">{entry.name}</p>
+                <p className="text-xs text-muted-foreground">{entry.points.toLocaleString(locale)} {t('map.points')}</p>
               </div>
+              {i === 0 && <Crown className="h-5 w-5 text-accent shrink-0" />}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold truncate">{entry.name}</p>
-              <p className="text-xs text-muted-foreground">{entry.points.toLocaleString(locale)} {t('map.points')}</p>
-            </div>
-            {i === 0 && <Crown className="h-5 w-5 text-accent shrink-0" />}
-          </div>
-        ))}
+          ))}
+        </div>
 
-        <div className="glass-card p-5 mt-6 bg-primary/5 border-primary/20 text-center">
+        <div className="glass-card p-5 mt-6 bg-primary/5 border-primary/20 text-center" data-tour="leaderboard-future">
           <Sparkles className="h-6 w-6 text-primary mx-auto mb-2" />
           <p className="text-sm font-medium">{t('leaderboard.futureTitle')}</p>
           <p className="text-xs text-muted-foreground mt-1">{t('leaderboard.futureDesc')}</p>

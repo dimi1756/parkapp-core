@@ -184,6 +184,13 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  /* Clears the iOS home-indicator / Android gesture bar for chrome pinned to
+     the bottom edge. Needs viewport-fit=cover on the <meta viewport> tag in
+     index.html, or env(safe-area-inset-*) always resolves to 0. */
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
 }
 
 /* Mapbox marker styles */

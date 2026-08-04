@@ -75,7 +75,7 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName,
         })}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border space-y-2">
+      <div className="p-4 pb-safe border-t border-sidebar-border space-y-2">
         <Button
           variant="outline"
           className="w-full justify-start gap-2"

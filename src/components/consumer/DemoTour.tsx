@@ -10,7 +10,7 @@ import type { StringKey } from '@/i18n/strings';
 // Each surface has its own "done" flag, so every tab greets the reviewer
 // exactly once.
 
-export type TourId = 'map' | 'offers' | 'plans' | 'profile' | 'admin';
+export type TourId = 'map' | 'offers' | 'plans' | 'profile' | 'leaderboard' | 'admin';
 
 interface TourStep {
   target: string;
@@ -36,6 +36,11 @@ const TOURS: Record<TourId, TourStep[]> = {
     { target: 'profile-score', titleKey: 'tour.profile.1.title', bodyKey: 'tour.profile.1.body' },
     { target: 'profile-settings', titleKey: 'tour.profile.2.title', bodyKey: 'tour.profile.2.body' },
     { target: 'profile-admin', titleKey: 'tour.profile.3.title', bodyKey: 'tour.profile.3.body' },
+  ],
+  leaderboard: [
+    { target: 'leaderboard-title', titleKey: 'tour.leaderboard.1.title', bodyKey: 'tour.leaderboard.1.body' },
+    { target: 'leaderboard-podium', titleKey: 'tour.leaderboard.2.title', bodyKey: 'tour.leaderboard.2.body' },
+    { target: 'leaderboard-future', titleKey: 'tour.leaderboard.3.title', bodyKey: 'tour.leaderboard.3.body' },
   ],
   admin: [
     { target: 'admin-kpis', titleKey: 'tour.admin.1.title', bodyKey: 'tour.admin.1.body' },

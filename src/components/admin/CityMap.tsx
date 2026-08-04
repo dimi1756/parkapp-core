@@ -50,7 +50,35 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
     mapRef.current = map;
 
+    // Mapbox measures the container once at construction time via
+    // getBoundingClientRect(). The header above it stacks from one row to
+    // two (title + wrapping legend) on narrow screens, so on first mount
+    // the flex layout can still be settling when that measurement happens
+    // -- Mapbox then bakes in a stale/undersized canvas and never
+    // repaints on its own. A double rAF resize catches that first-paint
+    // race (one frame for layout, one for the browser to commit it).
+    let settleFrame = requestAnimationFrame(() => {
+      settleFrame = requestAnimationFrame(() => map.resize());
+    });
+    map.once('load', () => map.resize());
+
+    // ResizeObserver keeps the map's internal canvas in sync with the
+    // container for every *later* size change too -- header re-wrapping on
+    // window resize/orientation change, the legend growing to a second
+    // line, a sidebar toggling, etc. rAF-throttled so a burst of entries
+    // (e.g. during a CSS transition) collapses into a single resize call
+    // and never trips "ResizeObserver loop limit exceeded".
+    let observerFrame: number | null = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (observerFrame !== null) cancelAnimationFrame(observerFrame);
+      observerFrame = requestAnimationFrame(() => map.resize());
+    });
+    resizeObserver.observe(containerRef.current);
+
     return () => {
+      cancelAnimationFrame(settleFrame);
+      if (observerFrame !== null) cancelAnimationFrame(observerFrame);
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
@@ -85,8 +113,15 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
   const activeCount = spots.filter((s) => s.status === 'active').length;
 
   return (
-    <div className={`glass-card p-4 md:p-6 ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+    // flex-col + shrink-0 header + flex-1 min-h-0 map area replaces the old
+    // h-[calc(100%-60px)] "magic number", which assumed the header was
+    // always exactly 60px tall. It isn't: the header below stacks from one
+    // row to two (title + wrapping legend) on narrow screens, so a fixed
+    // subtraction either clips the map or leaves it too tall. Real flexbox
+    // space distribution makes the map area's height correct no matter how
+    // many lines the header wraps to.
+    <div className={`glass-card p-4 md:p-6 flex flex-col ${tall ? 'h-[70vh]' : 'h-[500px]'} animate-fade-in`}>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 shrink-0">
         <div className="min-w-0">
           <h3 className="text-lg font-bold truncate">{t('admin.liveMapTitle', { name: municipalityName ?? t('admin.city') })}</h3>
           <p className="text-sm text-muted-foreground">{t('admin.activeSpots24h', { n: activeCount })}</p>
@@ -107,12 +142,21 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
         </div>
       </div>
 
-      {loading ? (
-        <Skeleton className="h-[calc(100%-60px)] rounded-2xl" />
-      ) : isMapboxConfigured ? (
-        <div ref={containerRef} className="relative w-full h-[calc(100%-60px)] rounded-2xl overflow-hidden border border-border" />
+      {isMapboxConfigured ? (
+        // The Mapbox container stays mounted at all times -- it used to be
+        // swapped out for a <Skeleton> while `loading` was true, which meant
+        // containerRef.current was still null when the map-init effect ran
+        // on mount (loading starts true), so the map never initialized at
+        // all until something happened to remount this subtree. The
+        // skeleton is now a simple overlay on top instead, so the ref (and
+        // therefore Mapbox's construction) is reliable regardless of when
+        // the underlying data finishes loading.
+        <div className="relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border border-border">
+          <div ref={containerRef} className="absolute inset-0" />
+          {loading && <Skeleton className="absolute inset-0 rounded-2xl" />}
+        </div>
       ) : (
-        <div className="h-[calc(100%-60px)] rounded-2xl border border-border flex items-center justify-center text-sm text-muted-foreground">
+        <div className="flex-1 min-h-0 rounded-2xl border border-border flex items-center justify-center text-sm text-muted-foreground">
           {t('admin.noMapToken')}
         </div>
       )}
