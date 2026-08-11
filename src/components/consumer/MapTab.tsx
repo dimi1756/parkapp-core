@@ -299,8 +299,22 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setRouteSteps(null);
     setCurrentStepIndex(0);
 
+    // Route from exactly where the driver is right now, not a fix that
+    // might be stale by however long since GeolocateControl last updated
+    // it -- same guaranteed-fresh capture "Emptying a space" uses. Demo
+    // accounts keep their simulated map-center position.
+    let origin = userLngLat;
+    if (!isDemoAccount) {
+      const fresh = await getFreshPosition();
+      if (fresh) {
+        origin = [fresh.lng, fresh.lat];
+        setUserLngLat(origin);
+        setUserAccuracy(fresh.accuracy);
+      }
+    }
+
     const directions = await getDrivingDirections(
-      userLngLat,
+      origin,
       [destination.lng, destination.lat],
       language === 'gr' ? 'el' : 'en'
     );
@@ -780,8 +794,18 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         )}
       </div>
 
-      {/* Points Pill */}
-      <div className="absolute top-24 left-4 z-20" data-tour="points">
+      {/* Points Pill -- faded out (not just visually behind) while the search
+          dropdown is open: they occupy the same top-left corner, and at
+          z-20 both the pill sat in front of and overlapped the dropdown's
+          top rows, making those results unreadable. Fades back in the
+          instant the dropdown closes, whether from a selection or clearing
+          the search box, since both already empty `suggestions`. */}
+      <div
+        className={`absolute top-24 left-4 z-20 transition-opacity duration-200 ${
+          suggestions.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+        data-tour="points"
+      >
         <div className="points-pill flex items-center gap-2">
           <span>💎</span>
           <span>{profile?.points_balance ?? 0} {t('map.points')}</span>

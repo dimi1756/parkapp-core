@@ -453,7 +453,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     });
   }, [pins]);
 
-  // Real driving-route polyline from the Directions API
+  // Real driving-route polyline from the Directions API. Mapbox's driving
+  // profile already returns one continuous geometry across ferry legs when a
+  // crossing is part of the route (verified directly against the API: a
+  // mainland-to-island request comes back `code: "Ok"` with a `mode: "ferry"`
+  // leg baked into the same LineString) -- so the data was never the gap.
+  // What made a ferry route look "broken" was the camera: nothing here ever
+  // repositioned it to fit a route that might span many kilometers of open
+  // water, so only whichever end the camera happened to be centered on was
+  // actually visible. fitBounds after every new/updated route fixes that.
   useEffect(() => {
     if (!mapRef.current) return;
     const map = mapRef.current;
@@ -470,19 +478,32 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
       if (map.getSource('route')) {
         (map.getSource('route') as mapboxgl.GeoJSONSource).setData(data);
-        return;
+      } else {
+        if (!routeCoordinates) return;
+        map.addSource('route', { type: 'geojson', data });
+        map.addLayer({
+          id: 'route',
+          type: 'line',
+          source: 'route',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#0059B3', 'line-width': 5 },
+        });
       }
 
-      if (!routeCoordinates) return;
-
-      map.addSource('route', { type: 'geojson', data });
-      map.addLayer({
-        id: 'route',
-        type: 'line',
-        source: 'route',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#0059B3', 'line-width': 5 },
-      });
+      if (routeCoordinates && routeCoordinates.length > 1) {
+        const bounds = routeCoordinates.reduce(
+          (b, coord) => b.extend(coord),
+          new mapboxgl.LngLatBounds(routeCoordinates[0], routeCoordinates[0])
+        );
+        // Padding clears the search/turn-by-turn banner up top and the
+        // action buttons + destination card at the bottom, so the fitted
+        // route isn't hidden edge-to-edge behind the UI chrome.
+        map.fitBounds(bounds, {
+          padding: { top: 140, bottom: 260, left: 50, right: 50 },
+          duration: 1200,
+          maxZoom: STREET_ZOOM,
+        });
+      }
     };
 
     if (map.isStyleLoaded()) {
