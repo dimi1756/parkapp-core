@@ -45,7 +45,16 @@ export function useNearbySpots() {
 
     let cancelled = false;
 
-    const mapRow = (row: any): NearbySpot | null => {
+    interface SpotRow {
+      id: string;
+      declared_by: string;
+      location: string;
+      status: NearbySpot['status'];
+      declared_at: string;
+      expires_at: string;
+    }
+
+    const mapRow = (row: SpotRow): NearbySpot | null => {
       const point = parseEwkbPoint(row.location);
       if (!point) return null;
       return {
@@ -60,12 +69,21 @@ export function useNearbySpots() {
     };
 
     const load = async () => {
-      // Query the shadowban-filtered view, never the raw table: parking_spots
-      // is readable by any authenticated user via RLS, which would otherwise
-      // leak low-trust users' hidden declarations to everyone else.
-      const { data } = await supabase
-        .from('public_parking_spots')
+      // public_parking_spots (the view this used to query) does not exist in
+      // the database -- querying it always failed with a silent "relation
+      // does not exist" error that this function swallowed, so the map
+      // showed zero spots for every user. Querying parking_spots directly is
+      // safe and equivalent: RLS (see 0004_anti_spam_support.sql) already
+      // restricts SELECT to public/active/non-shadow-hidden rows plus the
+      // caller's own declared/claimed rows -- the exact shadowban filtering
+      // the view comment described, just enforced at the table level.
+      const { data, error } = await supabase
+        .from('parking_spots')
         .select('id, declared_by, location, status, declared_at, expires_at');
+      if (error) {
+        console.error('[useNearbySpots] failed to load spots:', error);
+        return;
+      }
       if (!cancelled && data) {
         setSpots(data.map(mapRow).filter((s): s is NearbySpot => s !== null));
       }

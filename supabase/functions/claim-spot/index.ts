@@ -32,6 +32,21 @@ function getServiceClient() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 }
 
+/** See declare-spot/index.ts for why this exists -- kept duplicated here on
+ * purpose, matching this project's convention of standalone-deployable
+ * function files. */
+async function ensureProfile(db: ReturnType<typeof getServiceClient>, user: { id: string; email?: string | null }) {
+  const { data: existing } = await db.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  if (existing) return;
+  console.error(`[claim-spot] no profile for user ${user.id} -- creating a placeholder one`);
+  await db.from("profiles").insert({
+    id: user.id,
+    full_name: "",
+    phone: `pending-${user.id.slice(0, 8)}`,
+    email: user.email ?? null,
+  });
+}
+
 interface ClaimBody {
   spotId: string;
   userLat: number;
@@ -65,6 +80,7 @@ Deno.serve(async (req) => {
   }
 
   const db = getServiceClient();
+  await ensureProfile(db, user);
 
   if (accuracy > RULES.MAX_GPS_ACCURACY_M) {
     return json({ error: "GPS signal too weak to verify your location." }, 400);
@@ -104,14 +120,25 @@ Deno.serve(async (req) => {
     return json({ error: "You need to be near the spot to claim it." }, 400);
   }
 
-  const { error: updateError } = await db
+  // .eq("status", "active") makes this UPDATE the actual double-booking
+  // guard: if another driver's claim committed between our SELECT above and
+  // here, this WHERE clause matches zero rows. Postgrest does NOT surface
+  // that as an error -- updateError is null and data is just an empty array
+  // -- so the row count has to be checked explicitly, or a losing racer
+  // would fall through and get a false "claimed" success.
+  const { data: claimedRows, error: updateError } = await db
     .from("parking_spots")
     .update({ status: "claimed", claimed_by: user.id, claimed_at: new Date().toISOString() })
     .eq("id", spotId)
-    .eq("status", "active");
+    .eq("status", "active")
+    .select("id");
 
   if (updateError) {
+    console.error("[claim-spot] parking_spots claim update failed:", updateError);
     return json({ error: "Could not claim this spot. It may have just been taken." }, 409);
+  }
+  if (!claimedRows || claimedRows.length === 0) {
+    return json({ error: "Someone just claimed this spot. Pick another one nearby." }, 409);
   }
 
   const { data: session, error: sessionError } = await db

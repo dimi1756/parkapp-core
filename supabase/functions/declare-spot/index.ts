@@ -86,6 +86,26 @@ function getServiceClient() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 }
 
+/**
+ * Defensive backstop for the handle_new_user trigger (migration 0003). It
+ * covers every normal signup, but any user row created before that trigger
+ * existed -- or through any other path that bypasses it -- is left with no
+ * profiles row, and every parking_spots/parking_sessions insert for that
+ * user then fails its FK with a generic, hard-to-diagnose 500. This closes
+ * that gap unconditionally rather than relying on the trigger alone.
+ */
+async function ensureProfile(db: ReturnType<typeof getServiceClient>, user: { id: string; email?: string | null }) {
+  const { data: existing } = await db.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  if (existing) return;
+  console.error(`[declare-spot] no profile for user ${user.id} -- creating a placeholder one`);
+  await db.from("profiles").insert({
+    id: user.id,
+    full_name: "",
+    phone: `pending-${user.id.slice(0, 8)}`,
+    email: user.email ?? null,
+  });
+}
+
 interface DeclareBody {
   spotLat: number;
   spotLng: number;
@@ -122,6 +142,7 @@ Deno.serve(async (req) => {
   }
 
   const db = getServiceClient();
+  await ensureProfile(db, user);
   const isDemoAccount = user.email === DEMO_EMAIL;
 
   if (accuracy > RULES.MAX_GPS_ACCURACY_M) {
@@ -201,6 +222,7 @@ Deno.serve(async (req) => {
     .single();
 
   if (insertError || !spot) {
+    console.error("[declare-spot] parking_spots insert failed:", insertError);
     return json({ error: "Could not save the spot. Please try again." }, 500);
   }
 

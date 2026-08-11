@@ -74,6 +74,7 @@ const en = {
   'map.claimFailed': "Couldn't claim this spot",
   'map.claimedToast': 'Spot claimed!',
   'map.claimedToastDesc': "We'll watch for when you actually leave.",
+  'map.yourClaimedSpot': 'Your claimed spot',
   'map.thanksPoints': 'Thanks! +{n} points',
   'map.thanksPointsDesc': 'Other drivers can now see this space on the map',
   'map.reportedPoints': 'Reported! +{n} points',
@@ -288,6 +289,16 @@ const en = {
   'leaderboard.comingSoon': 'Coming Soon',
   'leaderboard.futureTitle': 'Compete with your city',
   'leaderboard.futureDesc': 'Weekly rankings, badges, and city-wide challenges are on the way.',
+  'leaderboard.daily': 'Today',
+  'leaderboard.weekly': 'This week',
+  'leaderboard.empty': 'No rankings yet',
+  'leaderboard.emptyDesc': 'Be the first to earn points and top the board.',
+  'leaderboard.yourRank': 'Your rank',
+  'leaderboard.notRanked': 'Not ranked yet',
+  'leaderboard.badge.bronze': 'Bronze',
+  'leaderboard.badge.silver': 'Silver',
+  'leaderboard.badge.gold': 'Gold',
+  'leaderboard.badge.platinum': 'Platinum',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -358,6 +369,7 @@ const gr: Record<keyof typeof en, string> = {
   'map.claimFailed': 'Δεν μπορέσαμε να κρατήσουμε τη θέση',
   'map.claimedToast': 'Η θέση είναι δική σου!',
   'map.claimedToastDesc': 'Θα παρακολουθούμε πότε θα φύγεις πραγματικά.',
+  'map.yourClaimedSpot': 'Η θέση που δεσμεύτηκε',
   'map.thanksPoints': 'Ευχαριστούμε! +{n} πόντοι',
   'map.thanksPointsDesc': 'Οι άλλοι οδηγοί βλέπουν τώρα αυτή τη θέση στον χάρτη',
   'map.reportedPoints': 'Καταχωρήθηκε! +{n} πόντοι',
@@ -564,6 +576,16 @@ const gr: Record<keyof typeof en, string> = {
   'leaderboard.comingSoon': 'Έρχεται Σύντομα',
   'leaderboard.futureTitle': 'Συναγωνίσου την πόλη σου',
   'leaderboard.futureDesc': 'Εβδομαδιαίες κατατάξεις, παράσημα και προκλήσεις σε επίπεδο πόλης έρχονται σύντομα.',
+  'leaderboard.daily': 'Σήμερα',
+  'leaderboard.weekly': 'Αυτή την εβδομάδα',
+  'leaderboard.empty': 'Καμία κατάταξη ακόμα',
+  'leaderboard.emptyDesc': 'Γίνε ο πρώτος που θα κερδίσει πόντους και θα ανέβει στην κατάταξη.',
+  'leaderboard.yourRank': 'Η θέση σου',
+  'leaderboard.notRanked': 'Δεν έχεις μπει ακόμα στην κατάταξη',
+  'leaderboard.badge.bronze': 'Χάλκινο',
+  'leaderboard.badge.silver': 'Ασημένιο',
+  'leaderboard.badge.gold': 'Χρυσό',
+  'leaderboard.badge.platinum': 'Πλατινένιο',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -634,6 +656,7 @@ const tr: Record<keyof typeof en, string> = {
   'map.claimFailed': 'Bu yer alınamadı',
   'map.claimedToast': 'Yer alındı!',
   'map.claimedToastDesc': 'Gerçekten ayrıldığında bunu takip edeceğiz.',
+  'map.yourClaimedSpot': 'Ayırdığınız yer',
   'map.thanksPoints': 'Teşekkürler! +{n} puan',
   'map.thanksPointsDesc': 'Diğer sürücüler artık bu alanı haritada görebilir',
   'map.reportedPoints': 'Bildirildi! +{n} puan',
@@ -840,6 +863,16 @@ const tr: Record<keyof typeof en, string> = {
   'leaderboard.comingSoon': 'Yakında Geliyor',
   'leaderboard.futureTitle': 'Şehrinle yarış',
   'leaderboard.futureDesc': 'Haftalık sıralamalar, rozetler ve şehir çapında yarışmalar yolda.',
+  'leaderboard.daily': 'Bugün',
+  'leaderboard.weekly': 'Bu hafta',
+  'leaderboard.empty': 'Henüz sıralama yok',
+  'leaderboard.emptyDesc': 'Puan kazanıp listenin başına geçen ilk kişi ol.',
+  'leaderboard.yourRank': 'Sıralaman',
+  'leaderboard.notRanked': 'Henüz sıralanmadın',
+  'leaderboard.badge.bronze': 'Bronz',
+  'leaderboard.badge.silver': 'Gümüş',
+  'leaderboard.badge.gold': 'Altın',
+  'leaderboard.badge.platinum': 'Platin',
 };
 
 export type StringKey = keyof typeof en;

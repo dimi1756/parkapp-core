@@ -268,6 +268,34 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
   };
 
+  // Routes turn-by-turn directions to the exact lat/lng of a parking spot
+  // pin (never a store/destination address) -- used right after a
+  // successful claim so "Navigate" always means "get me to the spot I just
+  // locked in", reusing the same tested Mapbox Directions path as a normal
+  // destination search, just without its search-quota/nearby-spot lookup.
+  const navigateToSpotPin = async (spot: { lng: number; lat: number }) => {
+    const destination: Destination = { name: t('map.yourClaimedSpot'), lng: spot.lng, lat: spot.lat };
+    setRouteState('searching');
+    setActiveDestination(destination);
+    setRouteTotals(null);
+    setRouteCoords(null);
+    setRouteSteps(null);
+    setCurrentStepIndex(0);
+    setFoundSpot(null);
+
+    const directions = await getDrivingDirections(userLngLat, [spot.lng, spot.lat], language === 'gr' ? 'el' : 'en');
+    if (directions) {
+      setRouteCoords(directions.coordinates);
+      setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+      setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+      setRouteState('found');
+    } else {
+      setRouteState('idle');
+      setActiveDestination(null);
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
+    }
+  };
+
   const handleSelectSuggestion = async (place: PlaceSuggestion) => {
     setSuggestions([]);
     suppressNextAutocompleteRef.current = true;
@@ -446,6 +474,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     } else if (data) {
       toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
       await refetchSession();
+      await navigateToSpotPin({ lng: nearestClaimable.lng, lat: nearestClaimable.lat });
     }
     setBusyAction(null);
   };
