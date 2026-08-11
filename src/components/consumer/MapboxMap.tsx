@@ -14,6 +14,10 @@ const PLACEHOLDER_TOKEN = 'pk.your_mapbox_token_here';
 
 export const isMapboxConfigured = Boolean(MAPBOX_TOKEN && MAPBOX_TOKEN !== PLACEHOLDER_TOKEN);
 
+// Street-level detail: close enough that a tap reliably lands on the
+// intended side of the road rather than clipping a neighboring one.
+export const STREET_ZOOM = 17.5;
+
 export interface GeocodeResult {
   name: string;
   lng: number;
@@ -151,6 +155,27 @@ export async function getDrivingDirections(
   }
 }
 
+// Snaps a tapped point to the nearest drivable road via the same Mapbox Map
+// Matching call declare-spot's Edge Function uses server-side (isNearRoad) --
+// giving the manual "I saw a free space" pin instant visual feedback that it
+// landed on a real street, instead of finding out only after submitting.
+export async function snapToRoad(lng: number, lat: number): Promise<{ lng: number; lat: number } | null> {
+  if (!MAPBOX_TOKEN) return null;
+  try {
+    const coords = `${lng},${lat};${lng + 0.00001},${lat + 0.00001}`;
+    const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?access_token=${MAPBOX_TOKEN}&geometries=geojson`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const matched = data?.matchings?.[0]?.geometry?.coordinates?.[0];
+    if (!Array.isArray(matched)) return null;
+    const [matchedLng, matchedLat] = matched;
+    return { lng: matchedLng, lat: matchedLat };
+  } catch {
+    return null;
+  }
+}
+
 export interface MapPin {
   id: string;
   lng: number;
@@ -177,6 +202,10 @@ interface MapboxMapProps {
   onConfirmSelection?: () => void;
   /** Increment to imperatively re-trigger a fresh GPS fix + camera fly-to (wired to MapTab's "My Location" button). */
   locateRequestId?: number;
+  /** Where the next flyToRequestId bump should smoothly fly/zoom the camera to (street-level zoom). */
+  flyToTarget?: { lng: number; lat: number } | null;
+  /** Increment (with flyToTarget set) to imperatively fly the camera to a location at street-level zoom. */
+  flyToRequestId?: number;
 }
 
 export const MapboxMap: React.FC<MapboxMapProps> = ({
@@ -190,6 +219,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   routeCoordinates,
   onConfirmSelection,
   locateRequestId,
+  flyToTarget,
+  flyToRequestId,
 }) => {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -224,7 +255,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
       center,
-      zoom: 17,
+      zoom: STREET_ZOOM,
     });
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
@@ -282,6 +313,24 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       geolocateControlRef.current?.trigger();
     }
   }, [locateRequestId]);
+
+  // "I saw a free space" / "Emptying a space" bump this counter so the
+  // camera is always at street-level zoom, centered on the user, before they
+  // tap or the declaration submits -- guarantees a tap lands on the right
+  // side of the right street instead of a stale, zoomed-out view.
+  const prevFlyToRequestRef = useRef(flyToRequestId ?? 0);
+  useEffect(() => {
+    const id = flyToRequestId ?? 0;
+    if (id !== prevFlyToRequestRef.current && flyToTarget && mapRef.current) {
+      prevFlyToRequestRef.current = id;
+      mapRef.current.flyTo({
+        center: [flyToTarget.lng, flyToTarget.lat],
+        zoom: Math.max(mapRef.current.getZoom(), STREET_ZOOM),
+        essential: true,
+        speed: 1.4,
+      });
+    }
+  }, [flyToRequestId, flyToTarget]);
 
   // Demo-only mock dot. Real accounts rely entirely on GeolocateControl's
   // own blue dot, which tracks position independently of React state.

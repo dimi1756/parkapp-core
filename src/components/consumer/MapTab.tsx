@@ -31,6 +31,7 @@ import {
   geocodeAddress,
   searchPlaces,
   getDrivingDirections,
+  snapToRoad,
   type PlaceSuggestion,
   type RouteStep,
 } from './MapboxMap';
@@ -90,6 +91,26 @@ function distanceMeters(lng1: number, lat1: number, lng2: number, lat2: number):
   return R * c;
 }
 
+// A guaranteed fresh, one-off GPS fix -- unlike the position tracked in
+// state (which only updates whenever GeolocateControl happens to have last
+// fired), this is captured at the exact moment the driver taps "Emptying a
+// space", right where they're actually standing. Resolves null (never
+// rejects) on any failure -- no geolocation API, permission denied, or a
+// dead zone with no fix in time -- so callers can fall back to state.
+function getFreshPosition(): Promise<{ lng: number; lat: number; accuracy: number } | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude, accuracy: pos.coords.accuracy }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+    );
+  });
+}
+
 function walkingMinutes(meters: number): number {
   return Math.max(1, Math.round(meters / 80));
 }
@@ -139,6 +160,23 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   // reporter can mark a spot they saw elsewhere rather than under their feet.
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedSpot, setSelectedSpot] = useState<{ lng: number; lat: number } | null>(null);
+
+  // Shown the instant a declaration succeeds, right on the GPS coordinates
+  // it was submitted at -- realtime's own round trip (write -> postgres_changes
+  // -> useNearbySpots refetch) is fast but not instant, and the driver
+  // shouldn't see a blank map in the meantime. Cleared once the real spot
+  // (matched by owner + proximity) shows up in nearbySpots.
+  const [optimisticSpot, setOptimisticSpot] = useState<{ lng: number; lat: number } | null>(null);
+
+  // Bumped by both action buttons to imperatively fly/zoom the camera to
+  // street level centered on the user, right before a manual tap or an
+  // automatic declaration -- see MapboxMap's flyToRequestId effect.
+  const [flyToRequestId, setFlyToRequestId] = useState(0);
+  const [flyToTarget, setFlyToTarget] = useState<{ lng: number; lat: number } | null>(null);
+  const flyToLocation = (lng: number, lat: number) => {
+    setFlyToTarget({ lng, lat });
+    setFlyToRequestId((n) => n + 1);
+  };
 
   const inputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
@@ -208,6 +246,20 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }, 350);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Drop the optimistic pin once the real, server-written spot has arrived
+  // through useNearbySpots' realtime subscription -- matched by ownership
+  // and proximity rather than id, since the optimistic pin never has the
+  // real row's id.
+  useEffect(() => {
+    if (!optimisticSpot || !profile?.id) return;
+    const arrived = nearbySpots.some(
+      (s) =>
+        s.declared_by === profile.id &&
+        distanceMeters(s.lng, s.lat, optimisticSpot.lng, optimisticSpot.lat) < 20
+    );
+    if (arrived) setOptimisticSpot(null);
+  }, [nearbySpots, optimisticSpot, profile?.id]);
 
   // Turn-by-turn step advancement: once the live position gets close enough
   // to the current maneuver point, move on to the next instruction.
@@ -363,19 +415,42 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       setSelectedSpot(null);
     }
     setBusyAction('declare');
-    const [lng, lat] = userLngLat;
+
+    // No manual pin drop for this button -- capture exactly where the
+    // driver is standing right now and submit directly at those coordinates.
+    // Demo accounts keep their simulated map-center position; real accounts
+    // get a guaranteed-fresh fix instead of trusting a possibly-stale one
+    // cached from GeolocateControl's last update.
+    let [lng, lat] = userLngLat;
+    let accuracy = userAccuracy;
+    if (!isDemoAccount) {
+      const fresh = await getFreshPosition();
+      if (fresh) {
+        lng = fresh.lng;
+        lat = fresh.lat;
+        accuracy = fresh.accuracy;
+        setUserLngLat([lng, lat]);
+        setUserAccuracy(accuracy);
+      }
+    }
+
+    flyToLocation(lng, lat);
+
     const { data, error } = await declareSpot({
       spotLat: lat,
       spotLng: lng,
       userLat: lat,
       userLng: lng,
-      accuracy: userAccuracy,
+      accuracy,
       kind: 'vacating',
     });
 
     if (error) {
       toast({ title: t('map.declareFailed'), description: error, variant: 'destructive' });
     } else if (data) {
+      // Place the green pin exactly on the GPS coordinates it was declared
+      // at immediately, rather than waiting on the realtime round trip.
+      setOptimisticSpot({ lng, lat });
       if (isDemoAccount) {
         setCelebrating(true);
         toast({
@@ -407,12 +482,20 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
     setSelectionMode(true);
     setSelectedSpot(null);
+    flyToLocation(userLngLat[0], userLngLat[1]);
     toast({ title: t('map.selectionModeTitle'), description: t('map.selectionModeDesc') });
   };
 
-  const handleMapTap = (lng: number, lat: number) => {
+  // Places the temporary pin immediately at the tapped point so the tap
+  // feels responsive, then snaps it onto the nearest real street the moment
+  // the Map Matching lookup resolves -- the same road-snap Mapbox call
+  // declare-spot's Edge Function uses server-side, just run client-side
+  // first for instant visual feedback instead of finding out after submit.
+  const handleMapTap = async (lng: number, lat: number) => {
     if (!selectionMode) return;
     setSelectedSpot({ lng, lat });
+    const snapped = await snapToRoad(lng, lat);
+    if (snapped) setSelectedSpot(snapped);
   };
 
   const handleConfirmSelection = async () => {
@@ -498,9 +581,14 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         <MapboxMap
           center={MAP_CENTER}
           userLocation={userLngLat}
-          showCustomUserDot={isDemoAccount}
+          // The demo mock dot only ever meant "here's the point a manual pin
+          // drop will use" -- now that only "I saw a free space" drops a
+          // manual pin, the dot has no reason to show outside that mode.
+          showCustomUserDot={isDemoAccount && selectionMode}
           onUserLocationChange={handleUserLocationChange}
           locateRequestId={locateRequestId}
+          flyToTarget={flyToTarget}
+          flyToRequestId={flyToRequestId}
           pins={[
             ...nearbySpots.map((s) => ({
               id: s.id,
@@ -509,6 +597,9 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
               type: (s.declared_by === profile?.id ? 'mine' : 'reported') as 'mine' | 'reported',
               label: s.declared_by === profile?.id ? 'Your declared spot' : 'Reported free space',
             })),
+            ...(optimisticSpot
+              ? [{ id: 'optimistic-mine', lng: optimisticSpot.lng, lat: optimisticSpot.lat, type: 'mine' as const, label: 'Your declared spot' }]
+              : []),
             ...(activeDestination
               ? [{ id: 'destination', lng: activeDestination.lng, lat: activeDestination.lat, type: 'destination' as const, label: activeDestination.name }]
               : []),
