@@ -1147,9 +1147,10 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       {/* Turn-by-turn instruction panel -- the current/next maneuver, right
           below the destination info card, filling the bottom-center space
           the big action buttons vacated (FABs moved to the side while
-          isRouting). Suppressed while the "Is the spot free?" prompt is up
-          so the two never fight for the same spot. */}
-      {isNavigating && currentStep && !showSpotPrompt && (
+          isRouting). Suppressed while the "Is the spot free?" prompt is up,
+          or while Map Selection Mode's Cancel/Confirm pair is using that
+          same bottom-28 slot -- both would otherwise render on top of it. */}
+      {isNavigating && currentStep && !showSpotPrompt && !selectionMode && (
         <div className="absolute bottom-28 left-4 right-4 z-20">
           <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 animate-fade-in">
             <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
