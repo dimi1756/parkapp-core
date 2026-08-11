@@ -51,6 +51,11 @@ const STEP_ADVANCE_RADIUS_METERS = 30;
 // not fill the screen with just the one building.
 const SEARCH_FLY_ZOOM = 16.5;
 
+// "Is the spot free?" triggers once the driver is within this radius of the
+// target spot -- close enough that they're plausibly right next to it, per
+// the 50-100m range this MVP flow calls for.
+const SPOT_PROXIMITY_METERS = 75;
+
 type RouteState = 'idle' | 'searching' | 'found' | 'not_found';
 
 interface Destination {
@@ -155,11 +160,23 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const [routeCoords, setRouteCoords] = useState<[number, number][] | null>(null);
   const [routeSteps, setRouteSteps] = useState<RouteStep[] | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [foundSpot, setFoundSpot] = useState<{ lng: number; lat: number } | null>(null);
   const [walkMinutes, setWalkMinutes] = useState<number>(2);
   const [busyAction, setBusyAction] = useState<'declare' | 'spotted' | 'claim' | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const [locateRequestId, setLocateRequestId] = useState(0);
+
+  // Smart parking routing: when a search resolves to a POI, the actual
+  // route/main pin target is the nearest available parking spot to it, not
+  // the POI's front door -- poiMarker keeps the original place as a smaller
+  // secondary pin, targetSpotId is which parking_spots row navigation is
+  // currently pointed at (claimed by the "Yes, I Parked" prompt, swapped out
+  // by "No, Find Next"), and excludedSpotIds accumulates spots already
+  // rejected for the current destination so "find next" never repeats one.
+  const [poiMarker, setPoiMarker] = useState<{ lng: number; lat: number; name: string } | null>(null);
+  const [targetSpotId, setTargetSpotId] = useState<string | null>(null);
+  const [excludedSpotIds, setExcludedSpotIds] = useState<string[]>([]);
+  const [showSpotPrompt, setShowSpotPrompt] = useState(false);
+  const [isRouting, setIsRouting] = useState(false);
 
   // "I saw a free space" (white button) enters this mode: the next map tap
   // drops a temporary yellow pin instead of declaring immediately, so the
@@ -199,6 +216,15 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   // Real device position; falls back to the demo city center if unavailable.
   const [userLngLat, setUserLngLat] = useState<[number, number]>(MAP_CENTER);
   const [userAccuracy, setUserAccuracy] = useState<number>(9999);
+
+  // Mirrors userLngLat without being a search-debounce dependency -- reading
+  // this instead of the state directly means proximity-biasing search picks
+  // up the latest known GPS fix on every keystroke without re-running (and
+  // re-debouncing) the whole autocomplete effect on every GPS tick.
+  const userLngLatRef = useRef(userLngLat);
+  useEffect(() => {
+    userLngLatRef.current = userLngLat;
+  }, [userLngLat]);
 
   useEffect(() => {
     if (isDemoAccount) {
@@ -253,7 +279,10 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
     const requestId = ++searchRequestIdRef.current;
     const timer = setTimeout(async () => {
-      const results = await searchPlaces(searchQuery, MAP_CENTER, sessionTokenRef.current);
+      // Biased toward wherever the driver actually is right now, not the
+      // fallback Chalkida map center -- a "pharmacy" search from a different
+      // town should surface that town's pharmacies first, not Athens'.
+      const results = await searchPlaces(searchQuery, userLngLatRef.current, sessionTokenRef.current);
       if (searchRequestIdRef.current === requestId) setSuggestions(results);
     }, 350);
     return () => clearTimeout(timer);
@@ -285,7 +314,37 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
   }, [userLngLat, routeSteps, currentStepIndex]);
 
-  const runDestinationSearch = async (destination: Destination) => {
+  // "Is the spot free?" -- triggers once the live position is close enough
+  // to the current target spot. Stays up once shown (rather than hiding
+  // again if the driver circles the block) until answered via one of the
+  // prompt's two actions.
+  useEffect(() => {
+    if (!targetSpotId || !activeDestination || showSpotPrompt) return;
+    const d = distanceMeters(userLngLat[0], userLngLat[1], activeDestination.lng, activeDestination.lat);
+    if (d <= SPOT_PROXIMITY_METERS) {
+      setShowSpotPrompt(true);
+    }
+  }, [userLngLat, targetSpotId, activeDestination, showSpotPrompt]);
+
+  // The actual parking value-add: given a searched POI, find the nearest
+  // reported-active spot to it (never the driver's own declaration -- that's
+  // for other drivers) so navigation and the main pin point at somewhere to
+  // actually park, not the POI's front door. Falls back to the POI itself
+  // when nothing's been reported near it yet, so the flow still works with
+  // sparse pilot-stage data instead of failing outright.
+  function findNearestSpotTo(point: { lng: number; lat: number }, excludeIds: string[]) {
+    const excluded = new Set(excludeIds);
+    const candidates = nearbySpots.filter(
+      (s) => s.declared_by !== profile?.id && s.status === 'active' && !excluded.has(s.id)
+    );
+    return candidates.reduce<{ id: string; lng: number; lat: number; d: number } | null>((best, s) => {
+      const d = distanceMeters(point.lng, point.lat, s.lng, s.lat);
+      if (!best || d < best.d) return { id: s.id, lng: s.lng, lat: s.lat, d };
+      return best;
+    }, null);
+  }
+
+  const runDestinationSearch = async (poi: Destination) => {
     const canSearch = incrementSearches();
     if (!canSearch) {
       setShowLimitModal(true);
@@ -293,11 +352,15 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
 
     setRouteState('searching');
-    setActiveDestination(destination);
     setRouteTotals(null);
     setRouteCoords(null);
     setRouteSteps(null);
     setCurrentStepIndex(0);
+    setPoiMarker(null);
+    setTargetSpotId(null);
+    setExcludedSpotIds([]);
+    setShowSpotPrompt(false);
+    setIsRouting(false);
 
     // Route from exactly where the driver is right now, not a fix that
     // might be stale by however long since GeolocateControl last updated
@@ -313,6 +376,15 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       }
     }
 
+    const closest = findNearestSpotTo(poi, []);
+    const destination: Destination = closest ? { name: poi.name, lng: closest.lng, lat: closest.lat } : poi;
+    setActiveDestination(destination);
+    if (closest) {
+      setPoiMarker({ lng: poi.lng, lat: poi.lat, name: poi.name });
+      setTargetSpotId(closest.id);
+      setWalkMinutes(walkingMinutes(closest.d));
+    }
+
     const directions = await getDrivingDirections(
       origin,
       [destination.lng, destination.lat],
@@ -322,27 +394,16 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       setRouteCoords(directions.coordinates);
       setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+      setIsRouting(true);
     } else {
       toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
 
-    // Nearest already-reported free spot near the destination -- the actual
-    // parking value-add, kept alongside the new turn-by-turn navigation.
-    const candidates = nearbySpots.filter((s) => s.declared_by !== profile?.id);
-    const closest = candidates.reduce<{ lng: number; lat: number; d: number } | null>((best, s) => {
-      const d = distanceMeters(destination.lng, destination.lat, s.lng, s.lat);
-      if (!best || d < best.d) return { lng: s.lng, lat: s.lat, d };
-      return best;
-    }, null);
-
-    if (!closest) {
-      setFoundSpot(null);
-      setRouteState('not_found');
-    } else {
-      setFoundSpot({ lng: closest.lng, lat: closest.lat });
+    if (closest) {
       setRouteState('found');
-      setWalkMinutes(walkingMinutes(closest.d));
       toast({ title: t('map.spotFoundToast'), description: t('map.walkFromDest', { n: walkingMinutes(closest.d) }) });
+    } else {
+      setRouteState('not_found');
     }
   };
 
@@ -359,7 +420,8 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setRouteCoords(null);
     setRouteSteps(null);
     setCurrentStepIndex(0);
-    setFoundSpot(null);
+    setPoiMarker(null);
+    setTargetSpotId(null);
 
     const directions = await getDrivingDirections(userLngLat, [spot.lng, spot.lat], language === 'gr' ? 'el' : 'en');
     if (directions) {
@@ -367,6 +429,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
       setRouteState('found');
+      setIsRouting(true);
     } else {
       setRouteState('idle');
       setActiveDestination(null);
@@ -413,7 +476,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     let destination: Destination | null = null;
 
     if (isMapboxConfigured) {
-      const result = await geocodeAddress(searchQuery, MAP_CENTER);
+      const result = await geocodeAddress(searchQuery, userLngLatRef.current);
       if (!result) {
         setRouteState('idle');
         toast({ title: t('map.locationNotFound'), description: t('map.locationNotFoundDesc'), variant: 'destructive' });
@@ -440,13 +503,70 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   const clearRoute = () => {
     setRouteState('idle');
     setActiveDestination(null);
-    setFoundSpot(null);
+    setPoiMarker(null);
+    setTargetSpotId(null);
+    setExcludedSpotIds([]);
+    setShowSpotPrompt(false);
+    setIsRouting(false);
     setRouteTotals(null);
     setRouteCoords(null);
     setRouteSteps(null);
     setCurrentStepIndex(0);
     setSearchQuery('');
     setSuggestions([]);
+  };
+
+  // "Yes, I Parked" -- claims the target spot right where the driver is
+  // standing and ends navigation. Reuses the same claimSpot call the
+  // top-right "Claim nearest" banner uses, just against this specific
+  // targeted spot instead of whichever is nearest to the driver overall.
+  const handleSpotConfirmedFree = async () => {
+    if (!targetSpotId) return;
+    setBusyAction('claim');
+    const [lng, lat] = userLngLat;
+    const { data, error } = await claimSpot({ spotId: targetSpotId, userLat: lat, userLng: lng, accuracy: userAccuracy });
+    if (error) {
+      toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
+    } else if (data) {
+      toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
+      await refetchSession();
+    }
+    setBusyAction(null);
+    clearRoute();
+  };
+
+  // "No, Find Next" -- excludes the current spot, finds the next-closest
+  // active spot to the *original* POI (poiMarker, not wherever the driver
+  // is now), and instantly redraws the route to it.
+  const handleFindNextSpot = async () => {
+    if (!poiMarker || !targetSpotId) return;
+    const excluded = [...excludedSpotIds, targetSpotId];
+    setExcludedSpotIds(excluded);
+    setShowSpotPrompt(false);
+
+    const next = findNearestSpotTo(poiMarker, excluded);
+    if (!next) {
+      toast({ title: t('map.noMoreSpots'), description: t('map.noMoreSpotsDesc'), variant: 'destructive' });
+      setTargetSpotId(null);
+      return;
+    }
+
+    setTargetSpotId(next.id);
+    setWalkMinutes(walkingMinutes(next.d));
+    setActiveDestination({ name: poiMarker.name, lng: next.lng, lat: next.lat });
+    setRouteState('searching');
+
+    const directions = await getDrivingDirections(userLngLat, [next.lng, next.lat], language === 'gr' ? 'el' : 'en');
+    if (directions) {
+      setRouteCoords(directions.coordinates);
+      setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+      setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+      setRouteState('found');
+      flyToLocation(next.lng, next.lat, SEARCH_FLY_ZOOM);
+    } else {
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
+      setRouteState('found');
+    }
   };
 
   // "I'm leaving" -- declares the current spot free (right where the live
@@ -646,6 +766,12 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             ...(activeDestination
               ? [{ id: 'destination', lng: activeDestination.lng, lat: activeDestination.lat, type: 'destination' as const, label: activeDestination.name }]
               : []),
+            // Smaller secondary pin: the actual searched POI, once the main
+            // "destination" pin above has been swapped to point at the
+            // nearest parking spot instead.
+            ...(poiMarker
+              ? [{ id: 'poi', lng: poiMarker.lng, lat: poiMarker.lat, type: 'poi' as const, label: poiMarker.name }]
+              : []),
             ...(selectedSpot
               ? [{ id: 'selection', lng: selectedSpot.lng, lat: selectedSpot.lat, type: 'selection' as const }]
               : []),
@@ -705,8 +831,8 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             );
           })()}
 
-          {foundSpot && routeState === 'found' && (() => {
-            const pct = lngLatToPercent(foundSpot.lng, foundSpot.lat);
+          {poiMarker && routeState === 'found' && (() => {
+            const pct = lngLatToPercent(poiMarker.lng, poiMarker.lat);
             return (
               <div className="absolute transform -translate-x-1/2 -translate-y-1/2" style={{ left: `${pct.x}%`, top: `${pct.y}%` }}>
                 <div className="relative">
@@ -854,61 +980,87 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         </div>
       )}
 
-      {/* Central Check-out + Secondary "I saw a free space" buttons -- while
-          Map Selection Mode is active, these are fully replaced by a
-          Cancel/Confirm pair so the reviewer's thumb only ever sees actions
-          relevant to what they're doing right now. */}
-      <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
-        {selectionMode ? (
-          <>
-            <Button
-              onClick={handleToggleSelectionMode}
-              disabled={busyAction !== null}
-              variant="outline"
-              className="h-12 rounded-full px-5 shadow-lg bg-background/95 backdrop-blur-sm border-destructive/30 text-destructive hover:text-destructive gap-2"
-            >
-              <X className="h-4 w-4" />
-              {t('map.cancelSelection')}
-            </Button>
-            <Button
-              onClick={handleConfirmSelection}
-              disabled={busyAction !== null || !selectedSpot}
-              className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
-            >
-              {busyAction === 'spotted' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
-              {t('map.confirmSpot')}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button
-              onClick={handleToggleSelectionMode}
-              disabled={busyAction !== null}
-              variant="outline"
-              className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
-            >
-              <Eye className="h-4 w-4" />
-              <span className="text-sm">{t('map.sawFreeSpace')}</span>
-              <span className="text-xs text-muted-foreground">+5</span>
-            </Button>
+      {/* Central Check-out + Secondary "I saw a free space" buttons. Map
+          Selection Mode always replaces them with a Cancel/Confirm pair
+          (even mid-route -- placing a manual pin needs the reviewer's full
+          attention regardless). Otherwise, while isRouting, these collapse
+          into small icon-only FABs on the mid-left edge instead of the full
+          bottom bar, so turn-by-turn navigation isn't fighting the map for
+          screen space -- reporting is still one tap away, just decluttered. */}
+      {selectionMode ? (
+        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
+          <Button
+            onClick={handleToggleSelectionMode}
+            disabled={busyAction !== null}
+            variant="outline"
+            className="h-12 rounded-full px-5 shadow-lg bg-background/95 backdrop-blur-sm border-destructive/30 text-destructive hover:text-destructive gap-2"
+          >
+            <X className="h-4 w-4" />
+            {t('map.cancelSelection')}
+          </Button>
+          <Button
+            onClick={handleConfirmSelection}
+            disabled={busyAction !== null || !selectedSpot}
+            className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
+          >
+            {busyAction === 'spotted' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
+            {t('map.confirmSpot')}
+          </Button>
+        </div>
+      ) : isRouting ? (
+        <div className="absolute top-1/2 left-4 -translate-y-1/2 z-20 flex flex-col gap-3" data-tour="actions">
+          <button
+            onClick={handleToggleSelectionMode}
+            disabled={busyAction !== null}
+            aria-label={t('map.sawFreeSpace')}
+            className="w-12 h-12 rounded-full shadow-lg bg-background/95 backdrop-blur-sm border border-primary/30 flex items-center justify-center hover:bg-secondary transition-colors disabled:opacity-50"
+          >
+            <Eye className="h-5 w-5 text-primary" />
+          </button>
+          <button
+            onClick={handleDeclare}
+            disabled={busyAction !== null}
+            aria-label={activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
+            className="w-12 h-12 rounded-full shadow-xl bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {busyAction === 'declare' ? (
+              <Loader2 className="h-5 w-5 animate-spin text-primary-foreground" />
+            ) : activeSession ? (
+              <Check className="h-5 w-5 text-primary-foreground" />
+            ) : (
+              <Navigation className="h-5 w-5 text-primary-foreground" />
+            )}
+          </button>
+        </div>
+      ) : (
+        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
+          <Button
+            onClick={handleToggleSelectionMode}
+            disabled={busyAction !== null}
+            variant="outline"
+            className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
+          >
+            <Eye className="h-4 w-4" />
+            <span className="text-sm">{t('map.sawFreeSpace')}</span>
+            <span className="text-xs text-muted-foreground">+5</span>
+          </Button>
 
-            <Button
-              onClick={handleDeclare}
-              disabled={busyAction !== null}
-              className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
-            >
-              {busyAction === 'declare' ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : activeSession ? (
-                <Check className="h-5 w-5" />
-              ) : (
-                <Navigation className="h-5 w-5" />
-              )}
-              {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
-            </Button>
-          </>
-        )}
-      </div>
+          <Button
+            onClick={handleDeclare}
+            disabled={busyAction !== null}
+            className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
+          >
+            {busyAction === 'declare' ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : activeSession ? (
+              <Check className="h-5 w-5" />
+            ) : (
+              <Navigation className="h-5 w-5" />
+            )}
+            {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
+          </Button>
+        </div>
+      )}
 
       {/* Searching Modal */}
       {routeState === 'searching' && (
@@ -969,12 +1121,43 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            {foundSpot && (
+            {poiMarker && (
               <div className="pt-2 border-t border-border flex items-center gap-2 text-xs text-success font-medium">
                 <ParkingCircle className="h-3.5 w-3.5" />
                 {t('map.walkMinutes', { n: walkMinutes })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* "Is the spot free?" -- fires once the live position is within
+          SPOT_PROXIMITY_METERS of the target spot. Reclaims the bottom-center
+          area the big action buttons vacated (they're FABs on the side while
+          isRouting), so this is front and center exactly when it matters. */}
+      {showSpotPrompt && targetSpotId && (
+        <div className="absolute bottom-28 left-4 right-4 z-30 flex justify-center">
+          <div className="glass-card p-4 shadow-2xl animate-fade-in w-full max-w-sm space-y-3">
+            <p className="font-semibold text-sm text-center">{t('map.isSpotFreeTitle')}</p>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleFindNextSpot}
+                disabled={busyAction !== null}
+                variant="outline"
+                className="flex-1 gap-1.5"
+              >
+                <X className="h-4 w-4" />
+                {t('map.noFindNext')}
+              </Button>
+              <Button
+                onClick={handleSpotConfirmedFree}
+                disabled={busyAction !== null}
+                className="flex-1 gap-1.5 bg-success hover:bg-success/90 text-success-foreground"
+              >
+                {busyAction === 'claim' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {t('map.yesIParked')}
+              </Button>
+            </div>
           </div>
         </div>
       )}

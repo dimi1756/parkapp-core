@@ -204,7 +204,7 @@ export interface MapPin {
   id: string;
   lng: number;
   lat: number;
-  type: 'mine' | 'reported' | 'destination' | 'selection';
+  type: 'mine' | 'reported' | 'destination' | 'selection' | 'poi';
   label?: string;
 }
 
@@ -429,11 +429,17 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         return;
       }
 
-      const color = pin.type === 'mine' ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : '#dc2626';
+      // "poi" is the smaller secondary pin: the actual searched destination,
+      // now that the main pin routes to the nearest parking spot instead --
+      // visually subordinate (smaller, distinct purple) so it never competes
+      // with the primary red spot/destination pin for attention.
+      const isPoi = pin.type === 'poi';
+      const color = pin.type === 'mine' ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : isPoi ? '#9333ea' : '#dc2626';
+      const size = isPoi ? 22 : 34;
       const el = document.createElement('div');
       el.className = 'mapbox-pin-wrapper';
       el.innerHTML = `
-        <svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+        <svg width="${size}" height="${Math.round((size * 44) / 34)}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
           <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
           <circle cx="17" cy="17" r="6" fill="white"/>
         </svg>

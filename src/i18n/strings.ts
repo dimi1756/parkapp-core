@@ -94,6 +94,11 @@ const en = {
   'map.routeUnavailable': 'Could not calculate a driving route to this destination',
   'map.myLocation': 'My Location',
   'map.exitNavigation': 'Exit Navigation',
+  'map.isSpotFreeTitle': 'Is the spot free?',
+  'map.yesIParked': 'Yes, I Parked',
+  'map.noFindNext': 'No, Find Next',
+  'map.noMoreSpots': 'No more spots nearby',
+  'map.noMoreSpotsDesc': 'No other reported spots near this destination right now.',
 
   // Lazy auto-unpark
   'session.autoUnparkTitle': 'Looks like you left without telling us!',
@@ -389,6 +394,11 @@ const gr: Record<keyof typeof en, string> = {
   'map.routeUnavailable': 'Δεν βρέθηκε διαδρομή με αυτοκίνητο προς αυτόν τον προορισμό',
   'map.myLocation': 'Η τοποθεσία μου',
   'map.exitNavigation': 'Έξοδος από την πλοήγηση',
+  'map.isSpotFreeTitle': 'Είναι ελεύθερη η θέση;',
+  'map.yesIParked': 'Ναι, παρκάρισα',
+  'map.noFindNext': 'Όχι, βρες άλλη',
+  'map.noMoreSpots': 'Δεν υπάρχουν άλλες κοντινές θέσεις',
+  'map.noMoreSpotsDesc': 'Δεν υπάρχουν άλλες αναφερμένες θέσεις κοντά σε αυτόν τον προορισμό αυτή τη στιγμή.',
 
   'session.autoUnparkTitle': 'Φαίνεται πως έφυγες χωρίς να μας το πεις!',
   'session.autoUnparkDesc': 'Ελευθερώσαμε τη θέση σου για τους άλλους, αλλά έχασες τους πόντους αυτή τη φορά. Μην το ξεχάσεις την επόμενη!',
@@ -676,6 +686,11 @@ const tr: Record<keyof typeof en, string> = {
   'map.routeUnavailable': 'Bu varış noktasına araba ile bir güzergah hesaplanamadı',
   'map.myLocation': 'Konumum',
   'map.exitNavigation': 'Navigasyondan Çık',
+  'map.isSpotFreeTitle': 'Yer boş mu?',
+  'map.yesIParked': 'Evet, Park Ettim',
+  'map.noFindNext': 'Hayır, Başkasını Bul',
+  'map.noMoreSpots': 'Yakında başka yer yok',
+  'map.noMoreSpotsDesc': 'Şu anda bu varış noktasına yakın başka bildirilen yer yok.',
 
   'session.autoUnparkTitle': 'Bize haber vermeden ayrılmış gibisin!',
   'session.autoUnparkDesc': "Yerini diğerleri için boşalttık ama bu sefer puanları kaçırdın. Bir dahaki sefere unutma!",
