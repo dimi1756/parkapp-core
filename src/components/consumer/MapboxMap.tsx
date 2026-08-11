@@ -18,19 +18,36 @@ export const isMapboxConfigured = Boolean(MAPBOX_TOKEN && MAPBOX_TOKEN !== PLACE
 // intended side of the road rather than clipping a neighboring one.
 export const STREET_ZOOM = 17.5;
 
+// Requesting every type Mapbox's geocoder supports (not just address/postcode)
+// is what makes named businesses/landmarks ("Galaxy Hotel", a pharmacy, a
+// square) show up at all -- the default endpoint without `types` leans
+// heavily toward street addresses and mostly misses POIs.
+const GEOCODE_TYPES = 'poi,address,place,postcode,locality,neighborhood';
+
+// Mapbox's `place_name` is "<name>, <rest of the address>" for POI results.
+// Splitting it gives a Google-Maps-style two-line result: business name as
+// the headline, the actual address as the smaller line underneath.
+function splitNameAndAddress(text: string | undefined, placeName: string | undefined, fallback: string): { name: string; address: string } {
+  const name = text ?? placeName ?? fallback;
+  const full = placeName ?? '';
+  const address = full.startsWith(`${name}, `) ? full.slice(name.length + 2) : full;
+  return { name, address };
+}
+
 export interface GeocodeResult {
   name: string;
+  address: string;
   lng: number;
   lat: number;
 }
 
-// Looks up a real place/address using the Mapbox Geocoding API, biased toward
-// results near `proximity`. Returns null if nothing matches (invalid query)
-// or if no token is configured.
+// Looks up a real place/address/POI using the Mapbox Geocoding API, biased
+// toward results near `proximity`. Returns null if nothing matches (invalid
+// query) or if no token is configured.
 export async function geocodeAddress(query: string, proximity: [number, number]): Promise<GeocodeResult | null> {
   if (!MAPBOX_TOKEN || !query.trim()) return null;
 
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&country=gr&proximity=${proximity[0]},${proximity[1]}`;
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&types=${GEOCODE_TYPES}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
 
   try {
     const res = await fetch(url);
@@ -39,7 +56,8 @@ export async function geocodeAddress(query: string, proximity: [number, number])
     const feature = data?.features?.[0];
     if (!feature || !Array.isArray(feature.center)) return null;
     const [lng, lat] = feature.center;
-    return { name: feature.place_name ?? query, lng, lat };
+    const { name, address } = splitNameAndAddress(feature.text, feature.place_name, query);
+    return { name, address, lng, lat };
   } catch {
     return null;
   }
@@ -47,14 +65,19 @@ export async function geocodeAddress(query: string, proximity: [number, number])
 
 export interface PlaceSuggestion {
   id: string;
+  /** Business/place/landmark name -- the dropdown's primary (bold) line. */
   name: string;
+  /** Street address -- the dropdown's secondary (muted) line. */
+  address: string;
   lng: number;
   lat: number;
 }
 
 // Autocomplete-style multi-result search for the live search dropdown, biased
-// toward `proximity`. Returns an empty array (never throws) on any failure so
-// callers can render "no results" instead of crashing mid-keystroke.
+// toward `proximity` and covering POIs (businesses, landmarks, hotels,
+// pharmacies, ...) alongside plain addresses -- not just street/postcode
+// geocoding. Returns an empty array (never throws) on any failure so callers
+// can render "no results" instead of crashing mid-keystroke.
 export async function searchPlaces(
   query: string,
   proximity: [number, number],
@@ -62,7 +85,7 @@ export async function searchPlaces(
 ): Promise<PlaceSuggestion[]> {
   if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
 
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=${limit}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=${limit}&types=${GEOCODE_TYPES}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
 
   try {
     const res = await fetch(url);
@@ -71,12 +94,10 @@ export async function searchPlaces(
     const features = Array.isArray(data?.features) ? data.features : [];
     return features
       .filter((f: { center?: unknown }) => Array.isArray(f.center))
-      .map((f: { id: string; place_name?: string; text?: string; center: [number, number] }) => ({
-        id: f.id,
-        name: f.place_name ?? f.text ?? query,
-        lng: f.center[0],
-        lat: f.center[1],
-      }));
+      .map((f: { id: string; place_name?: string; text?: string; center: [number, number] }) => {
+        const { name, address } = splitNameAndAddress(f.text, f.place_name, query);
+        return { id: f.id, name, address, lng: f.center[0], lat: f.center[1] };
+      });
   } catch {
     return [];
   }
@@ -203,7 +224,7 @@ interface MapboxMapProps {
   /** Increment to imperatively re-trigger a fresh GPS fix + camera fly-to (wired to MapTab's "My Location" button). */
   locateRequestId?: number;
   /** Where the next flyToRequestId bump should smoothly fly/zoom the camera to (street-level zoom). */
-  flyToTarget?: { lng: number; lat: number } | null;
+  flyToTarget?: { lng: number; lat: number; zoom?: number } | null;
   /** Increment (with flyToTarget set) to imperatively fly the camera to a location at street-level zoom. */
   flyToRequestId?: number;
 }
@@ -323,9 +344,14 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     const id = flyToRequestId ?? 0;
     if (id !== prevFlyToRequestRef.current && flyToTarget && mapRef.current) {
       prevFlyToRequestRef.current = id;
+      // An explicit zoom (search results ask for a specific, slightly wider
+      // 16-17 so surrounding context stays visible) wins outright; the
+      // declare/selection-mode callers that omit it just want "at least
+      // street level," not to zoom back out if already tighter than that.
+      const zoom = flyToTarget.zoom ?? Math.max(mapRef.current.getZoom(), STREET_ZOOM);
       mapRef.current.flyTo({
         center: [flyToTarget.lng, flyToTarget.lat],
-        zoom: Math.max(mapRef.current.getZoom(), STREET_ZOOM),
+        zoom,
         essential: true,
         speed: 1.4,
       });

@@ -45,6 +45,11 @@ const DEMO_ACCURACY_METERS = 5;
 // turn-by-turn banner advances to the next step.
 const STEP_ADVANCE_RADIUS_METERS = 30;
 
+// Slightly wider than STREET_ZOOM (17.5): a searched destination should
+// still show its immediate surroundings -- parking options, cross streets --
+// not fill the screen with just the one building.
+const SEARCH_FLY_ZOOM = 16.5;
+
 type RouteState = 'idle' | 'searching' | 'found' | 'not_found';
 
 interface Destination {
@@ -172,9 +177,9 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   // street level centered on the user, right before a manual tap or an
   // automatic declaration -- see MapboxMap's flyToRequestId effect.
   const [flyToRequestId, setFlyToRequestId] = useState(0);
-  const [flyToTarget, setFlyToTarget] = useState<{ lng: number; lat: number } | null>(null);
-  const flyToLocation = (lng: number, lat: number) => {
-    setFlyToTarget({ lng, lat });
+  const [flyToTarget, setFlyToTarget] = useState<{ lng: number; lat: number; zoom?: number } | null>(null);
+  const flyToLocation = (lng: number, lat: number, zoom?: number) => {
+    setFlyToTarget({ lng, lat, zoom });
     setFlyToRequestId((n) => n + 1);
   };
 
@@ -353,6 +358,10 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     suppressNextAutocompleteRef.current = true;
     setSearchQuery(place.name);
     inputRef.current?.blur();
+    // Fly the camera there immediately, in the same tick as picking the
+    // result -- doesn't wait on the directions round trip runDestinationSearch
+    // still does below for the actual route/nearest-spot lookup.
+    flyToLocation(place.lng, place.lat, SEARCH_FLY_ZOOM);
     await runDestinationSearch({ name: place.name, lng: place.lng, lat: place.lat });
   };
 
@@ -378,6 +387,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         return;
       }
       destination = result;
+      flyToLocation(result.lng, result.lat, SEARCH_FLY_ZOOM);
     } else {
       const queryLower = searchQuery.toLowerCase();
       const mock = Object.entries(MOCK_DESTINATIONS).find(
@@ -739,7 +749,10 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
                     className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-secondary/70 transition-colors flex items-center gap-2"
                   >
                     <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm truncate">{s.name}</span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium truncate">{s.name}</span>
+                      {s.address && <span className="block text-xs text-muted-foreground truncate">{s.address}</span>}
+                    </span>
                   </button>
                 ))}
               </div>
