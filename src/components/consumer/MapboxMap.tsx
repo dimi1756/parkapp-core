@@ -18,21 +18,13 @@ export const isMapboxConfigured = Boolean(MAPBOX_TOKEN && MAPBOX_TOKEN !== PLACE
 // intended side of the road rather than clipping a neighboring one.
 export const STREET_ZOOM = 17.5;
 
-// Requesting every type Mapbox's geocoder supports (not just address/postcode)
-// is what makes named businesses/landmarks ("Galaxy Hotel", a pharmacy, a
-// square) show up at all -- the default endpoint without `types` leans
-// heavily toward street addresses and mostly misses POIs.
-const GEOCODE_TYPES = 'poi,address,place,postcode,locality,neighborhood';
-
-// Mapbox's `place_name` is "<name>, <rest of the address>" for POI results.
-// Splitting it gives a Google-Maps-style two-line result: business name as
-// the headline, the actual address as the smaller line underneath.
-function splitNameAndAddress(text: string | undefined, placeName: string | undefined, fallback: string): { name: string; address: string } {
-  const name = text ?? placeName ?? fallback;
-  const full = placeName ?? '';
-  const address = full.startsWith(`${name}, `) ? full.slice(name.length + 2) : full;
-  return { name, address };
-}
+// Mapbox's classic Geocoding API (mapbox.places, used here previously)
+// returns zero POI results for this token regardless of the `types` param --
+// verified against globally-known chains with no proximity/country filter at
+// all. Mapbox moved POI data (businesses, landmarks, hotels, pharmacies...)
+// to the separate Search Box API a while back; the classic endpoint is
+// address/postcode-only in practice now. suggest+retrieve below is that API.
+const SEARCH_BOX_BASE = 'https://api.mapbox.com/search/searchbox/v1';
 
 export interface GeocodeResult {
   name: string;
@@ -41,65 +33,76 @@ export interface GeocodeResult {
   lat: number;
 }
 
-// Looks up a real place/address/POI using the Mapbox Geocoding API, biased
-// toward results near `proximity`. Returns null if nothing matches (invalid
-// query) or if no token is configured.
+// One-shot lookup (Enter key with no dropdown selection): suggest for the
+// top match, then retrieve to resolve its coordinates -- suggest results
+// never carry a geometry themselves, by Search Box API design.
 export async function geocodeAddress(query: string, proximity: [number, number]): Promise<GeocodeResult | null> {
   if (!MAPBOX_TOKEN || !query.trim()) return null;
-
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&types=${GEOCODE_TYPES}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const feature = data?.features?.[0];
-    if (!feature || !Array.isArray(feature.center)) return null;
-    const [lng, lat] = feature.center;
-    const { name, address } = splitNameAndAddress(feature.text, feature.place_name, query);
-    return { name, address, lng, lat };
-  } catch {
-    return null;
-  }
+  const sessionToken = crypto.randomUUID();
+  const [top] = await searchPlaces(query, proximity, sessionToken, 1);
+  if (!top) return null;
+  const resolved = await retrievePlace(top.id, sessionToken);
+  if (!resolved) return null;
+  return { name: top.name, address: top.address, lng: resolved.lng, lat: resolved.lat };
 }
 
 export interface PlaceSuggestion {
+  /** Search Box API's mapbox_id -- pass to retrievePlace to resolve coordinates. */
   id: string;
   /** Business/place/landmark name -- the dropdown's primary (bold) line. */
   name: string;
   /** Street address -- the dropdown's secondary (muted) line. */
   address: string;
-  lng: number;
-  lat: number;
 }
 
 // Autocomplete-style multi-result search for the live search dropdown, biased
 // toward `proximity` and covering POIs (businesses, landmarks, hotels,
-// pharmacies, ...) alongside plain addresses -- not just street/postcode
-// geocoding. Returns an empty array (never throws) on any failure so callers
-// can render "no results" instead of crashing mid-keystroke.
+// pharmacies, ...) alongside plain addresses. `sessionToken` should be the
+// same value for every keystroke of one search and the eventual retrieve
+// call, then a fresh one for the next search -- that's what Mapbox groups
+// together for Search Box API billing. Returns an empty array (never
+// throws) on any failure so callers can render "no results" instead of
+// crashing mid-keystroke.
 export async function searchPlaces(
   query: string,
   proximity: [number, number],
+  sessionToken: string,
   limit = 5
 ): Promise<PlaceSuggestion[]> {
   if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
 
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=${limit}&types=${GEOCODE_TYPES}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
+  const url = `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}&session_token=${sessionToken}&limit=${limit}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
 
   try {
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
-    const features = Array.isArray(data?.features) ? data.features : [];
-    return features
-      .filter((f: { center?: unknown }) => Array.isArray(f.center))
-      .map((f: { id: string; place_name?: string; text?: string; center: [number, number] }) => {
-        const { name, address } = splitNameAndAddress(f.text, f.place_name, query);
-        return { id: f.id, name, address, lng: f.center[0], lat: f.center[1] };
-      });
+    const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
+    return suggestions.map((s: { mapbox_id: string; name?: string; full_address?: string; place_formatted?: string }) => ({
+      id: s.mapbox_id,
+      name: s.name ?? query,
+      address: s.full_address ?? s.place_formatted ?? '',
+    }));
   } catch {
     return [];
+  }
+}
+
+// Resolves a suggestion's actual coordinates -- must be called with the same
+// sessionToken the suggest call that produced `mapboxId` used.
+export async function retrievePlace(mapboxId: string, sessionToken: string): Promise<{ lng: number; lat: number } | null> {
+  if (!MAPBOX_TOKEN) return null;
+  const url = `${SEARCH_BOX_BASE}/retrieve/${encodeURIComponent(mapboxId)}?access_token=${MAPBOX_TOKEN}&session_token=${sessionToken}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const coords = data?.features?.[0]?.geometry?.coordinates;
+    if (!Array.isArray(coords)) return null;
+    const [lng, lat] = coords;
+    return { lng, lat };
+  } catch {
+    return null;
   }
 }
 

@@ -30,6 +30,7 @@ import {
   isMapboxConfigured,
   geocodeAddress,
   searchPlaces,
+  retrievePlace,
   getDrivingDirections,
   snapToRoad,
   type PlaceSuggestion,
@@ -190,6 +191,10 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   // suggestion's full name, so that text change doesn't re-trigger the
   // autocomplete effect and pop the dropdown back open over the selection.
   const suppressNextAutocompleteRef = useRef(false);
+  // Groups every keystroke of one search plus its eventual selection under a
+  // single Search Box API session (their billing/relevance model), then
+  // rotates to a fresh one for the next search.
+  const sessionTokenRef = useRef<string>(crypto.randomUUID());
 
   // Real device position; falls back to the demo city center if unavailable.
   const [userLngLat, setUserLngLat] = useState<[number, number]>(MAP_CENTER);
@@ -242,11 +247,13 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
     if (searchQuery.trim().length < 2) {
       setSuggestions([]);
+      // Box is empty again -- next input starts a new search session.
+      sessionTokenRef.current = crypto.randomUUID();
       return;
     }
     const requestId = ++searchRequestIdRef.current;
     const timer = setTimeout(async () => {
-      const results = await searchPlaces(searchQuery, MAP_CENTER);
+      const results = await searchPlaces(searchQuery, MAP_CENTER, sessionTokenRef.current);
       if (searchRequestIdRef.current === requestId) setSuggestions(results);
     }, 350);
     return () => clearTimeout(timer);
@@ -358,11 +365,23 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     suppressNextAutocompleteRef.current = true;
     setSearchQuery(place.name);
     inputRef.current?.blur();
-    // Fly the camera there immediately, in the same tick as picking the
-    // result -- doesn't wait on the directions round trip runDestinationSearch
+
+    // Suggestions never carry coordinates (Search Box API design) -- resolve
+    // them with the same session token the suggest call used, then rotate to
+    // a fresh token since this search session is now over.
+    const sessionToken = sessionTokenRef.current;
+    sessionTokenRef.current = crypto.randomUUID();
+    const resolved = await retrievePlace(place.id, sessionToken);
+    if (!resolved) {
+      toast({ title: t('map.locationNotFound'), description: t('map.locationNotFoundDesc'), variant: 'destructive' });
+      return;
+    }
+
+    // Fly the camera there immediately, in the same tick coordinates
+    // resolve -- doesn't wait on the directions round trip runDestinationSearch
     // still does below for the actual route/nearest-spot lookup.
-    flyToLocation(place.lng, place.lat, SEARCH_FLY_ZOOM);
-    await runDestinationSearch({ name: place.name, lng: place.lng, lat: place.lat });
+    flyToLocation(resolved.lng, resolved.lat, SEARCH_FLY_ZOOM);
+    await runDestinationSearch({ name: place.name, lng: resolved.lng, lat: resolved.lat });
   };
 
   const handleSearch = async () => {
