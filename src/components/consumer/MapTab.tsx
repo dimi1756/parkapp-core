@@ -988,16 +988,15 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           bottom bar, so turn-by-turn navigation isn't fighting the map for
           screen space -- reporting is still one tap away, just decluttered. */}
       {selectionMode ? (
-        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
-          <Button
+        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-4 px-4" data-tour="actions">
+          <button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
-            variant="outline"
-            className="h-12 rounded-full px-5 shadow-lg bg-background/95 backdrop-blur-sm border-destructive/30 text-destructive hover:text-destructive gap-2"
+            aria-label={t('map.cancelSelection')}
+            className="w-14 h-14 rounded-full shadow-xl bg-red-500 flex items-center justify-center hover:bg-red-600 transition-colors disabled:opacity-50 shrink-0"
           >
-            <X className="h-4 w-4" />
-            {t('map.cancelSelection')}
-          </Button>
+            <X className="h-6 w-6 text-white" strokeWidth={2.5} />
+          </button>
           <Button
             onClick={handleConfirmSelection}
             disabled={busyAction !== null || !selectedSpot}
@@ -1009,28 +1008,42 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         </div>
       ) : isRouting ? (
         <div className="absolute top-1/2 left-4 -translate-y-1/2 z-20 flex flex-col gap-3" data-tour="actions">
-          <button
-            onClick={handleToggleSelectionMode}
-            disabled={busyAction !== null}
-            aria-label={t('map.sawFreeSpace')}
-            className="w-12 h-12 rounded-full shadow-lg bg-background/95 backdrop-blur-sm border border-primary/30 flex items-center justify-center hover:bg-secondary transition-colors disabled:opacity-50"
-          >
-            <Eye className="h-5 w-5 text-primary" />
-          </button>
-          <button
-            onClick={handleDeclare}
-            disabled={busyAction !== null}
-            aria-label={activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
-            className="w-12 h-12 rounded-full shadow-xl bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
-          >
-            {busyAction === 'declare' ? (
-              <Loader2 className="h-5 w-5 animate-spin text-primary-foreground" />
-            ) : activeSession ? (
-              <Check className="h-5 w-5 text-primary-foreground" />
-            ) : (
-              <Navigation className="h-5 w-5 text-primary-foreground" />
-            )}
-          </button>
+          {/* `group` + `group-hover`/`group-focus-within` tooltip: the FAB
+              alone doesn't say what it does, and this app is mostly used
+              one-handed on a phone mount where a hover state won't fire --
+              focus-within covers a tap/keyboard focus too, hover covers desktop. */}
+          <div className="group relative">
+            <button
+              onClick={handleToggleSelectionMode}
+              disabled={busyAction !== null}
+              aria-label={t('map.sawFreeSpace')}
+              className="w-12 h-12 rounded-full shadow-lg bg-background/95 backdrop-blur-sm border border-primary/30 flex items-center justify-center hover:bg-secondary transition-colors disabled:opacity-50"
+            >
+              <Eye className="h-5 w-5 text-primary" />
+            </button>
+            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              {t('map.sawFreeSpace')}
+            </span>
+          </div>
+          <div className="group relative">
+            <button
+              onClick={handleDeclare}
+              disabled={busyAction !== null}
+              aria-label={activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
+              className="w-12 h-12 rounded-full shadow-xl bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {busyAction === 'declare' ? (
+                <Loader2 className="h-5 w-5 animate-spin text-primary-foreground" />
+              ) : activeSession ? (
+                <Check className="h-5 w-5 text-primary-foreground" />
+              ) : (
+                <Navigation className="h-5 w-5 text-primary-foreground" />
+              )}
+            </button>
+            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
+            </span>
+          </div>
         </div>
       ) : (
         <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
@@ -1127,6 +1140,27 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
                 {t('map.walkMinutes', { n: walkMinutes })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Turn-by-turn instruction panel -- the current/next maneuver, right
+          below the destination info card, filling the bottom-center space
+          the big action buttons vacated (FABs moved to the side while
+          isRouting). Suppressed while the "Is the spot free?" prompt is up
+          so the two never fight for the same spot. */}
+      {isNavigating && currentStep && !showSpotPrompt && (
+        <div className="absolute bottom-28 left-4 right-4 z-20">
+          <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 animate-fade-in">
+            <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+              <ManeuverIcon type={currentStep.maneuverType} modifier={currentStep.maneuverModifier} className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-sm leading-tight">
+                {t('map.inDistance', { distance: formatDistance(currentStep.distanceMeters) })}
+              </p>
+              <p className="text-xs text-primary-foreground/85 truncate">{currentStep.instruction}</p>
+            </div>
           </div>
         </div>
       )}
