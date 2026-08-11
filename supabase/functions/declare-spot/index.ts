@@ -223,7 +223,14 @@ Deno.serve(async (req) => {
 
   if (insertError || !spot) {
     console.error("[declare-spot] parking_spots insert failed:", insertError);
-    return json({ error: "Could not save the spot. Please try again." }, 500);
+    return json(
+      {
+        error: "Could not save the spot. Please try again.",
+        detail: insertError?.message ?? "insert returned no row",
+        code: insertError?.code ?? null,
+      },
+      500
+    );
   }
 
   let pointsAwarded = 0;

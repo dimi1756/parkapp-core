@@ -135,7 +135,14 @@ Deno.serve(async (req) => {
 
   if (updateError) {
     console.error("[claim-spot] parking_spots claim update failed:", updateError);
-    return json({ error: "Could not claim this spot. It may have just been taken." }, 409);
+    return json(
+      {
+        error: "Could not claim this spot. It may have just been taken.",
+        detail: updateError.message,
+        code: updateError.code ?? null,
+      },
+      409
+    );
   }
   if (!claimedRows || claimedRows.length === 0) {
     return json({ error: "Someone just claimed this spot. Pick another one nearby." }, 409);
@@ -153,7 +160,15 @@ Deno.serve(async (req) => {
     .single();
 
   if (sessionError || !session) {
-    return json({ error: "Spot claimed, but the session could not be started." }, 500);
+    console.error("[claim-spot] parking_sessions insert failed:", sessionError);
+    return json(
+      {
+        error: "Spot claimed, but the session could not be started.",
+        detail: sessionError?.message ?? "insert returned no row",
+        code: sessionError?.code ?? null,
+      },
+      500
+    );
   }
 
   return json({ session });
