@@ -7,6 +7,7 @@ import { AppProvider } from "@/contexts/AppContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AuthGate } from "@/components/auth/AuthGate";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
@@ -15,6 +16,9 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <LanguageProvider>
+    {/* Inside LanguageProvider so the fallback UI can be translated; outside
+        AuthProvider/AppProvider so a crash in either of those is caught too. */}
+    <ErrorBoundary>
     <AuthProvider>
       <AppProvider>
         <TooltipProvider>
@@ -32,6 +36,7 @@ const App = () => (
         </TooltipProvider>
       </AppProvider>
     </AuthProvider>
+    </ErrorBoundary>
     </LanguageProvider>
   </QueryClientProvider>
 );

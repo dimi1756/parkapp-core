@@ -23,6 +23,7 @@ export function useMunicipalitySettings(municipalityId: string | null) {
   const [settings, setSettings] = useState<MunicipalitySettings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!municipalityId) {
@@ -31,14 +32,23 @@ export function useMunicipalitySettings(municipalityId: string | null) {
     }
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     supabase
       .from('municipality_settings')
       .select('notify_high_occupancy, moderate_spot_threshold, full_spot_threshold')
       .eq('municipality_id', municipalityId)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
         if (cancelled) return;
-        if (data) setSettings(data);
+        if (error) {
+          // Previously indistinguishable from "no settings row yet" -- both
+          // silently fell back to DEFAULTS. Now the caller can tell the two
+          // apart and warn that what's shown might not be what's saved.
+          console.error('[useMunicipalitySettings] load failed:', error);
+          setLoadError(error.message);
+        } else if (data) {
+          setSettings(data);
+        }
         setLoading(false);
       });
     return () => {
@@ -68,5 +78,5 @@ export function useMunicipalitySettings(municipalityId: string | null) {
     [municipalityId]
   );
 
-  return { settings, loading, saving, save };
+  return { settings, loading, saving, save, loadError };
 }

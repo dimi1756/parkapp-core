@@ -10,7 +10,7 @@ import { CityMap, type LiveSpot } from './CityMap';
 import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
 import { AdminSettings } from './AdminSettings';
 import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
-import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu } from 'lucide-react';
+import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 
@@ -18,7 +18,7 @@ export const AdminDashboard = () => {
   const { setAdminMode } = useApp();
   const { isDemoAccount } = useAuth();
   const { t, locale } = useLanguage();
-  const { isAdmin, municipalityId, municipalityName, loading: accessLoading } = useAdminAccess();
+  const { isAdmin, municipalityId, municipalityName, loading: accessLoading, error: accessError } = useAdminAccess();
 
   const [activeSection, setActiveSection] = useState('overview');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -27,16 +27,26 @@ export const AdminDashboard = () => {
   const [spots, setSpots] = useState<LiveSpot[]>([]);
   const [trend, setTrend] = useState<TrendDay[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [showTour, setShowTour] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!municipalityId) return;
+    setDataError(null);
     const [kpiRes, spotsRes, trendRes] = await Promise.all([
       supabase.rpc('admin_city_kpis', { p_municipality_id: municipalityId }),
       supabase.rpc('admin_live_spots', { p_municipality_id: municipalityId }),
       supabase.rpc('admin_weekly_trend', { p_municipality_id: municipalityId }),
     ]);
+    // Report the first failure rather than only the last -- any one of these
+    // failing used to render silently as empty KPIs/map/chart with nothing
+    // telling the admin their data might be incomplete.
+    const firstError = kpiRes.error ?? spotsRes.error ?? trendRes.error;
+    if (firstError) {
+      console.error('[AdminDashboard] loadData failed:', firstError);
+      setDataError(firstError.message);
+    }
     setKpis(kpiRes.data?.[0] ?? null);
     setSpots(spotsRes.data ?? []);
     setTrend(trendRes.data ?? []);
@@ -61,7 +71,11 @@ export const AdminDashboard = () => {
     setIsRefreshing(true);
     await loadData();
     setIsRefreshing(false);
-    toast({ title: t('admin.refreshed'), description: t('admin.refreshedDesc') });
+    if (dataError) {
+      toast({ title: t('admin.dataLoadError'), description: dataError, variant: 'destructive' });
+    } else {
+      toast({ title: t('admin.refreshed'), description: t('admin.refreshedDesc') });
+    }
   };
 
   // Defense in depth: even if something rendered this component without a
@@ -70,6 +84,22 @@ export const AdminDashboard = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Distinct from "not authorized" below -- this is "we couldn't even check",
+  // which used to render as an infinite spinner (useAdminAccess never
+  // resolved `loading`) or, after that fix, would otherwise fall through to
+  // the misleading "not authorized" message for what's actually a network
+  // failure.
+  if (accessError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4 p-6 text-center">
+        <AlertTriangle className="h-12 w-12 text-destructive" />
+        <h1 className="text-xl font-bold">{t('admin.accessError')}</h1>
+        <p className="text-muted-foreground text-sm max-w-sm">{t('admin.accessErrorDesc')}</p>
+        <Button onClick={() => window.location.reload()}>{t('admin.retry')}</Button>
       </div>
     );
   }
@@ -192,6 +222,17 @@ export const AdminDashboard = () => {
         </header>
 
         <div className="p-4 md:p-8 pb-16">
+          {dataError && (
+            <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm animate-fade-in">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                <span className="truncate">{t('admin.dataLoadError')}</span>
+              </div>
+              <Button size="sm" variant="outline" className="shrink-0" onClick={handleRefresh} disabled={isRefreshing}>
+                {t('admin.retry')}
+              </Button>
+            </div>
+          )}
           {renderContent()}
         </div>
       </main>

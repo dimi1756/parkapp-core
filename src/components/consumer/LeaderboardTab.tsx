@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useLeaderboard, type LeaderboardPeriod } from '@/hooks/useLeaderboard';
 import { getBadgeForPoints } from '@/lib/badges';
-import { Trophy, Crown, Sparkles, Loader2 } from 'lucide-react';
+import { Trophy, Crown, Sparkles, Loader2, AlertTriangle } from 'lucide-react';
 
 const RANK_BADGE_COLOR = ['bg-accent', 'bg-slate-400', 'bg-amber-700'];
 
@@ -17,7 +17,7 @@ export const LeaderboardTab = () => {
   const { t, locale } = useLanguage();
   const { profile } = useAuth();
   const [period, setPeriod] = useState<LeaderboardPeriod>('weekly');
-  const { entries, loading } = useLeaderboard(period);
+  const { entries, loading, error } = useLeaderboard(period);
 
   const ownBadge = getBadgeForPoints(profile?.points_balance ?? 0);
   const ownRankIndex = entries.findIndex((e) => e.isCurrentUser);
@@ -60,6 +60,14 @@ export const LeaderboardTab = () => {
         {loading ? (
           <div className="glass-card p-8 flex items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : error && entries.length === 0 ? (
+          // Distinct from the genuine-empty-board state below -- previously
+          // a load failure fell through to "no rankings yet", which reads
+          // as "nobody's played" instead of "we couldn't fetch this".
+          <div className="glass-card p-6 text-center animate-fade-in">
+            <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-destructive" />
+            <p className="font-semibold text-sm">{t('leaderboard.loadError')}</p>
           </div>
         ) : entries.length === 0 ? (
           <div className="glass-card p-6 text-center animate-fade-in">

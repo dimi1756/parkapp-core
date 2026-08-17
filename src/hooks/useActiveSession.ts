@@ -30,12 +30,22 @@ export function useActiveSession() {
       setLoading(false);
       return;
     }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('parking_sessions')
       .select('id, spot_id, parked_at')
       .eq('user_id', authSession.user.id)
       .is('unparked_at', null)
       .maybeSingle();
+    if (error) {
+      // Log and keep whatever session state was already known rather than
+      // wiping it out to null on a transient failure -- this fires silently
+      // in the background (mount, focus, after every declare/claim), so a
+      // toast here would be noisy; the console log is enough for now to at
+      // least stop it being invisible.
+      console.error('[useActiveSession] refetch failed:', error);
+      setLoading(false);
+      return;
+    }
     setActiveSession(data);
     setLoading(false);
   }, [authSession?.user]);

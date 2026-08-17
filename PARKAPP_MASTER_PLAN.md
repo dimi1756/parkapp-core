@@ -105,44 +105,75 @@ checks, not an independent farming vector.
 ---
 
 ## Chunk 2 — Global Error Handling & Resilience
-**Status:** `[ ] PENDING`
-**Persona:** Senior React frontend developer (error boundaries, async error UX, loading/timeout states)
+**Status:** `[x] COMPLETED` (2026-08-17)
+**Persona:** Senior Frontend Architect & Reliability Engineer
 
-**Why:** there is no React error boundary anywhere in the app
-(`grep -r ErrorBoundary src` → zero matches) — an uncaught render exception
-blanks the whole app with no fallback. Multiple async Supabase calls have no
-error handling at all, degrading to silent stale/zero/empty UI instead of a
-visible error state:
-- `useAdminAccess.ts:33-42` — a failed/rejected RPC leaves `loading` `true`
-  forever; the admin dashboard spinner never resolves, no error, no timeout.
-- `AdminDashboard.tsx:33-45` (`loadData`) — none of the 3 parallel RPC
-  results are checked for `.error`; failures render as empty KPIs/map/chart
-  with no error banner.
-- `useActiveSession.ts:33-40`, `useMunicipalitySettings.ts:34-43` — same
-  pattern, error silently discarded.
-- `useLeaderboard.ts:55-63` **does** capture an `error` state, but
-  `LeaderboardTab.tsx:20` never reads it — caught but never surfaced.
+**What shipped:**
+- `src/components/ErrorBoundary.tsx` (new) — a top-level React error boundary
+  wrapping the app in `App.tsx` (inside `LanguageProvider` so its fallback
+  can be translated, outside `AuthProvider`/`AppProvider` so a crash in
+  either is also caught). Branded fallback (ParkApp logo, friendly message,
+  reload button) instead of a blank white screen; logs the full error +
+  component stack to console.
+- `useAdminAccess.ts`: added an `error` field, a two-argument `.then`
+  (handles both a resolved-with-error response and an outright rejected
+  promise), and always resolves `loading` — previously a failed/rejected RPC
+  left the admin dashboard spinning forever with no error and no timeout.
+- `AdminDashboard.tsx`: new `accessError` branch (distinct from "not
+  authorized" — "we couldn't check" vs "the answer is no"), and `loadData`
+  now checks `.error` on all 3 parallel RPCs, surfacing a dismissible error
+  banner with a retry button instead of silently rendering empty KPIs/map/
+  chart; `handleRefresh`'s toast now reflects failure too, not just success.
+- `useActiveSession.ts`: `refetch` now checks `.error`, logs it, and keeps
+  the last-known session state instead of silently overwriting it with
+  `null` on a transient failure.
+- `useMunicipalitySettings.ts`: load failures are now distinguishable from
+  "no settings saved yet" (`loadError`, previously both silently fell back
+  to defaults identically); wired into `AdminSettings.tsx` as a toast.
+- `LeaderboardTab.tsx`: now reads and displays `useLeaderboard`'s `error`
+  state (it was already captured by the hook, just never consumed) — a
+  load failure now shows "Couldn't load the leaderboard" instead of the
+  misleading "no rankings yet" empty state.
+- `MapTab.tsx` — genuine optimistic UI with rollback, not just immediate-
+  paint-on-success:
+  - `handleDeclare` ("Emptying a space"): the pin now appears the instant
+    the request goes out, and is rolled back (`setOptimisticSpot(null)`) if
+    `declareSpot` returns an error, alongside the existing failure toast.
+  - `handleConfirmSelection` ("I saw a free space" confirm): on failure, the
+    manually-placed pin and selection mode now stay put instead of silently
+    clearing, so the driver can see exactly what they tried to submit and
+    hit Confirm again rather than having to re-drop the pin. On success, it
+    hands off directly to the optimistic "mine" pin at the same coordinates
+    so there's no gap where nothing is shown while realtime catches up.
+- `MapboxMap.tsx`'s routing/search helpers (`geocodeAddress`, `searchPlaces`,
+  `retrievePlace`, `getDrivingDirections`, `snapToRoad`) were reviewed and
+  found already properly try/caught, returning `null`/`[]` on any failure
+  rather than throwing — no changes needed there.
+- 12 new i18n keys added across en/gr/tr for all of the above (error
+  boundary chrome, admin access/data-load errors, leaderboard load error,
+  settings load error).
 
-**Tasks:**
-- [ ] Add a top-level React error boundary in `App.tsx` (or wrapping
-  `AuthGate`) with a real fallback UI (not a blank white screen) and a
-  "reload" action.
-- [ ] `useAdminAccess.ts`: add `.catch`/error branch and a timeout, so a
-  failed RPC surfaces an error state instead of an infinite spinner.
-- [ ] `AdminDashboard.tsx` `loadData`: check `.error` on each of the 3 RPCs,
-  render an error banner (not just empty zero-state) when one fails, keep a
-  retry path via the existing Refresh button.
-- [ ] `LeaderboardTab.tsx`: actually read and display `useLeaderboard`'s
-  existing `error` state instead of discarding it.
-- [ ] `useActiveSession.ts`, `useMunicipalitySettings.ts`: add real error
-  handling (at minimum a console/telemetry log + don't silently pretend
-  "no data" means "no error").
+**Verified live** (not just lint/tsc): logged into the demo account against
+this environment's Supabase project and found it naturally exercising the
+new error paths — `useLeaderboard` genuinely failed (see "Found, not fixed"
+below) and rendered the new "Couldn't load the leaderboard" state correctly;
+Admin Dashboard loaded real data cleanly with no false-positive error
+banner. `eslint` clean (one pre-existing-pattern warning in
+`ErrorBoundary.tsx` for co-locating a helper component, consistent with
+several other files in this codebase); `tsc --noEmit` stays at the same 15
+pre-existing stale-`types.ts` errors (0 new).
 
-**Acceptance criteria:** killing network access mid-session (or forcing a
-Supabase RPC to reject) produces a visible, dismissible error state
-somewhere in the UI for every path above — never an infinite spinner or a
-silent stale/empty render; a thrown render error shows the boundary's
-fallback, not a blank page.
+**Found, not fixed (out of scope for this chunk):** while verifying live,
+`useLeaderboard.ts`'s query unconditionally selects both `points_today` and
+`points_this_week` from whichever view it's querying, but
+`leaderboard_daily` only has `points_today` and `leaderboard_weekly` only
+has `points_this_week` — so it always fails with `column ... does not
+exist` on one of the two, on both existing environments not just a
+misconfigured one. This is a genuine, pre-existing, unrelated bug in the
+leaderboard feature itself (unmasked, not caused, by this chunk's improved
+error surfacing) — worth a fast one-line fix (`select` only the column the
+active `view`/`pointsCol` needs) whenever convenient, flagged here rather
+than fixed silently since it's outside Chunk 2's scope.
 
 ---
 

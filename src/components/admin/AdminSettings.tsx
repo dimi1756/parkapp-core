@@ -34,12 +34,19 @@ function downloadCsv(filename: string, rows: (string | number)[][]) {
 
 export const AdminSettings: React.FC<AdminSettingsProps> = ({ municipalityId, spots, trend }) => {
   const { t } = useLanguage();
-  const { settings, loading, saving, save } = useMunicipalitySettings(municipalityId);
+  const { settings, loading, saving, save, loadError } = useMunicipalitySettings(municipalityId);
   const [form, setForm] = useState<MunicipalitySettings>(settings);
 
   useEffect(() => {
     setForm(settings);
   }, [settings]);
+
+  useEffect(() => {
+    if (loadError) {
+      toast({ title: t('admin.settingsLoadError'), description: loadError, variant: 'destructive' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadError]);
 
   const dirty =
     form.notify_high_occupancy !== settings.notify_high_occupancy ||

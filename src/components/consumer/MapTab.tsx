@@ -604,6 +604,12 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
 
     flyToLocation(lng, lat);
 
+    // True optimistic UI: paint the pin the instant the request goes out,
+    // not only once the server confirms it -- rolled back below if the call
+    // fails (e.g. a network drop mid-submit), so the map never keeps
+    // showing a spot that was never actually saved.
+    setOptimisticSpot({ lng, lat });
+
     const { data, error } = await declareSpot({
       spotLat: lat,
       spotLng: lng,
@@ -614,11 +620,9 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     });
 
     if (error) {
+      setOptimisticSpot(null);
       toast({ title: t('map.declareFailed'), description: error, variant: 'destructive' });
     } else if (data) {
-      // Place the green pin exactly on the GPS coordinates it was declared
-      // at immediately, rather than waiting on the realtime round trip.
-      setOptimisticSpot({ lng, lat });
       if (isDemoAccount) {
         setCelebrating(true);
         toast({
@@ -679,8 +683,18 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
       kind: 'spotted',
     });
     if (error) {
+      // Keep selectionMode/selectedSpot as they are on failure -- the pin
+      // the driver just placed stays visible and Confirm is still right
+      // there to retry, instead of silently vanishing and forcing a re-drop.
       toast({ title: t('map.reportFailed'), description: error, variant: 'destructive' });
-    } else if (data) {
+      setBusyAction(null);
+      return;
+    }
+    if (data) {
+      // Hand off from the temporary "selection" pin straight to the
+      // optimistic "mine" pin at the same coordinates, so there's no gap
+      // where neither is showing while realtime catches up with the real row.
+      setOptimisticSpot({ lng: selectedSpot.lng, lat: selectedSpot.lat });
       if (isDemoAccount) {
         setCelebrating(true);
         toast({
