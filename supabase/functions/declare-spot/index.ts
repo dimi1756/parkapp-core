@@ -44,15 +44,21 @@ function toEwkt(lat: number, lng: number): string {
 
 /**
  * Confirms a point sits on/near an actual road via the Mapbox Map Matching
- * API. With no Mapbox token configured yet, the check is skipped (treated
- * as passed) rather than failing closed -- otherwise every declaration
- * would be rejected before a real token is ever added. Once
- * MAPBOX_SECRET_TOKEN is set, this becomes strict automatically: any API
- * error at that point does fail closed, since the check is then verifiable.
+ * API. Fails CLOSED (rejects the declaration) if MAPBOX_SECRET_TOKEN isn't
+ * configured as a Supabase Edge Function secret -- this used to fail open
+ * ("treated as passed") to allow bootstrapping before a token existed, but
+ * that silently disabled the strongest anti-GPS-spoofing check in any
+ * deployment that forgot to set the secret. Set it with:
+ *   supabase secrets set MAPBOX_SECRET_TOKEN=<your Mapbox token>
+ * (a Supabase Edge Function secret, separate from the client-side
+ * VITE_MAPBOX_TOKEN in the frontend's own .env -- the two are not shared.)
  */
 async function isNearRoad(lat: number, lng: number): Promise<boolean> {
-  const token = Deno.env.get("MAPBOX_SECRET_TOKEN") ?? Deno.env.get("VITE_MAPBOX_TOKEN");
-  if (!token) return true;
+  const token = Deno.env.get("MAPBOX_SECRET_TOKEN");
+  if (!token) {
+    console.error("[declare-spot] MAPBOX_SECRET_TOKEN is not configured -- road-snap check cannot run, failing closed.");
+    return false;
+  }
   try {
     const coords = `${lng},${lat};${lng + 0.00001},${lat + 0.00001}`;
     const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?access_token=${token}&geometries=geojson`;
@@ -145,6 +151,15 @@ Deno.serve(async (req) => {
   await ensureProfile(db, user);
   const isDemoAccount = user.email === DEMO_EMAIL;
 
+  // Fetched once up front (rather than the old second fetch right before
+  // the shadowban check further down) since the device_fingerprint is
+  // needed for rate-limiting here too.
+  const { data: profile } = await db
+    .from("profiles")
+    .select("trust_score, municipality_id, device_fingerprint")
+    .eq("id", user.id)
+    .single();
+
   if (accuracy > RULES.MAX_GPS_ACCURACY_M) {
     return json({ error: "GPS signal too weak to verify your location. Move to an open area and try again." }, 400);
   }
@@ -188,6 +203,44 @@ Deno.serve(async (req) => {
         return json({ error: `Please wait ${wait} more minute(s) before declaring another spot.` }, 429);
       }
     }
+
+    // Same hourly/daily caps, but scoped to every account sharing this
+    // browser's persisted device id (profiles.device_fingerprint, set once
+    // at signup -- see 0008_lockdown_profile_columns.sql and
+    // src/lib/deviceFingerprint.ts) rather than just this one account.
+    // Blunts the trivial "make a second free account on the same phone to
+    // reset the clock" farming pattern the per-user caps above don't catch
+    // on their own. Read from the DB, never trusted from the request body,
+    // since profiles.device_fingerprint is no longer client-writable.
+    if (profile?.device_fingerprint) {
+      const { data: sameDeviceProfiles } = await db
+        .from("profiles")
+        .select("id")
+        .eq("device_fingerprint", profile.device_fingerprint);
+      const deviceUserIds = (sameDeviceProfiles ?? []).map((p) => p.id);
+
+      if (deviceUserIds.length > 1) {
+        const { count: deviceHourlyCount } = await db
+          .from("parking_spots")
+          .select("id", { count: "exact", head: true })
+          .in("declared_by", deviceUserIds)
+          .gte("declared_at", oneHourAgo);
+
+        if ((deviceHourlyCount ?? 0) >= RULES.HOURLY_CAP) {
+          return json({ error: `You've reached the hourly limit of ${RULES.HOURLY_CAP} declarations. Try again later.` }, 429);
+        }
+
+        const { count: deviceDailyCount } = await db
+          .from("parking_spots")
+          .select("id", { count: "exact", head: true })
+          .in("declared_by", deviceUserIds)
+          .gte("declared_at", oneDayAgo);
+
+        if ((deviceDailyCount ?? 0) >= RULES.DAILY_CAP) {
+          return json({ error: `You've reached today's limit of ${RULES.DAILY_CAP} declarations.` }, 429);
+        }
+      }
+    }
   }
 
   const distanceFromUser = haversineMeters(userLat, userLng, spotLat, spotLng);
@@ -199,12 +252,6 @@ Deno.serve(async (req) => {
   if (!onRoad) {
     return json({ error: "We couldn't verify that location is a real street. Declaration rejected." }, 400);
   }
-
-  const { data: profile } = await db
-    .from("profiles")
-    .select("trust_score, municipality_id")
-    .eq("id", user.id)
-    .single();
 
   const shadowHidden = (profile?.trust_score ?? 1) < RULES.TRUST_SHADOWBAN_THRESHOLD;
 

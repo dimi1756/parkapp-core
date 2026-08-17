@@ -181,6 +181,10 @@ export type Database = {
         Args: { target_municipality_id: string };
         Returns: boolean;
       };
+      redeem_trial_premium: {
+        Args: Record<string, never>;
+        Returns: void;
+      };
       my_admin_municipality: {
         Args: Record<string, never>;
         Returns: { municipality_id: string; municipality_name: string; role: string }[];

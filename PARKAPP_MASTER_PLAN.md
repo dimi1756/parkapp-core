@@ -42,51 +42,65 @@ Done ahead of the chunked hardening work below, per direct request.
 ---
 
 ## Chunk 1 — Anti-Cheat & Points/Membership Integrity (Security)
-**Status:** `[ ] PENDING`
+**Status:** `[x] COMPLETED` (2026-08-05)
 **Persona:** Supabase/Postgres security architect (RLS, SECURITY DEFINER functions, server-side validation)
 
-**Why this is first:** the single most severe finding in the codebase survey.
-Points are correctly ledger-based and awarded server-side via Edge Functions
-(`declare-spot`, `claim-spot`, `manual-unpark` — good), but the `profiles`
-table itself is broadly self-writable under RLS with no column restriction
-(`profiles_update_self`, `0001_init_schema.sql:224-226`). Any authenticated
-user can currently do, from raw devtools/curl, with no exploit tooling:
-```js
-supabase.from('profiles').update({ membership_tier: 'premium', points_balance: 999999, trust_score: 1.0 }).eq('id', myId)
-```
-...and it succeeds. This silently undermines the ledger design the rest of
-the system relies on, and gives every user free Premium for the asking.
+**What shipped:**
+- `supabase/migrations/0008_lockdown_profile_columns.sql` — column-level
+  `REVOKE UPDATE` on `membership_tier`, `membership_expires_at`,
+  `points_balance`, `trust_score`, `device_fingerprint` from `authenticated`.
+  RLS (row-level) is unchanged; this adds column-level enforcement on top,
+  so the raw-devtools exploit (`profiles.update({membership_tier:'premium',
+  points_balance:999999})`) now fails outright. Every other profile field
+  (name, phone, vehicle details, municipality assignment) is untouched and
+  still self-editable exactly as before.
+- New `redeem_trial_premium()` SECURITY DEFINER RPC is now the only path to
+  Premium — `AuthContext.upgradeToPremium()` calls it instead of a raw
+  table update. It only grants the existing 15-day trial (real payment
+  verification is still Chunk 3's job) and is a no-op unless the account is
+  currently `free`, so it can't be replayed to keep resetting the trial.
+- `points_balance`/`trust_score` need no replacement write path — they
+  still move exclusively through the pre-existing `apply_points_transaction`/
+  `apply_trust_event` ledger triggers, which run with elevated privileges
+  independent of the calling role's column grants.
+- Device fingerprinting: `src/lib/deviceFingerprint.ts` (a localStorage-
+  persisted random id, honestly documented as best-effort — resettable by
+  clearing storage/incognito, not hardware attestation) is now captured at
+  signup (`AuthContext.signUp`) and stored once, server-side, into
+  `profiles.device_fingerprint` via the `handle_new_user` trigger.
+  `declare-spot/index.ts`'s rate limits (hourly/daily caps) now also check
+  across every account sharing the same device fingerprint, reading it from
+  the caller's own DB row (never trusted from the request body, since that
+  column is no longer client-writable) — blunts "make a second free account
+  on the same phone" point-farming that the per-account caps alone missed.
+- Road-snap anti-spoofing (`isNearRoad` in `declare-spot/index.ts`) now
+  **fails closed** instead of open when `MAPBOX_SECRET_TOKEN` isn't
+  configured as a Supabase Edge Function secret.
+  **⚠️ Operational action required:** run
+  `supabase secrets set MAPBOX_SECRET_TOKEN=<your Mapbox token>` against the
+  live project (this is a separate secret from the frontend's
+  `VITE_MAPBOX_TOKEN` in `.env` — Edge Functions don't inherit Vite env
+  vars). Until that secret is set, **every** spot declaration will now be
+  rejected — this is intentional (fail loud beats fail silent for a
+  security check), but it means this fix must not ship to the live pilot
+  without the secret being set first, or declarations break entirely.
 
-**Tasks:**
-- [ ] Migration: replace `profiles_update_self` with a column-scoped policy
-  (or a trigger that rejects/ignores changes to `membership_tier`,
-  `points_balance`, `trust_score`, `membership_expires_at` from client
-  updates) — those columns become writable only via `SECURITY DEFINER`
-  functions/triggers, everything else (name, phone, vehicle details, avatar)
-  stays self-editable.
-- [ ] Wire `upgradeToPremium` (`AuthContext.tsx:151-155`) to a real
-  server-side RPC instead of a direct table update, even before real billing
-  exists (Chunk 3) — at minimum gate it behind a check, and set
-  `membership_expires_at` (column already exists, `0001_init_schema.sql:45`,
-  currently never written by anything).
-- [ ] Wire the `device_fingerprint` column (`0001_init_schema.sql:48`,
-  indexed but never read/written anywhere in the codebase) into signup, and
-  have `declare-spot`'s rate-limit checks (`RULES`, `declare-spot/index.ts:12-19`)
-  key off it in addition to `user_id`, to blunt trivial multi-accounting for
-  point-farming.
-- [ ] Make road-snap verification fail **closed**, not open, when
-  `MAPBOX_SECRET_TOKEN` is unset (`declare-spot/index.ts:45-52`) — or at
-  minimum log/alert loudly so a misconfigured pilot deployment doesn't
-  silently run with its strongest anti-spoof check disabled.
-- [ ] Add a check constraint or narrower policy on
-  `points_transactions_insert_own_spend` (`0004_anti_spam_support.sql:80-81`)
-  so the client-insertable negative-delta `reason` field can't be forged
-  with an arbitrary string to fabricate redemption history.
+**Verified:** `eslint` clean on every changed file (only pre-existing style
+warnings elsewhere in the repo); `tsc --noEmit` stays at the same 15
+pre-existing errors (all from the already-known stale hand-written
+`types.ts`, none related to this chunk — the new `redeem_trial_premium` RPC
+was typed to avoid adding a 16th).
 
-**Acceptance criteria:** a raw Supabase client call attempting to set
-`membership_tier`/`points_balance`/`trust_score` on one's own profile is
-rejected by RLS; `tsc --noEmit` and `eslint` stay clean; existing declare/claim/
-unpark flows keep passing manual smoke-test.
+**Deferred, not done this chunk:** the `points_transactions_insert_own_spend`
+ledger `reason` field is still an unconstrained free-text string on
+client-insertable spend rows (`0004_anti_spam_support.sql:80-81`) — doesn't
+enable gaining points (bounded by `greatest(0,...)`), only lets a client
+fabricate a garbage reason on its own spend history, so it was left open
+rather than guessed at with an incomplete allowed-reasons list (would need
+`OffersTab.tsx`'s real reason strings first). `manual-unpark` was reviewed
+and intentionally left unchanged — it's already self-limiting via the
+one-active-session-per-user constraint plus claim-spot's own GPS/radius
+checks, not an independent farming vector.
 
 ---
 

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode, useCa
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
+import { getDeviceFingerprint } from '@/lib/deviceFingerprint';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 
@@ -100,14 +101,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [session?.user]);
 
   const signUp = async ({ fullName, phone, email, password }: SignUpDetails) => {
-    // full_name/phone travel as auth metadata; a DB trigger (see
-    // supabase/migrations/0003_handle_new_user_trigger.sql) creates the
-    // matching profiles row server-side, so this works whether or not a
-    // session exists yet (email confirmation may still be pending).
+    // full_name/phone/device_fingerprint travel as auth metadata; a DB
+    // trigger (see supabase/migrations/0003_handle_new_user_trigger.sql,
+    // updated by 0008_lockdown_profile_columns.sql) creates the matching
+    // profiles row server-side, so this works whether or not a session
+    // exists yet (email confirmation may still be pending).
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName, phone } },
+      options: { data: { full_name: fullName, phone, device_fingerprint: getDeviceFingerprint() } },
     });
     if (error) return { error: error.message, needsEmailConfirmation: false };
 
@@ -150,7 +152,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const upgradeToPremium = async () => {
     if (!session?.user) return;
-    await supabase.from('profiles').update({ membership_tier: 'premium' }).eq('id', session.user.id);
+    // Server-verified RPC (0008_lockdown_profile_columns.sql), not a raw
+    // table update -- membership_tier/membership_expires_at are no longer
+    // client-writable columns, so this is the only path to Premium. Real
+    // payment verification is separate tracked work (PARKAPP_MASTER_PLAN.md,
+    // Chunk 3); this RPC only grants the existing 15-day trial and is a
+    // no-op if the account isn't currently on the free tier.
+    await supabase.rpc('redeem_trial_premium');
     await fetchProfile(session.user.id);
   };
 
