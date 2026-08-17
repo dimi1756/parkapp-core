@@ -51,6 +51,11 @@ const STEP_ADVANCE_RADIUS_METERS = 30;
 // not fill the screen with just the one building.
 const SEARCH_FLY_ZOOM = 16.5;
 
+// Tighter than STREET_ZOOM: Map Selection Mode's manual pin drop needs a
+// strict street-level view so a tap reliably lands on the road/curb instead
+// of clipping the building it fronts.
+const SELECTION_FLY_ZOOM = 18.5;
+
 // "Is the spot free?" triggers once the driver is within this radius of the
 // target spot -- close enough that they're plausibly right next to it, per
 // the 50-100m range this MVP flow calls for.
@@ -645,7 +650,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
     setSelectionMode(true);
     setSelectedSpot(null);
-    flyToLocation(userLngLat[0], userLngLat[1]);
+    flyToLocation(userLngLat[0], userLngLat[1], SELECTION_FLY_ZOOM);
     toast({ title: t('map.selectionModeTitle'), description: t('map.selectionModeDesc') });
   };
 
