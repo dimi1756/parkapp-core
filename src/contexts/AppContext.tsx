@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { isPremiumActive } from '@/lib/membership';
 
 interface AppState {
   points: number;
-  plan: 'free' | 'premium';
-  citizenVerified: boolean;
   darkMode: boolean;
   searchesToday: number;
   isAdmin: boolean;
@@ -12,8 +12,6 @@ interface AppState {
 interface AppContextType extends AppState {
   addPoints: (amount: number) => void;
   deductPoints: (amount: number) => boolean;
-  upgradeToPremium: () => void;
-  verifyCitizen: () => void;
   toggleDarkMode: () => void;
   incrementSearches: () => boolean;
   setAdminMode: (isAdmin: boolean) => void;
@@ -23,10 +21,17 @@ interface AppContextType extends AppState {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
+  // `plan`/`citizenVerified`/`upgradeToPremium`/`verifyCitizen` used to live
+  // here as plain client-side state, entirely disconnected from the real,
+  // server-written profiles.membership_tier -- a page reload always reset
+  // it back to 'free' regardless of an active trial or resident grant, and
+  // the search-limit check below was enforcing against that fake state
+  // instead of reality. Removed in favor of reading the real profile
+  // (locked down server-side, see 0008/0009_*.sql) via useAuth().
+  const { profile } = useAuth();
+
   const [state, setState] = useState<AppState>({
     points: 150,
-    plan: 'free',
-    citizenVerified: false,
     darkMode: false,
     searchesToday: 0,
     isAdmin: false,
@@ -52,20 +57,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     return false;
   };
 
-  const upgradeToPremium = () => {
-    setState(prev => ({ ...prev, plan: 'premium' }));
-  };
-
-  const verifyCitizen = () => {
-    setState(prev => ({ ...prev, citizenVerified: true, plan: 'premium' }));
-  };
-
   const toggleDarkMode = () => {
     setState(prev => ({ ...prev, darkMode: !prev.darkMode }));
   };
 
   const incrementSearches = (): boolean => {
-    if (state.plan === 'premium' || state.searchesToday < 1) {
+    if (isPremiumActive(profile) || state.searchesToday < 1) {
       setState(prev => ({ ...prev, searchesToday: prev.searchesToday + 1 }));
       return true;
     }
@@ -85,8 +82,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       ...state,
       addPoints,
       deductPoints,
-      upgradeToPremium,
-      verifyCitizen,
       toggleDarkMode,
       incrementSearches,
       setAdminMode,

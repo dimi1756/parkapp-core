@@ -153,6 +153,11 @@ const en = {
   'plans.verifySuccessDesc': 'Premium activated for free as a Chalkida resident.',
   'plans.verifyError': 'Error',
   'plans.verifyErrorDesc': 'Please enter your resident ID.',
+  'plans.verifyInvalid': "That code didn't work",
+  'plans.verifyInvalidDesc': "Double-check the code with your municipality, or that you're assigned to the right city.",
+  'plans.trialExpired': 'Your Premium trial has ended — you\'re back on the Free plan.',
+  'plans.trialDaysLeft': '{n} day(s) left in your trial',
+  'plans.residentActive': 'Free forever as a verified resident',
 
   // Profile tab
   'profile.yourScore': 'Your Score',
@@ -462,6 +467,11 @@ const gr: Record<keyof typeof en, string> = {
   'plans.verifySuccessDesc': 'Το Premium ενεργοποιήθηκε δωρεάν ως κάτοικος Χαλκίδας.',
   'plans.verifyError': 'Σφάλμα',
   'plans.verifyErrorDesc': 'Συμπλήρωσε τον αριθμό δημότη.',
+  'plans.verifyInvalid': 'Ο κωδικός δεν ίσχυε',
+  'plans.verifyInvalidDesc': 'Έλεγξε τον κωδικό με τον δήμο σου, ή ότι είσαι στη σωστή πόλη.',
+  'plans.trialExpired': 'Η δοκιμή Premium έληξε — επέστρεψες στο Δωρεάν πλάνο.',
+  'plans.trialDaysLeft': '{n} ημέρες απομένουν στη δοκιμή σου',
+  'plans.residentActive': 'Δωρεάν για πάντα ως επιβεβαιωμένος κάτοικος',
 
   'profile.yourScore': 'Το Σκορ σου',
   'profile.pts': 'πόντοι',
@@ -765,6 +775,11 @@ const tr: Record<keyof typeof en, string> = {
   'plans.verifySuccessDesc': 'Chalkida sakini olarak Premium ücretsiz etkinleştirildi.',
   'plans.verifyError': 'Hata',
   'plans.verifyErrorDesc': 'Lütfen sakinlik numaranı gir.',
+  'plans.verifyInvalid': 'Bu kod çalışmadı',
+  'plans.verifyInvalidDesc': 'Kodu belediyenle kontrol et veya doğru şehre atanmış olduğundan emin ol.',
+  'plans.trialExpired': 'Premium deneme süren doldu — Ücretsiz plana döndün.',
+  'plans.trialDaysLeft': 'Deneme sürende {n} gün kaldı',
+  'plans.residentActive': 'Doğrulanmış sakin olarak sonsuza dek ücretsiz',
 
   'profile.yourScore': 'Puanın',
   'profile.pts': 'puan',

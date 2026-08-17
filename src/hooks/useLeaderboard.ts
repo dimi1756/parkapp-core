@@ -42,9 +42,14 @@ export function useLeaderboard(period: LeaderboardPeriod, limit = 20) {
     const pointsCol = period === 'daily' ? 'points_today' : 'points_this_week';
 
     const load = async () => {
+      // Select only the points column the active view actually has --
+      // leaderboard_daily has points_today, leaderboard_weekly has
+      // points_this_week, never both. Unconditionally selecting both
+      // (as this used to) makes every query fail with "column ... does
+      // not exist" on whichever one the current view doesn't define.
       let query = supabase
         .from(view)
-        .select('user_id, full_name, municipality_id, points_today, points_this_week')
+        .select(`user_id, full_name, municipality_id, ${pointsCol}`)
         .order(pointsCol, { ascending: false, nullsFirst: false })
         .limit(limit);
 

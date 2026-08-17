@@ -3,6 +3,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useAuth, maskPlate } from '@/contexts/AuthContext';
 import { useLanguage, type Language } from '@/contexts/LanguageContext';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
+import { isPremiumActive } from '@/lib/membership';
 import { User, Moon, Bell, Shield, LogOut, ChevronRight, Crown, Building2, Gem, TrendingUp, Loader2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR' };
 
 export const ProfileTab = () => {
-  const { darkMode, toggleDarkMode, citizenVerified, setAdminMode } = useApp();
+  const { darkMode, toggleDarkMode, setAdminMode } = useApp();
   const { profile, signOut, updateProfileDetails } = useAuth();
   const { language, setLanguage, t } = useLanguage();
   const { isAdmin, municipalityName } = useAdminAccess();
@@ -76,7 +77,12 @@ export const ProfileTab = () => {
     });
   };
   const points = profile?.points_balance ?? 0;
-  const isPremium = profile?.membership_tier === 'premium';
+  // Real, server-derived status (see src/lib/membership.ts) -- previously
+  // isPremium ignored trial expiry and the resident badge below read from
+  // client-only React state (AppContext.citizenVerified) that reset to
+  // false on every reload no matter what was actually granted server-side.
+  const isPremium = isPremiumActive(profile);
+  const isResident = profile?.resident_verified ?? false;
 
   const initials = (profile?.full_name ?? '?')
     .split(' ')
@@ -111,7 +117,7 @@ export const ProfileTab = () => {
                   {t('profile.freeTier')}
                 </span>
               )}
-              {citizenVerified && (
+              {isResident && (
                 <span className="bg-success text-success-foreground text-xs font-medium px-3 py-1 rounded-full flex items-center gap-1">
                   <Shield className="h-3 w-3" /> {t('profile.resident')}
                 </span>

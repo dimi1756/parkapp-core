@@ -37,6 +37,8 @@ interface AuthContextType {
   saveVehicleDetails: (details: VehicleDetails) => Promise<{ error: string | null }>;
   updateProfileDetails: (details: { fullName: string } & VehicleDetails) => Promise<{ error: string | null }>;
   upgradeToPremium: () => Promise<void>;
+  /** Resolves true if the code matched the caller's municipality and Premium was granted. */
+  redeemResidentCode: (code: string) => Promise<boolean>;
   assignMunicipality: (municipalityId: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -58,6 +60,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = useCallback(async (userId: string) => {
+    // Self-heals a trial that expired since the last check-in -- there's no
+    // cron/scheduled-function infra to downgrade it in the background, so
+    // this runs it on every profile fetch instead (see
+    // 0009_resident_verification.sql). No-ops instantly unless this
+    // specific account is a premium, non-resident row past its expiry.
+    await supabase.rpc('sync_expired_membership');
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
     setProfile(data ?? null);
   }, []);
@@ -162,6 +170,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await fetchProfile(session.user.id);
   };
 
+  const redeemResidentCode = async (code: string): Promise<boolean> => {
+    if (!session?.user) return false;
+    // Server-verified against the caller's own municipality's resident_code
+    // (0009_resident_verification.sql) -- previously this accepted any
+    // non-empty string with no check against anything real.
+    const { data, error } = await supabase.rpc('redeem_resident_code', { p_code: code });
+    if (error) {
+      console.error('[AuthContext] redeemResidentCode failed:', error);
+      return false;
+    }
+    if (data) await fetchProfile(session.user.id);
+    return Boolean(data);
+  };
+
   const assignMunicipality = async (municipalityId: string) => {
     if (!session?.user) return;
     await supabase.from('profiles').update({ municipality_id: municipalityId }).eq('id', session.user.id);
@@ -189,6 +211,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         saveVehicleDetails,
         updateProfileDetails,
         upgradeToPremium,
+        redeemResidentCode,
         assignMunicipality,
         refreshProfile,
       }}

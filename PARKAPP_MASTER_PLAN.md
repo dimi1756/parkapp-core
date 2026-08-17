@@ -178,40 +178,116 @@ than fixed silently since it's outside Chunk 2's scope.
 ---
 
 ## Chunk 3 — Payments & Plans: Real Verification
-**Status:** `[ ] PENDING`
-**Persona:** Full-stack engineer, payments/billing integration
+**Status:** `[x] COMPLETED` (2026-08-17)
+**Persona:** Full-Stack Systems Architect & Payment Integration Specialist
 
-**Why:** the entire "Premium" subscription flow is currently a client-side
-mock with a real-looking UI and no backend behind it:
-- `PlansTab.tsx` "Start Trial" calls `upgradeToPremium()` directly on click
-  — no payment step, no processor SDK anywhere in `package.json`.
-- The municipality resident-code verification (`handleVerify`,
-  `PlansTab.tsx:18-33`) accepts **any non-empty string** — it never checks
-  the code against a real registry.
-- `membership_expires_at` exists in the schema but nothing ever sets it, so
-  a "15-day trial" never actually expires.
+**Quick patch — `useLeaderboard.ts` query bug:** it unconditionally selected
+both `points_today` and `points_this_week` from whichever view it queried,
+but `leaderboard_daily` only has the former and `leaderboard_weekly` only
+the latter — every load failed with `column ... does not exist`. Now
+selects only the column the active `view`/`pointsCol` needs. **Verified
+live**: previously logged `[useLeaderboard] failed to load leaderboard_weekly:
+... column ... does not exist`; after the fix, same account/environment now
+loads cleanly with no query error (renders the genuine "No rankings yet"
+empty state instead of the error state Chunk 2 added).
 
-This chunk depends on Chunk 1 landing first (the `profiles` write-lockdown),
-otherwise a real payment integration would sit on top of a table that's
-still directly forgeable.
+**What shipped (Resident Code Validation):**
+- `supabase/migrations/0009_resident_verification.sql` — new
+  `profiles.resident_verified` column (client-write-locked, same treatment
+  as the Chunk 1 columns) and `municipality_settings.resident_code` (each
+  municipality's own admins can set one; null = not configured yet). New
+  `redeem_resident_code(p_code)` RPC: looks up the caller's own
+  municipality, compares the submitted code against that municipality's
+  `resident_code` (case-insensitive/trimmed), and only on a match sets
+  `membership_tier='premium'`, `resident_verified=true`,
+  `membership_expires_at=null` (permanent, not a 15-day clock — this is a
+  municipal benefit, not a promo). Previously `handleVerify` accepted any
+  non-empty string and called the exact same trial RPC as "Start Trial" —
+  there was no verification happening at all.
+- `AuthContext.redeemResidentCode(code)` — new method calling the RPC;
+  `PlansTab.handleVerify` now shows a real "that code didn't work" error on
+  a mismatch instead of silently succeeding for any input.
+- **Not built this chunk (flagged, not silently skipped):** an admin UI
+  control to actually *set* `resident_code` — currently requires direct SQL
+  (Supabase dashboard/CLI) per municipality. Wasn't asked for and would
+  have expanded this chunk into admin-settings UI work; natural fast-follow
+  whenever wanted.
 
-**Tasks:**
-- [ ] Decide + document the actual pilot payment approach (Stripe Checkout
-  is the standard low-lift option for a Vite/Supabase stack) — this needs a
-  product decision, not just code, so this task starts with a short written
-  recommendation + your sign-off before wiring anything.
-- [ ] Real resident-code verification: either a lookup table/RPC per
-  municipality, or (pilot-simpler) a per-municipality shared code stored in
-  `municipality_settings`, checked server-side.
-- [ ] Set and enforce `membership_expires_at` on trial start; a scheduled
-  check (cron Edge Function or a check-on-read pattern) that downgrades
-  expired trials back to `free`.
-- [ ] Update pricing copy to reflect whatever's actually wired, not
-  aspirational numbers.
+**What shipped (Plans & Trial System Hardening):**
+- New `src/lib/membership.ts` — single source of truth for tier status
+  (`free` / `trial` (with days remaining) / `resident` / `expired`),
+  derived only from server-written columns. Two exports:
+  `getMembershipStatus()` for display, `isPremiumActive()` for gating.
+- **Removed a second, entirely disconnected "plan" system.**
+  `AppContext.tsx` had its own `plan`/`citizenVerified` client-only state
+  (defaulting to `'free'` on every mount, never synced with the real
+  `profiles.membership_tier`) with its own fake `upgradeToPremium()`/
+  `verifyCitizen()` setters — and `incrementSearches()` (the daily search
+  cap) was gating against *that* fake state, not the real one. This meant
+  a genuinely Premium account's search limit silently reset to free-tier
+  behavior on every page reload. Deleted the fake state entirely;
+  `incrementSearches` now reads `isPremiumActive(profile)` from the real
+  `AuthContext` profile via `useAuth()`.
+- **Self-healing trial expiry** — no cron/scheduled-function infra exists
+  for a pilot, so instead of a background job, `AuthContext.fetchProfile`
+  now calls a new `sync_expired_membership()` RPC (0009) on every
+  session load/refresh: downgrades `membership_tier` back to `'free'` only
+  for a premium, non-resident row whose `membership_expires_at` has
+  passed. Resident grants (no expiry) and active trials are never touched.
+  This is genuine server-side, timestamp-driven enforcement without
+  needing pg_cron.
+- `PlansTab.tsx` reworked around `getMembershipStatus()`: shows "N days
+  left in your trial" for an active trial, "Free forever as a verified
+  resident" for a resident grant, and a dismissible "your trial has ended"
+  notice when `status.kind === 'expired'`. Both "Start Trial" and "Verify"
+  now show a loading spinner (both are real network round-trips now, not
+  instant client state flips) and are disabled while in flight.
+- **Duplicate-trial prevention**, defense in depth: the RPC itself
+  (`redeem_trial_premium`, 0008) already only fires from `membership_tier
+  = 'free'`; the "Start Trial" button is additionally disabled client-side
+  whenever `status.kind` is `trial` or `resident` — so both an accidental
+  double-click and a determined client bypass are covered.
+- `ProfileTab.tsx`: the "Resident" badge now reads real
+  `profile.resident_verified` instead of the fake `AppContext.citizenVerified`
+  (which reset on every reload regardless of actual status); `isPremium`
+  now uses `isPremiumActive()` so it correctly reflects trial expiry too.
+- 10 new i18n keys across en/gr/tr (invalid-code error, trial-days-left,
+  trial-expired notice, resident-active label).
 
-**Acceptance criteria:** no path in the app can set `membership_tier =
-'premium'` without going through the new server-verified flow; a trial
-that's past its expiry date is reflected as expired on next load.
+**⚠️ Operational action required:** migrations `0008` and `0009` need to be
+applied to the live Supabase project (SQL editor or `supabase db push`) —
+verified live in this session that at least `0009`'s RPCs
+(`redeem_resident_code`, `sync_expired_membership`) 404 against the current
+database, meaning they likely haven't been applied yet (same probably
+applies to `0008`'s `redeem_trial_premium`, unconfirmed either way). The
+app degrades gracefully either way (every new RPC call is error-checked,
+never throws to the UI), but none of Chunk 1 or Chunk 3's server-side
+guarantees are actually live until these migrations run.
+
+**Verified:** `eslint` clean (same pre-existing warning pattern as before,
+0 new); `tsc --noEmit` — 15 pre-existing errors unchanged, **+1 new**:
+`AuthContext.tsx`'s `redeem_resident_code` call hits the exact same
+pre-existing "RPC args typed as `never`" bug that already affects 3 other
+call sites in this codebase (root cause is the stale hand-written
+`types.ts`/`Database` generic shape, not this call specifically — confirmed
+by checking that even a correctly-typed `Functions` entry still triggers
+it, matching the pattern of every other args-taking RPC already in the
+file). Deferred to Chunk 4, which already owns fixing this class of issue
+for the whole codebase, rather than a speculative workaround here. Live
+end-to-end test: the leaderboard patch confirmed fixed against the real
+environment; Plans tab renders correctly (including a legacy account whose
+`membership_tier='premium'` predates any expiry tracking, handled
+gracefully as "Active" rather than crashing on `Infinity` days-left); the
+resident-code flow degrades cleanly (no crash) when its RPC isn't live yet.
+
+**Still genuinely open (not part of this chunk's scope):** real payment
+processing. The €3/mo pricing shown is still display-only — no Stripe (or
+other processor) integration exists, and "Start Trial" still only grants
+the existing free 15-day trial, same as before this chunk. Deciding and
+wiring an actual payment approach (Stripe Checkout is the standard
+low-lift option for a Vite/Supabase stack) is a product decision requiring
+sign-off, not something to guess at unprompted — flagged here as a clear
+next step whenever wanted, not silently left ambiguous.
 
 ---
 

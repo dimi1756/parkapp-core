@@ -1,34 +1,51 @@
 import React, { useState } from 'react';
-import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { Check, X, Crown, Zap, Ban, Radar, Gift, Star } from 'lucide-react';
+import { getMembershipStatus } from '@/lib/membership';
+import { Check, X, Crown, Zap, Ban, Radar, Gift, Star, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
 
 export const PlansTab = () => {
-  const { verifyCitizen, citizenVerified } = useApp();
-  const { profile, upgradeToPremium } = useAuth();
+  const { profile, upgradeToPremium, redeemResidentCode } = useAuth();
   const { t } = useLanguage();
-  const plan = profile?.membership_tier === 'premium' ? 'premium' : 'free';
+  // Single source of truth for tier -- see src/lib/membership.ts. Replaces
+  // the old plain `profile?.membership_tier === 'premium'` check, which
+  // couldn't tell an active trial from a resident grant from a trial that
+  // expired but hasn't been synced back to 'free' yet.
+  const status = getMembershipStatus(profile);
+  const plan = status.kind === 'trial' || status.kind === 'resident' ? 'premium' : 'free';
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [citizenId, setCitizenId] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [startingTrial, setStartingTrial] = useState(false);
+
+  const handleStartTrial = async () => {
+    setStartingTrial(true);
+    await upgradeToPremium();
+    setStartingTrial(false);
+  };
 
   const handleVerify = async () => {
-    if (citizenId.trim()) {
-      verifyCitizen();
-      await upgradeToPremium();
-      toast({
-        title: t('plans.verifySuccess'),
-        description: t('plans.verifySuccessDesc'),
-      });
-    } else {
+    if (!citizenId.trim()) {
       toast({
         title: t('plans.verifyError'),
         description: t('plans.verifyErrorDesc'),
         variant: 'destructive',
       });
+      return;
+    }
+    setVerifying(true);
+    // Server-verified against the caller's own municipality's resident
+    // code -- previously any non-empty string was accepted and silently
+    // granted the same trial as the "Start Trial" button.
+    const success = await redeemResidentCode(citizenId.trim());
+    setVerifying(false);
+    if (success) {
+      toast({ title: t('plans.verifySuccess'), description: t('plans.verifySuccessDesc') });
+    } else {
+      toast({ title: t('plans.verifyInvalid'), description: t('plans.verifyInvalidDesc'), variant: 'destructive' });
     }
   };
 
@@ -71,8 +88,14 @@ export const PlansTab = () => {
           </button>
         </div>
 
+        {status.kind === 'expired' && (
+          <div className="glass-card p-4 animate-fade-in bg-warning/10 border-warning/30 text-sm">
+            {t('plans.trialExpired')}
+          </div>
+        )}
+
         {/* Free Plan */}
-        <div className={`glass-card p-5 animate-fade-in ${plan === 'free' && !citizenVerified ? 'ring-2 ring-primary' : ''}`}>
+        <div className={`glass-card p-5 animate-fade-in ${status.kind === 'free' || status.kind === 'expired' ? 'ring-2 ring-primary' : ''}`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold">{t('plans.free')}</h3>
             <span className="text-2xl font-bold">€0</span>
@@ -131,7 +154,15 @@ export const PlansTab = () => {
               <span className="text-sm text-muted-foreground">
                 /{billingCycle === 'monthly' ? t('plans.perMo') : t('plans.perYr')}
               </span>
-              <p className="text-xs text-success font-medium mt-0.5">{t('plans.trial', { n: trialDays })}</p>
+              {status.kind === 'resident' ? (
+                <p className="text-xs text-success font-medium mt-0.5">{t('plans.residentActive')}</p>
+              ) : status.kind === 'trial' ? (
+                <p className="text-xs text-success font-medium mt-0.5">
+                  {Number.isFinite(status.daysLeft) ? t('plans.trialDaysLeft', { n: status.daysLeft }) : t('plans.active')}
+                </p>
+              ) : (
+                <p className="text-xs text-success font-medium mt-0.5">{t('plans.trial', { n: trialDays })}</p>
+              )}
             </div>
           </div>
 
@@ -155,10 +186,11 @@ export const PlansTab = () => {
           </ul>
 
           <Button
-            className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-            disabled={plan === 'premium'}
-            onClick={() => upgradeToPremium()}
+            className="w-full bg-accent text-accent-foreground hover:bg-accent/90 gap-2"
+            disabled={plan === 'premium' || startingTrial}
+            onClick={handleStartTrial}
           >
+            {startingTrial && <Loader2 className="h-4 w-4 animate-spin" />}
             {plan === 'premium' ? t('plans.active') : t('plans.startTrial', { n: trialDays })}
           </Button>
         </div>
@@ -177,7 +209,7 @@ export const PlansTab = () => {
             {t('plans.residentDesc')}
           </p>
 
-          {citizenVerified ? (
+          {status.kind === 'resident' ? (
             <div className="flex items-center gap-2 text-success bg-success/10 p-3 rounded-lg">
               <Check className="h-5 w-5" />
               <span className="font-medium">{t('plans.verified')}</span>
@@ -188,12 +220,15 @@ export const PlansTab = () => {
                 placeholder={t('plans.residentId')}
                 value={citizenId}
                 onChange={(e) => setCitizenId(e.target.value)}
+                disabled={verifying}
                 className="bg-background"
               />
               <Button
                 onClick={handleVerify}
-                className="w-full"
+                disabled={verifying}
+                className="w-full gap-2"
               >
+                {verifying && <Loader2 className="h-4 w-4 animate-spin" />}
                 {t('plans.verify')}
               </Button>
             </div>

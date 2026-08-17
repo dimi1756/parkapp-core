@@ -40,6 +40,7 @@ export type Database = {
           notify_high_occupancy: boolean;
           moderate_spot_threshold: number;
           full_spot_threshold: number;
+          resident_code: string | null;
           updated_at: string;
           updated_by: string | null;
         };
@@ -63,6 +64,7 @@ export type Database = {
           points_balance: number;
           trust_score: number;
           device_fingerprint: string | null;
+          resident_verified: boolean;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["profiles"]["Row"]> & {
@@ -182,6 +184,14 @@ export type Database = {
         Returns: boolean;
       };
       redeem_trial_premium: {
+        Args: Record<string, never>;
+        Returns: void;
+      };
+      redeem_resident_code: {
+        Args: { p_code: string };
+        Returns: boolean;
+      };
+      sync_expired_membership: {
         Args: Record<string, never>;
         Returns: void;
       };
