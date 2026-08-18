@@ -648,3 +648,71 @@ decisions, not code):**
   Chunk 4) — worth a deliberate decision (drop vs. repurpose) rather than
   leaving indefinitely, since dormant-but-live schema is exactly what
   produced this audit's HIGH finding.
+
+### Independent re-verification (2026-08-18, same-day second pass)
+
+Requested again, separately, as a fresh 5-area AppSec audit — treated this
+document's own claims as a hypothesis to check rather than ground truth, per
+"a memory that names a specific fact is a claim it was true when written, not
+proof it's true now." Re-derived every finding above from the live system
+directly rather than re-reading this file's prose:
+
+- **Finding 1** (profiles column lockdown): re-ran
+  `information_schema.column_privileges` live — exactly 7 UPDATE grants on
+  `profiles`, all `grantee = authenticated`, all on the 7 legitimate columns
+  (`full_name, phone, email, municipality_id, vehicle_make, vehicle_color,
+  vehicle_plate`), zero `anon` rows, zero sensitive columns. **Confirmed
+  live**, independently.
+- **Finding 2** (parking_spots/parking_sessions RLS bypass): re-ran
+  `information_schema.role_table_grants` for INSERT/UPDATE/DELETE/TRUNCATE on
+  both tables for `authenticated`/`anon` — **0 rows**. SELECT grants still
+  present (expected; RLS scopes the actual rows). **Confirmed live**.
+- **Finding 3** (squad_members self-referential policy): re-ran
+  `pg_policies` and read the full `qual` text directly — the SELECT policy's
+  `EXISTS` subquery now reads `sm2.squad_id = squad_members.squad_id`
+  (correctly referencing the outer row), not the original
+  `sm2.squad_id = sm2.squad_id` bug. **Confirmed live**.
+- **Area 5 (headers)**: re-checked with `curl -D-` against
+  `https://www.parkapp.tech/` directly (not just reading `vercel.json`) —
+  `Server: Vercel` confirms the header config is actually the one serving
+  production, and the response carries CSP, `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin`, `Permissions-Policy`, and HSTS exactly as
+  configured. **Confirmed live**, not just present-but-unused in the repo.
+- **The one open item was still open**: `curl -X OPTIONS` against
+  `declare-spot` with a spoofed `Origin: https://evil-attacker.example.com`
+  still returned `Access-Control-Allow-Origin: *` — **`APP_ORIGIN` was never
+  actually set**, despite being flagged as the sole pending action from the
+  first pass. Attempted to set it directly via the Supabase dashboard's Edge
+  Function Secrets page; **blocked by the harness's own credential-entry
+  classifier** (the same guardrail that blocks typing into any field on a
+  secrets-management page, regardless of the actual value being a plain
+  domain string, not a token). Did not attempt a workaround, per this
+  process's standing rule on classifier blocks. **Still open** — see the
+  Security Audit Report given to the user in-chat for the exact manual step.
+- **New code-level spot checks this pass** (all clean, no fixes needed):
+  zero `execute`/`format()` dynamic-SQL patterns anywhere in
+  `supabase/migrations/*.sql` (every "execute" hit is trigger syntax or a
+  `grant execute`, not string-built SQL); every `security definer` function
+  across every migration sets `search_path = public` (defends against the
+  standard SECURITY DEFINER search-path-hijack class); `redeem_resident_code`
+  uses a bound function parameter, not concatenation; every admin RPC
+  (`admin_city_kpis`/`admin_live_spots`/`admin_weekly_trend`) explicitly
+  calls `is_municipality_admin()` and raises rather than silently returning
+  nothing; `leaderboard_daily`/`leaderboard_weekly`/`city_leaderboard`
+  (re-read the `create view` SQL directly) select only `user_id, full_name,
+  municipality_id/name`, and an aggregate `sum(delta)` — no phone/email/
+  vehicle/trust_score/raw balance; the one `dangerouslySetInnerHTML` in the
+  tree (`src/components/ui/chart.tsx`) is shadcn/ui's stock chart-theme
+  `<style>` tag, fed by a developer-authored `ChartConfig` object, never
+  user input; production build output (`dist/assets/*.js`) greped clean of
+  `service_role`/`sk.`-shaped secrets — the only embedded tokens are the
+  Mapbox `pk.` and Supabase `sb_publishable_` public/publishable keys, both
+  designed to be client-exposed.
+- **Reviewed and reconfirmed, not fixed** (Supabase Auth's own default
+  behavior, not app code): `signUp`'s error message is passed through
+  verbatim to the user (`src/contexts/AuthContext.tsx`), which does let a
+  signup attempt on an already-registered email enumerate that fact —
+  `signIn`'s "Invalid login credentials" remains enumeration-safe by
+  default. Same conclusion as the first pass: fixing this needs a custom
+  signup edge function, not a quick patch — flagged, not built unprompted.
