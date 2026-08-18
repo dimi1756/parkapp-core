@@ -4,22 +4,111 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/png" href="/favicon.png?v=2" />
-    <title>ParkApp | by Urban Sync</title>
-    <meta name="description" content="Find available parking spots in real time across Chalkida." />
-    <meta name="author" content="ParkApp" />
+    <link rel="canonical" href="https://www.parkapp.tech/" />
+    <meta name="theme-color" content="#0056b3" />
 
-    <meta property="og:title" content="ParkApp - Smart Parking in Chalkida" />
-    <meta property="og:description" content="Find available parking spots in real time across Chalkida." />
+    <title>ParkApp by Urban Sync | Smart Parking &amp; Mobility Platform</title>
+    <meta
+      name="description"
+      content="ParkApp is a crowdsourced smart-parking and mobility platform: drivers declare and claim real-time parking spots, get live turn-by-turn navigation to the nearest one, and municipalities get live occupancy analytics and traffic-trend dashboards for their city."
+    />
+    <meta name="author" content="Urban Sync" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content="Urban Sync" />
+    <meta property="og:title" content="ParkApp by Urban Sync | Smart Parking &amp; Mobility Platform" />
+    <meta
+      property="og:description"
+      content="Crowdsourced, real-time parking discovery with live navigation for drivers, and live occupancy/traffic analytics for municipalities."
+    />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta property="og:url" content="https://www.parkapp.tech/" />
+    <meta property="og:image" content="https://www.parkapp.tech/parkapp-logo.png" />
+    <meta property="og:locale" content="en_US" />
 
+    <!-- Twitter / X Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta name="twitter:title" content="ParkApp by Urban Sync | Smart Parking &amp; Mobility Platform" />
+    <meta
+      name="twitter:description"
+      content="Crowdsourced, real-time parking discovery with live navigation for drivers, and live occupancy/traffic analytics for municipalities."
+    />
+    <meta name="twitter:image" content="https://www.parkapp.tech/parkapp-logo.png" />
+
+    <!-- Structured data (Schema.org / JSON-LD) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "ParkApp",
+            "url": "https://www.parkapp.tech/",
+            "description": "A crowdsourced smart-parking and mobility platform where drivers declare and claim real-time parking spots with live turn-by-turn navigation, and municipalities get live occupancy and traffic-trend analytics.",
+            "applicationCategory": "NavigationApplication",
+            "operatingSystem": "Web",
+            "publisher": { "@id": "https://www.urbansync.tech/#organization" },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "EUR",
+              "description": "Free tier with a premium plan for extended features."
+            }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://www.urbansync.tech/#organization",
+            "name": "Urban Sync",
+            "url": "https://www.urbansync.tech/",
+            "logo": "https://www.parkapp.tech/urbansync-logo.jpg",
+            "sameAs": []
+          }
+        ]
+      }
+    </script>
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        Pre-mount fallback content: read by non-JS crawlers (search/AI
+        indexers that don't execute JavaScript), screen readers before
+        hydration, and anything else that only sees the initial HTML.
+        React replaces this entirely once it mounts, so it never appears to
+        a normal browsing user.
+      -->
+      <main>
+        <h1>ParkApp by Urban Sync — Smart Parking &amp; Mobility Platform</h1>
+        <p>
+          ParkApp is a crowdsourced, real-time parking platform. Drivers declare a spot the
+          moment they leave it, or report one they spotted nearby, and nearby drivers can claim
+          it and get live turn-by-turn navigation straight to it.
+        </p>
+        <h2>For drivers</h2>
+        <p>
+          Find and claim real, currently-available parking spots on a live map, earn points and
+          badges for contributing accurate spot reports, and track your own parking history.
+        </p>
+        <h2>For municipalities</h2>
+        <p>
+          A live admin dashboard shows real-time spot occupancy, a citywide activity heatmap,
+          daily/weekly traffic trends, and key parking KPIs for the whole municipality.
+        </p>
+        <p>Built by <a href="https://www.urbansync.tech/">Urban Sync</a>.</p>
+      </main>
+    </div>
+    <noscript>
+      <main>
+        <h1>ParkApp by Urban Sync — Smart Parking &amp; Mobility Platform</h1>
+        <p>
+          ParkApp is a crowdsourced, real-time parking platform: drivers declare and claim
+          live parking spots with turn-by-turn navigation, and municipalities get live
+          occupancy and traffic analytics. This app requires JavaScript to run — please
+          enable it in your browser to use ParkApp.
+        </p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
