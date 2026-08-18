@@ -1,9 +1,31 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
+// Security audit (2026-08-18): "*" let any origin's JS call this function
+// with a stolen/leaked bearer token. Locking to the deployed app's own
+// origin, configurable via a secret (never hardcoded, matching the
+// MAPBOX_SECRET_TOKEN convention below) so this works across
+// preview/staging/prod without a code change. Falls back to "*" with a
+// loud warning rather than silently breaking every deployment that hasn't
+// set it yet -- set with:
+//   supabase secrets set APP_ORIGIN=https://your-production-domain
+const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
+if (!APP_ORIGIN) {
+  console.warn("[declare-spot] APP_ORIGIN is not configured -- CORS is wide open (Access-Control-Allow-Origin: *).");
+}
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": APP_ORIGIN ?? "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  Vary: "Origin",
 };
+
+// Rejects non-finite / out-of-range values that `typeof n === "number" &&
+// !Number.isNaN(n)` alone lets through (Infinity/-Infinity are both valid
+// numbers, and lat/lng have real-world bounds) -- a value like Infinity fed
+// into the EWKT string below would produce a malformed geometry the DB
+// insert would either reject with an opaque error or, worse, store.
+function isValidLatLng(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
 
 // Anti-cheat parameters approved in Sprint 0 (adjusted: lazy auto-unpark
 // instead of background tracking, 10-minute cooldown). Duplicated across
@@ -143,8 +165,16 @@ Deno.serve(async (req) => {
   }
 
   const { spotLat, spotLng, userLat, userLng, accuracy, kind = 'vacating' } = body;
-  if ([spotLat, spotLng, userLat, userLng, accuracy].some((n) => typeof n !== "number" || Number.isNaN(n))) {
+  if (
+    !isValidLatLng(spotLat, spotLng) ||
+    !isValidLatLng(userLat, userLng) ||
+    !Number.isFinite(accuracy) ||
+    accuracy < 0
+  ) {
     return json({ error: "Missing or invalid coordinates." }, 400);
+  }
+  if (kind !== 'vacating' && kind !== 'spotted') {
+    return json({ error: "Invalid declaration type." }, 400);
   }
 
   const db = getServiceClient();
@@ -269,15 +299,11 @@ Deno.serve(async (req) => {
     .single();
 
   if (insertError || !spot) {
+    // Logged server-side only -- a raw Postgres error message/code returned
+    // to the client can leak schema details (column/constraint/table names)
+    // useful for probing the database. The client only needs to know it failed.
     console.error("[declare-spot] parking_spots insert failed:", insertError);
-    return json(
-      {
-        error: "Could not save the spot. Please try again.",
-        detail: insertError?.message ?? "insert returned no row",
-        code: insertError?.code ?? null,
-      },
-      500
-    );
+    return json({ error: "Could not save the spot. Please try again." }, 500);
   }
 
   let pointsAwarded = 0;

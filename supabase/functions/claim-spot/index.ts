@@ -1,14 +1,34 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
+// See declare-spot/index.ts for why this is a secret rather than "*".
+const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
+if (!APP_ORIGIN) {
+  console.warn("[claim-spot] APP_ORIGIN is not configured -- CORS is wide open (Access-Control-Allow-Origin: *).");
+}
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": APP_ORIGIN ?? "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  Vary: "Origin",
 };
 
 const RULES = {
   CLAIM_RADIUS_M: 30,
   MAX_GPS_ACCURACY_M: 20,
+  // Security audit (2026-08-18): this function had no rate limiting at all,
+  // unlike declare-spot's hourly/daily caps -- a claim+manual-unpark loop
+  // (claim a spot, immediately call manual-unpark for its +5pt bonus, repeat
+  // on the next active spot) was an unlimited points-farming path with zero
+  // caps. Same hourly/daily shape as declare-spot for consistency.
+  HOURLY_CLAIM_CAP: 8,
+  DAILY_CLAIM_CAP: 25,
 };
+
+function isValidLatLng(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+// See declare-spot/index.ts -- same demo-account rate-limit carve-out.
+const DEMO_EMAIL = "demo@parkapp.tech";
 
 function toEwkt(lat: number, lng: number): string {
   return `SRID=4326;POINT(${lng} ${lat})`;
@@ -75,7 +95,13 @@ Deno.serve(async (req) => {
   }
 
   const { spotId, userLat, userLng, accuracy } = body;
-  if (!spotId || [userLat, userLng, accuracy].some((n) => typeof n !== "number" || Number.isNaN(n))) {
+  if (
+    typeof spotId !== "string" ||
+    !spotId ||
+    !isValidLatLng(userLat, userLng) ||
+    !Number.isFinite(accuracy) ||
+    accuracy < 0
+  ) {
     return json({ error: "Missing or invalid input." }, 400);
   }
 
@@ -95,6 +121,31 @@ Deno.serve(async (req) => {
 
   if (existingSession) {
     return json({ error: "You already have an active parking session. Unpark first." }, 409);
+  }
+
+  if (user.email !== DEMO_EMAIL) {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const { count: hourlyClaims } = await db
+      .from("parking_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("parked_at", oneHourAgo);
+
+    if ((hourlyClaims ?? 0) >= RULES.HOURLY_CLAIM_CAP) {
+      return json({ error: `You've reached the hourly limit of ${RULES.HOURLY_CLAIM_CAP} claims. Try again later.` }, 429);
+    }
+
+    const { count: dailyClaims } = await db
+      .from("parking_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("parked_at", oneDayAgo);
+
+    if ((dailyClaims ?? 0) >= RULES.DAILY_CLAIM_CAP) {
+      return json({ error: `You've reached today's limit of ${RULES.DAILY_CLAIM_CAP} claims.` }, 429);
+    }
   }
 
   const { data: spot } = await db
@@ -135,14 +186,7 @@ Deno.serve(async (req) => {
 
   if (updateError) {
     console.error("[claim-spot] parking_spots claim update failed:", updateError);
-    return json(
-      {
-        error: "Could not claim this spot. It may have just been taken.",
-        detail: updateError.message,
-        code: updateError.code ?? null,
-      },
-      409
-    );
+    return json({ error: "Could not claim this spot. It may have just been taken." }, 409);
   }
   if (!claimedRows || claimedRows.length === 0) {
     return json({ error: "Someone just claimed this spot. Pick another one nearby." }, 409);
@@ -161,14 +205,7 @@ Deno.serve(async (req) => {
 
   if (sessionError || !session) {
     console.error("[claim-spot] parking_sessions insert failed:", sessionError);
-    return json(
-      {
-        error: "Spot claimed, but the session could not be started.",
-        detail: sessionError?.message ?? "insert returned no row",
-        code: sessionError?.code ?? null,
-      },
-      500
-    );
+    return json({ error: "Spot claimed, but the session could not be started." }, 500);
   }
 
   return json({ session });

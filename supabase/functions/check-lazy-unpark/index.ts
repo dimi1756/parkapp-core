@@ -1,11 +1,21 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
+// See declare-spot/index.ts for why this is a secret rather than "*".
+const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
+if (!APP_ORIGIN) {
+  console.warn("[check-lazy-unpark] APP_ORIGIN is not configured -- CORS is wide open (Access-Control-Allow-Origin: *).");
+}
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": APP_ORIGIN ?? "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  Vary: "Origin",
 };
 
 const LAZY_UNPARK_DISTANCE_M = 500;
+
+function isValidLatLng(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -55,7 +65,7 @@ Deno.serve(async (req) => {
   }
 
   const { lat, lng } = body;
-  if ([lat, lng].some((n) => typeof n !== "number" || Number.isNaN(n))) {
+  if (!isValidLatLng(lat, lng)) {
     return json({ autoUnparked: false });
   }
 

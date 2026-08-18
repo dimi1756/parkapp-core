@@ -488,3 +488,163 @@ than silently absorbed or silently fixed:**
 test` runs a real, non-trivial suite (33 tests) covering the membership/
 trial state machine and the demo mock-data generation exactly as scoped;
 no `@ts-ignore` used anywhere in this chunk's fixes.
+
+---
+
+## Defensive Security & Hardening Audit
+**Status:** `[x] COMPLETED` (2026-08-18)
+**Persona:** Senior Cybersecurity Engineer & Cloud Security Architect
+
+Out-of-band engagement (not one of the numbered chunks), requested as a full
+AppSec audit across 5 areas. Verified everything directly against the live
+production database and live source, not from assumptions.
+
+**CRITICAL — profiles column lockdown (Chunks 1/3) was never actually
+live.** Querying live column grants showed `authenticated`/`anon` still
+holding `UPDATE` on `membership_tier`, `points_balance`, `trust_score`,
+`device_fingerprint`, `resident_verified` — meaning any logged-in client
+could self-grant Premium, forge trust_score to escape shadowban, credit
+itself unlimited points, or fake resident status via a plain
+`supabase.from('profiles').update(...)`, bypassing every RPC these tables
+were built around. **Root cause identified**: a column-level `REVOKE`
+cannot override a broader table-level `GRANT UPDATE` — Supabase's default
+`GRANT ALL ON ALL TABLES` already covers every column, so 0008/0009's
+`revoke update (col1, col2, ...) ... from authenticated` ran without error
+but had zero real effect. This is why the earlier belief that "0008/0009
+are live" was wrong despite the SQL genuinely having been executed. Fixed
+by revoking table-level `UPDATE` entirely and re-granting only the 7
+columns a client legitimately writes (`full_name, phone, email,
+municipality_id, vehicle_make, vehicle_color, vehicle_plate`) — `anon` gets
+no re-grant at all. **Verified live** post-fix: `information_schema.column_privileges`
+now shows zero UPDATE grant on any sensitive column for either role.
+
+**CRITICAL — parking_spots/parking_sessions RLS let clients bypass every
+anti-cheat check via direct REST calls.** `parking_spots_insert_own`
+(INSERT) and `parking_spots_claim` (UPDATE) only checked row ownership
+(`declared_by`/`claimed_by = auth.uid()`), never any of declare-spot's/
+claim-spot's actual business rules — meaning a client could call
+`supabase.from('parking_spots').insert(...)` directly and get a spot
+declared anywhere on Earth with zero GPS-accuracy check, zero road-snap
+verification, and zero rate limit; or `.update({status:'claimed',...})`
+to claim any spot from anywhere without being physically near it.
+Same issue on `parking_sessions_insert_own`/`update_own` — worse, combined
+with manual-unpark's lack of session-provenance validation, this was a
+**free unlimited points-farming exploit** (insert a fake `parking_sessions`
+row directly, call manual-unpark, +5 points, repeat with zero checks).
+Confirmed via source review that the frontend only ever SELECTs these
+tables directly (declare/claim/unpark all go through their edge functions,
+which use the service-role key and bypass RLS regardless) — so these
+policies were pure attack surface, not something the app needs. Dropped
+both policies and revoked table-level INSERT/UPDATE from `authenticated`/
+`anon` on both tables; also revoked the unused DELETE/TRUNCATE grants on
+every user-writable table as defense in depth. `manual-unpark` additionally
+now refuses to award its bonus for any session whose `unpark_type` isn't
+`'pending'` (only reachable via claim-spot), closing the same gap from the
+application side too.
+
+**HIGH — `squad_members` RLS policy had a self-referential bug exposing
+every user's squad membership to any authenticated user.** The "members
+can read their squad roster" policy's `EXISTS` subquery compared
+`sm2.squad_id = sm2.squad_id` (always true) instead of to the outer row —
+meaning any user who belonged to at least one squad could read the entire
+`squad_members` table across every squad, a full social-graph disclosure.
+`friend_squads`/`squad_members` are dormant, unreferenced by any current
+app code (leftover pre-Chunk-1 schema, see Chunk 4's writeup) — but the
+table is live and RLS-enabled, so this was genuinely exploitable regardless
+of frontend usage. Fixed the policy's join condition; not the table's
+existence (out of scope, a product decision).
+
+**MEDIUM — no rate limiting on claim-spot.** Unlike declare-spot's hourly/
+daily caps, claiming had none at all — combined with the RLS bypass above,
+this compounded the points-farming exposure. Added matching hourly (8) /
+daily (25) caps, same shape as declare-spot, with the same demo-account
+carve-out.
+
+**MEDIUM — internal error detail leaked to clients on 500s.** declare-spot
+and claim-spot both returned raw Postgres `error.message`/`error.code` to
+the client on insert/update failure — useful for probing schema/constraint
+names. Now logged server-side only; client gets a generic message
+(`src/lib/api/parking.ts`'s preview-only debug view degrades gracefully,
+no frontend changes needed).
+
+**LOW — coordinate validation gap.** All 4 edge functions checked
+`typeof n === "number" && !Number.isNaN(n)`, which lets `Infinity`/
+`-Infinity` and out-of-range values (`lat: 999`) through into the EWKT
+string sent to PostGIS. Added a shared `isValidLatLng()` bounds+finiteness
+check to declare-spot, claim-spot, and check-lazy-unpark.
+
+**LOW — wide-open CORS.** All 4 edge functions used
+`Access-Control-Allow-Origin: "*"`, letting any origin's JS call them with
+a stolen/leaked bearer token. Now reads an `APP_ORIGIN` secret (falls back
+to `*` with a loud `console.warn` if unset, matching the existing
+`MAPBOX_SECRET_TOKEN` fail-safe convention) — **operational action
+required:** run `supabase secrets set APP_ORIGIN=https://<production-domain>`
+against the live project; not set by this session since the exact
+production domain wasn't confirmed.
+
+**Areas 1 (secrets) and part of Area 4 (input sanitization) — no findings
+requiring fixes:** grepped the full tracked tree, git history, and the
+production build output for hardcoded credentials, service-role keys, and
+private-key patterns — none found. `.env` is gitignored and was never
+committed. Client code only ever references `VITE_SUPABASE_ANON_KEY`/
+`VITE_MAPBOX_TOKEN`; the service-role key and `MAPBOX_SECRET_TOKEN` are
+read exclusively via `Deno.env.get()` inside edge functions. No
+`dangerouslySetInnerHTML` on user-controlled data anywhere (React's default
+text-node escaping already prevents XSS via `full_name`/`vehicle_plate`/
+etc.). `redeem_resident_code` and every other RPC use bind parameters, not
+string-concatenated SQL — no injection vector found. Added DB-level length
+`CHECK` constraints on `profiles.full_name/phone/vehicle_make/
+vehicle_color/vehicle_plate` as defense in depth against a direct-API call
+bypassing the client's own (unenforced) trim-only validation.
+
+**Area 3 (GDPR/RLS) — remainder confirmed sound:** RLS is enabled on every
+`public` table except PostGIS's own `spatial_ref_sys` (expected/standard).
+`profiles_select_self`/`profiles_select_admin` correctly scope PII reads to
+the owner or that municipality's admins. `leaderboard_daily`/
+`leaderboard_weekly`/`city_leaderboard` (the `SECURITY DEFINER` views
+flagged by Supabase's own advisor) expose only `full_name`/points/
+municipality — reviewed and confirmed intentional in Chunk 4 (a
+security-invoker leaderboard would only ever show a user their own row);
+unchanged.
+
+**Area 5 (headers) — implemented via `vercel.json`** (didn't exist before;
+the app has no prior header configuration): CSP scoped to `'self'` +
+the app's own Supabase project + Mapbox's API/tile domains (no wildcard
+origins, no `unsafe-eval`; `style-src 'unsafe-inline'` is required for
+Mapbox GL JS's marker positioning, which relies on inline `style`
+attributes), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
+(geolocation allowed for self — the app depends on it — camera/mic/payment
+denied), and `Strict-Transport-Security`. Added an explicit SPA rewrite
+(`/(.*) → /index.html`) alongside the headers since react-router needs it
+and adding `vercel.json` at all can override Vercel's implicit
+zero-config fallback. **Not verified in a live browser**: this session's
+browser-preview tooling is scoped to a different project's working
+directory, so the CSP couldn't be exercised against the real Mapbox/
+Supabase traffic locally (`vercel.json` headers don't apply under `vite
+dev` either way) — **recommend a live check on the next Vercel preview
+deploy** (watch the browser console for CSP violation reports on first
+load, especially map tile loading and the Supabase realtime websocket).
+
+**Residual / operational recommendations (not implemented — infra
+decisions, not code):**
+- Set the `APP_ORIGIN` edge function secret (see above) — the one
+  concretely pending action from this audit.
+- Consider a Cloudflare (or Vercel's own) WAF/rate-limiting layer in front
+  of the edge functions for IP-based abuse patterns the app-level
+  device-fingerprint/account rate limits don't catch (e.g. many disposable
+  accounts on different devices, hitting the endpoints directly without a
+  browser at all).
+- Supabase Auth's default `signUp` error message reveals whether an email
+  is already registered (Supabase platform behavior, not app code) — a
+  minor user-enumeration vector on the signup form specifically (login's
+  "Invalid login credentials" is already enumeration-safe by default).
+  Fixing this requires a custom signup flow through an edge function rather
+  than calling `supabase.auth.signUp` directly from the client — a larger
+  change than this audit's scope, flagged for a future decision rather than
+  built unprompted.
+- `friend_squads`/`squad_members`/`parking_sessions`(legacy)/`partner_stores`/
+  `user_gamification` and their 3 functions remain live and dormant (see
+  Chunk 4) — worth a deliberate decision (drop vs. repurpose) rather than
+  leaving indefinitely, since dormant-but-live schema is exactly what
+  produced this audit's HIGH finding.

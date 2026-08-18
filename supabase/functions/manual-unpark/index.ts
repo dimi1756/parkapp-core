@@ -1,8 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
+// See declare-spot/index.ts for why this is a secret rather than "*".
+const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
+if (!APP_ORIGIN) {
+  console.warn("[manual-unpark] APP_ORIGIN is not configured -- CORS is wide open (Access-Control-Allow-Origin: *).");
+}
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": APP_ORIGIN ?? "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  Vary: "Origin",
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -44,13 +50,20 @@ Deno.serve(async (req) => {
 
   const { data: session } = await db
     .from("parking_sessions")
-    .select("id, spot_id")
+    .select("id, spot_id, unpark_type")
     .eq("user_id", user.id)
     .is("unparked_at", null)
     .maybeSingle();
 
   if (!session) {
     return json({ error: "No active parking session to close." }, 404);
+  }
+  // Defense in depth alongside the RLS lockdown on parking_sessions
+  // (0011_security_hardening.sql): a session only reaches "pending" through
+  // claim-spot's own distance/rate-limit checks, so this refuses to award
+  // the bonus for any session that didn't actually go through that path.
+  if (session.unpark_type !== "pending") {
+    return json({ error: "This session cannot be closed this way." }, 409);
   }
 
   await db
