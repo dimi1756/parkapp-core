@@ -84,6 +84,77 @@ export const CityMap: React.FC<CityMapProps> = ({ spots, loading, municipalityNa
     };
   }, []);
 
+  // Density heatmap underneath the individual markers -- admin_live_spots
+  // (0005_admin_authorization.sql) already returns every status over the
+  // last 24h, not just currently-active spots (that filtering only applies
+  // to the driver-facing map, see useNearbySpots.ts), so this reads as a
+  // genuine "where is parking activity happening across the city" view
+  // rather than just "what's free right now". Markers stay on top for
+  // per-spot inspection (status/time popup); the heatmap adds the
+  // at-a-glance density picture neither the markers nor the KPI numbers do.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    // Untyped literal (rather than an explicit GeoJSON.* annotation) --
+    // the global GeoJSON namespace isn't resolvable in this project's tsconfig
+    // (a pre-existing gap, see MapboxMap.tsx's own route-drawing GeoJSON use),
+    // and mapboxgl's own addSource/setData signatures accept this shape fine.
+    const data = {
+      type: 'FeatureCollection' as const,
+      features: spots.map((s) => ({
+        type: 'Feature' as const,
+        properties: {},
+        geometry: { type: 'Point' as const, coordinates: [s.lng, s.lat] },
+      })),
+    };
+
+    const applyHeatmap = () => {
+      const source = map.getSource('city-activity') as mapboxgl.GeoJSONSource | undefined;
+      if (source) {
+        source.setData(data);
+        return;
+      }
+      map.addSource('city-activity', { type: 'geojson', data });
+      map.addLayer({
+        id: 'city-activity-heat',
+        type: 'heatmap',
+        source: 'city-activity',
+        maxzoom: 17,
+        paint: {
+          'heatmap-weight': 0.6,
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 16, 1.8],
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(0,0,0,0)',
+            0.2, 'rgba(40,167,69,0.35)',
+            0.5, 'rgba(245,158,11,0.55)',
+            1, 'rgba(220,53,69,0.75)',
+          ],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 16, 16, 34],
+          'heatmap-opacity': 0.75,
+        },
+      });
+    };
+
+    if (map.isStyleLoaded()) applyHeatmap();
+    else map.once('load', applyHeatmap);
+
+    // The map's initial center/zoom is a static default (13, roughly
+    // central Greece) -- it doesn't know where this municipality's spots
+    // actually are until they load, so fit the camera to whatever real data
+    // just arrived instead of leaving the admin to pan and find it themselves.
+    if (spots.length > 0) {
+      const bounds = spots.reduce(
+        (b, s) => b.extend([s.lng, s.lat]),
+        new mapboxgl.LngLatBounds([spots[0].lng, spots[0].lat], [spots[0].lng, spots[0].lat])
+      );
+      const fit = () => map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 800 });
+      if (map.isStyleLoaded()) fit();
+      else map.once('load', fit);
+    }
+  }, [spots]);
+
   // Sync markers whenever the spot list changes
   useEffect(() => {
     if (!mapRef.current) return;

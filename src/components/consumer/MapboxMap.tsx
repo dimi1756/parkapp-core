@@ -218,6 +218,8 @@ interface MapboxMapProps {
   onUserLocationChange?: (lng: number, lat: number, accuracy: number) => void;
   pins: MapPin[];
   onMapClick?: (lng: number, lat: number) => void;
+  /** Fires when a 'mine'/'reported' spot pin itself is tapped (opens the spot details card). */
+  onPinClick?: (pinId: string) => void;
   /** Fires after every pan/zoom settles with the new map center. */
   onCenterChange?: (lng: number, lat: number) => void;
   /** Full driving-route geometry from the Directions API; null clears the line. */
@@ -239,6 +241,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onUserLocationChange,
   pins,
   onMapClick,
+  onPinClick,
   onCenterChange,
   routeCoordinates,
   onConfirmSelection,
@@ -258,6 +261,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // tear down and recreate the whole mapboxgl.Map every time a prop changes.
   const onMapClickRef = useRef(onMapClick);
   onMapClickRef.current = onMapClick;
+  const onPinClickRef = useRef(onPinClick);
+  onPinClickRef.current = onPinClick;
   const onCenterChangeRef = useRef(onCenterChange);
   onCenterChangeRef.current = onCenterChange;
   const onUserLocationChangeRef = useRef(onUserLocationChange);
@@ -445,7 +450,20 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         </svg>
       `;
 
-      if (pin.label) {
+      // 'mine'/'reported' pins open the spot details bottom card on tap
+      // (distance/time/ETA + Get Directions) instead of Mapbox's own text
+      // popup -- the two would otherwise fire on top of each other.
+      const opensDetailsCard = pin.type === 'mine' || pin.type === 'reported';
+      if (opensDetailsCard) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          onPinClickRef.current?.(pin.id);
+        });
+        markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+          .setLngLat([pin.lng, pin.lat])
+          .addTo(map);
+      } else if (pin.label) {
         const popup = new mapboxgl.Popup({ offset: 36 }).setText(pin.label);
         markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
           .setLngLat([pin.lng, pin.lat])

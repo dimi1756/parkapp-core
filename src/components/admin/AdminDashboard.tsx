@@ -13,6 +13,7 @@ import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
 import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
+import { MOCK_ADMIN_KPIS, getMockAdminSpots, getMockWeeklyTrend } from '@/lib/demoMockData';
 
 export const AdminDashboard = () => {
   const { setAdminMode } = useApp();
@@ -34,6 +35,21 @@ export const AdminDashboard = () => {
   const loadData = useCallback(async () => {
     if (!municipalityId) return;
     setDataError(null);
+
+    // Investor-pitch mock stats for the shared demo account only -- a fresh
+    // pilot database has too few real rows to look convincingly "in use"
+    // during a live demo. See src/lib/demoMockData.ts. Skips the real RPCs
+    // entirely (rather than blending) since partially-real KPI arithmetic
+    // would read as nonsensical, unlike the map pins where blending is fine.
+    if (isDemoAccount) {
+      setKpis(MOCK_ADMIN_KPIS);
+      setSpots(getMockAdminSpots());
+      setTrend(getMockWeeklyTrend());
+      setDataLoading(false);
+      setLastUpdated(new Date());
+      return;
+    }
+
     const [kpiRes, spotsRes, trendRes] = await Promise.all([
       supabase.rpc('admin_city_kpis', { p_municipality_id: municipalityId }),
       supabase.rpc('admin_live_spots', { p_municipality_id: municipalityId }),
@@ -52,7 +68,7 @@ export const AdminDashboard = () => {
     setTrend(trendRes.data ?? []);
     setDataLoading(false);
     setLastUpdated(new Date());
-  }, [municipalityId]);
+  }, [municipalityId, isDemoAccount]);
 
   useEffect(() => {
     loadData();

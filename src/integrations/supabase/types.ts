@@ -177,6 +177,13 @@ export type Database = {
           points_this_week: number | null;
         };
       };
+      city_leaderboard: {
+        Row: {
+          municipality_id: string;
+          municipality_name: string;
+          total_points: number;
+        };
+      };
     };
     Functions: {
       is_municipality_admin: {

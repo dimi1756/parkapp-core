@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useLeaderboard, type LeaderboardPeriod } from '@/hooks/useLeaderboard';
+import { useCityLeaderboard } from '@/hooks/useCityLeaderboard';
 import { getBadgeForPoints } from '@/lib/badges';
-import { Trophy, Crown, Sparkles, Loader2, AlertTriangle } from 'lucide-react';
+import { LeagueModal } from './LeagueModal';
+import { Trophy, Crown, Loader2, AlertTriangle, Building2, ChevronRight } from 'lucide-react';
 
 const RANK_BADGE_COLOR = ['bg-accent', 'bg-slate-400', 'bg-amber-700'];
 
@@ -17,9 +19,12 @@ export const LeaderboardTab = () => {
   const { t, locale } = useLanguage();
   const { profile } = useAuth();
   const [period, setPeriod] = useState<LeaderboardPeriod>('weekly');
+  const [leagueOpen, setLeagueOpen] = useState(false);
   const { entries, loading, error } = useLeaderboard(period);
+  const { entries: cityEntries, loading: cityLoading, error: cityError } = useCityLeaderboard();
 
-  const ownBadge = getBadgeForPoints(profile?.points_balance ?? 0);
+  const ownPoints = profile?.points_balance ?? 0;
+  const ownBadge = getBadgeForPoints(ownPoints);
   const ownRankIndex = entries.findIndex((e) => e.isCurrentUser);
 
   return (
@@ -45,14 +50,20 @@ export const LeaderboardTab = () => {
         </div>
 
         {profile && (
-          <div className="mt-4 inline-flex items-center gap-2 bg-white/15 rounded-full px-3 py-1.5">
+          // Clickable -- opens the League/progression modal (tiers + points
+          // to the next one), see LeagueModal.tsx.
+          <button
+            onClick={() => setLeagueOpen(true)}
+            className="mt-4 inline-flex items-center gap-2 bg-white/15 hover:bg-white/25 transition-colors rounded-full px-3 py-1.5"
+          >
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ownBadge.colorClass}`}>
               {t(ownBadge.labelKey)}
             </span>
             <span className="text-xs">
               {t('leaderboard.yourRank')}: {ownRankIndex >= 0 ? `#${ownRankIndex + 1}` : t('leaderboard.notRanked')}
             </span>
-          </div>
+            <ChevronRight className="h-3.5 w-3.5 opacity-70" />
+          </button>
         )}
       </div>
 
@@ -118,12 +129,58 @@ export const LeaderboardTab = () => {
           </div>
         )}
 
-        <div className="glass-card p-5 mt-6 bg-primary/5 border-primary/20 text-center" data-tour="leaderboard-future">
-          <Sparkles className="h-6 w-6 text-primary mx-auto mb-2" />
-          <p className="text-sm font-medium">{t('leaderboard.futureTitle')}</p>
-          <p className="text-xs text-muted-foreground mt-1">{t('leaderboard.futureDesc')}</p>
+        {/* City Leaderboard -- ranks municipalities by total points their
+            drivers have generated (city_leaderboard view, 0010_*.sql).
+            Replaces the old static "Coming Soon" placeholder. */}
+        <div className="pt-2" data-tour="leaderboard-future">
+          <div className="flex items-center gap-2 mb-3 px-1">
+            <Building2 className="h-4 w-4 text-primary" />
+            <h2 className="font-bold text-sm">{t('cityLeaderboard.title')}</h2>
+          </div>
+
+          {cityLoading ? (
+            <div className="glass-card p-6 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            </div>
+          ) : cityError && cityEntries.length === 0 ? (
+            <div className="glass-card p-5 text-center">
+              <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-destructive" />
+              <p className="text-sm font-medium">{t('cityLeaderboard.loadError')}</p>
+            </div>
+          ) : cityEntries.length === 0 ? (
+            <div className="glass-card p-5 text-center">
+              <Building2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm font-medium">{t('cityLeaderboard.empty')}</p>
+            </div>
+          ) : (
+            <div className="glass-card divide-y divide-border overflow-hidden">
+              {cityEntries.map((city, i) => (
+                <div
+                  key={city.municipalityId}
+                  className={`flex items-center gap-3 p-3.5 ${city.isOwnCity ? 'bg-primary/5' : ''}`}
+                >
+                  <span
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                      i === 0 ? 'bg-accent text-accent-foreground' : 'bg-secondary text-secondary-foreground'
+                    }`}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="flex-1 min-w-0 font-medium text-sm truncate">
+                    {city.name}
+                    {city.isOwnCity && <span className="text-primary"> · {t('cityLeaderboard.yourCity')}</span>}
+                  </span>
+                  <span className="text-sm font-bold text-primary shrink-0">
+                    {city.totalPoints.toLocaleString(locale)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      <LeagueModal points={ownPoints} open={leagueOpen} onOpenChange={setLeagueOpen} />
     </div>
   );
 };

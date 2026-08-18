@@ -291,6 +291,98 @@ next step whenever wanted, not silently left ambiguous.
 
 ---
 
+## Chunk 3.5 — Map UX Fixes & Investor Demo Showcase
+**Status:** `[x] COMPLETED` (2026-08-18)
+**Persona:** Mapbox UX Expert & Product Manager
+
+Inserted ahead of Chunk 4 per direct request — map data-scoping/UX fixes plus
+gamification and demo-pitch features. Confirmed migrations 0008/0009 are now
+live on the Supabase project (RPCs active).
+
+**1. Driver map decluttered, admin gets the full picture:**
+`useNearbySpots.ts` now queries `status='active'` + a 30-minute recency
+floor explicitly, instead of relying on RLS alone. RLS's own 5-minute TTL
+(0007) already capped *other* drivers' spots, but `parking_spots_select_own`
+has no time bound at all -- a user's entire history of long-expired/claimed
+spots was accumulating on their own map forever, and (separately) an
+already-claimed spot with no status check could wrongly surface as
+"nearest claimable." Both fixed by the same query change. `admin_live_spots`
+(0005) already returned every status over 24h -- no change needed there;
+instead `CityMap.tsx` now renders that fuller dataset as a genuine Mapbox
+heatmap layer (density-by-recency) underneath the existing per-spot
+markers, plus auto-fits the camera to wherever the real data actually is
+instead of a static default center.
+
+**2. "Emptying a space" GPS fix:** code review found `handleDeclare`
+already used real GPS coordinates (fresh fix or GeolocateControl), not a
+viewport-center value -- the actual bug was more subtle: if geolocation had
+*never* produced a real fix (permission denied, no signal), the code
+silently fell through and submitted at `userLngLat`'s untouched initial
+value, `MAP_CENTER` (a hardcoded fallback) -- which looks exactly like "the
+pin always drops at the same wrong spot." Now fails loudly with a clear
+error toast instead of guessing a location. Also updated `MAP_CENTER`
+itself from the old Chalkida coordinates to Karystos, the actual pilot/demo
+city.
+
+**3. "I saw a free space":** clarified with the user before touching this
+-- removing GPS-direct capture would have made it functionally identical to
+"Emptying a space," eliminating the ability to report a spot seen elsewhere
+while driving. Kept tap-to-drop as-is (confirmed correct); the "annoying
+dot" was already gated to the demo account only (`showCustomUserDot={isDemoAccount
+&& selectionMode}`), not shown to real users at all. No code change needed
+here beyond what item 1's cleanup already touches.
+
+**4. League/progression modal:** `src/lib/badges.ts` extended with
+`getAllTiers()`/`getNextTierInfo()`/`estimateSpotsToNext()`, reusing the
+existing 4-tier Bronze/Silver/Gold/Platinum thresholds rather than
+inventing a parallel system. New `LeagueModal.tsx`, opened by tapping the
+rank badge chip on the Leaderboard tab -- shows every tier, which one the
+account is on, and "N points (~M spots) to the next tier."
+
+**5. City Leaderboard:** new `city_leaderboard` view (0010, same live/
+ledger-derived pattern as the existing daily/weekly driver views) ranks
+municipalities by total points their drivers have generated. New
+`useCityLeaderboard.ts` hook; replaces the old static "Coming Soon" card on
+the Leaderboard tab (`data-tour="leaderboard-future"` retargeted to this
+real section; its tour copy updated to match).
+
+**6. Demo account mock data (investor pitch):** new `src/lib/demoMockData.ts`
+-- the single place all of this lives, gated everywhere by `isDemoAccount`
+and never reachable for a real user. Injects: 8 realistic driver-leaderboard
+entries (with the real demo account spliced in at a believable rank, not
+replaced); a 6-city leaderboard (Karystos in first place, plus Chania,
+Rhodes, Chalkida, Athens, Thessaloniki); admin KPIs/weekly-trend/spots
+(47 active drivers, 128 declared today, 6.4min avg, 94% trust); and 4
+"active" map pins scattered a few hundred meters apart around Karystos,
+each independently timestamped 1-6 minutes ago so their spot-details cards
+don't all show identical numbers.
+
+**7. Spot interaction & routing:** `MapboxMap.tsx` gained an `onPinClick`
+callback -- 'mine'/'reported' pins now open the new `SpotDetailsCard.tsx`
+bottom card (distance, time-since-declared with a live 30s tick, an ETA
+estimate) instead of Mapbox's own text popup. "Get Directions" calls
+`navigateToSpotPin` verbatim -- the exact same Directions-API routing path
+`runDestinationSearch`/the search bar already uses, just pointed straight
+at this pin instead of going through the nearest-spot-to-a-searched-POI
+lookup (irrelevant here, since the spot is already known).
+
+**Verified live**, not just lint/tsc: logged in as the demo account and
+confirmed all of the above render correctly -- 4 Karystos pins on the map;
+tapping one opened the details card (`103m` / `2m ago` / `1′` ETA); "Get
+Directions" triggered real turn-by-turn routing ("Turn left. 66m... 0.1 km
+· 0 min drive"); League modal showed correct tier math (120 pts → "180
+points (~18 spots) to Gold"); driver leaderboard showed the demo account
+at a real rank (#5) among the mock drivers; City Leaderboard showed
+Karystos in first place; Admin Dashboard showed the exact mock KPI numbers
+and a 278-total weekly chart; selection-mode tap-to-drop still worked
+unchanged. `eslint` clean (0 new warnings beyond the pre-existing pattern);
+`tsc --noEmit` at 16 errors, unchanged from the Chunk 3 baseline (a
+GeoJSON-namespace error the new heatmap code would otherwise have added
+was avoided by using an untyped literal instead of propagating the same
+pre-existing typing gap into a new file).
+
+---
+
 ## Chunk 4 — Type Safety & Test Coverage Safety Net
 **Status:** `[ ] PENDING`
 **Persona:** TypeScript/QA engineer

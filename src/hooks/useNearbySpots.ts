@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { getMockKarystosSpots } from '@/lib/demoMockData';
+
+// Upper bound on how old a spot can be and still show on the driver map --
+// RLS's expires_at TTL (0007_five_minute_spot_ttl.sql) already caps this at
+// 5 minutes for OTHER drivers' spots, but the caller's own spots are
+// visible at any age/status (parking_spots_select_own), which is what was
+// actually cluttering the map: a user's entire history of long-expired/
+// claimed spots, piling up forever with no time bound at all.
+const MAX_SPOT_AGE_MINUTES = 30;
 
 export interface NearbySpot {
   id: string;
@@ -34,7 +43,7 @@ function parseEwkbPoint(hex: string): { lat: number; lng: number } | null {
  * mount and stays in sync via Realtime for as long as the tab is open.
  */
 export function useNearbySpots() {
-  const { session } = useAuth();
+  const { session, isDemoAccount } = useAuth();
   const [spots, setSpots] = useState<NearbySpot[]>([]);
 
   useEffect(() => {
@@ -77,15 +86,28 @@ export function useNearbySpots() {
       // restricts SELECT to public/active/non-shadow-hidden rows plus the
       // caller's own declared/claimed rows -- the exact shadowban filtering
       // the view comment described, just enforced at the table level.
+      //
+      // status='active' + a recency floor keeps this to what a driver
+      // actually cares about ("what's free right now") -- without them, the
+      // caller's own claimed/expired spots (visible at any age via
+      // parking_spots_select_own) accumulated on the map forever, and an
+      // already-claimed spot could wrongly surface as "nearest claimable".
+      const cutoff = new Date(Date.now() - MAX_SPOT_AGE_MINUTES * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('parking_spots')
-        .select('id, declared_by, location, status, declared_at, expires_at');
+        .select('id, declared_by, location, status, declared_at, expires_at')
+        .eq('status', 'active')
+        .gte('declared_at', cutoff);
       if (error) {
         console.error('[useNearbySpots] failed to load spots:', error);
         return;
       }
       if (!cancelled && data) {
-        setSpots(data.map(mapRow).filter((s): s is NearbySpot => s !== null));
+        const real = data.map(mapRow).filter((s): s is NearbySpot => s !== null);
+        // Investor-pitch mock pins for the shared demo account only, layered
+        // on top of whatever's genuinely in the database -- see
+        // src/lib/demoMockData.ts. Never touches a real user's session.
+        setSpots(isDemoAccount ? [...real, ...getMockKarystosSpots()] : real);
       }
     };
 
@@ -103,7 +125,7 @@ export function useNearbySpots() {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [session?.user]);
+  }, [session?.user, isDemoAccount]);
 
   return spots;
 }

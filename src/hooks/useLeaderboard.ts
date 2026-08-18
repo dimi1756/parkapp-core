@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { getMockDriverLeaderboard } from '@/lib/demoMockData';
 
 export type LeaderboardPeriod = 'daily' | 'weekly';
 
@@ -28,12 +29,21 @@ interface LeaderboardRow {
  * back to a global ranking for users with no municipality yet.
  */
 export function useLeaderboard(period: LeaderboardPeriod, limit = 20) {
-  const { profile } = useAuth();
+  const { profile, isDemoAccount } = useAuth();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Investor-pitch mock data for the shared demo account only -- see
+    // src/lib/demoMockData.ts. Never touches a real user's session.
+    if (isDemoAccount) {
+      setEntries(getMockDriverLeaderboard(period, profile?.id));
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -91,7 +101,7 @@ export function useLeaderboard(period: LeaderboardPeriod, limit = 20) {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [period, limit, profile?.municipality_id, profile?.id]);
+  }, [period, limit, profile?.municipality_id, profile?.id, isDemoAccount]);
 
   return { entries, loading, error };
 }

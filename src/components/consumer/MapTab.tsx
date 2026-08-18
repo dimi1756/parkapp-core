@@ -37,6 +37,7 @@ import {
   type RouteStep,
 } from './MapboxMap';
 import { ConfettiBurst } from './ConfettiBurst';
+import { SpotDetailsCard } from './SpotDetailsCard';
 
 // The mocked GPS accuracy for demo declarations: comfortably inside any
 // server-side accuracy gate so reviewers succeed from a desk anywhere.
@@ -80,9 +81,10 @@ const MOCK_DESTINATIONS = {
   public: { name: 'Public Chalkida', x: 52, y: 48 },
 };
 
-// Fallback center (Chalkida, Greece) used whenever real geolocation isn't
-// available (denied permission, desktop demo browser, etc).
-const MAP_CENTER: [number, number] = [23.5910, 38.4636];
+// Fallback center (Karystos, Greece -- the live pilot/demo city) used
+// whenever real geolocation isn't available (denied permission, desktop
+// demo browser, etc).
+const MAP_CENTER: [number, number] = [24.4167, 38.0167];
 
 function percentToLngLat(x: number, y: number): [number, number] {
   const lng = MAP_CENTER[0] + ((x - 50) / 50) * 0.01;
@@ -195,6 +197,11 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
   // shouldn't see a blank map in the meantime. Cleared once the real spot
   // (matched by owner + proximity) shows up in nearbySpots.
   const [optimisticSpot, setOptimisticSpot] = useState<{ lng: number; lat: number } | null>(null);
+
+  // Bottom card opened by tapping a live "mine"/"reported" spot pin --
+  // holds the id so the card's live distance/ETA can recompute against the
+  // driver's current position rather than a snapshot from the moment of the tap.
+  const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
 
   // Bumped by both action buttons to imperatively fly/zoom the camera to
   // street level centered on the user, right before a manual tap or an
@@ -599,6 +606,18 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         accuracy = fresh.accuracy;
         setUserLngLat([lng, lat]);
         setUserAccuracy(accuracy);
+      } else if (accuracy >= 9999) {
+        // 9999 is userAccuracy's initial sentinel (see useState above) --
+        // reaching it here means neither this fresh attempt nor
+        // GeolocateControl has EVER produced a real fix (permission denied,
+        // no signal, desktop with no GPS). Previously this silently fell
+        // through and submitted at userLngLat's own initial value --
+        // MAP_CENTER, the hardcoded map fallback -- which looks like "the
+        // pin always drops at the same wrong spot" rather than wherever the
+        // driver actually is. Fail loudly instead of guessing a location.
+        toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' });
+        setBusyAction(null);
+        return;
       }
     }
 
@@ -654,6 +673,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     }
     setSelectionMode(true);
     setSelectedSpot(null);
+    setSelectedSpotId(null);
     flyToLocation(userLngLat[0], userLngLat[1], SELECTION_FLY_ZOOM);
     toast({ title: t('map.selectionModeTitle'), description: t('map.selectionModeDesc') });
   };
@@ -708,6 +728,25 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
     setSelectionMode(false);
     setSelectedSpot(null);
     setBusyAction(null);
+  };
+
+  // Tapping a live "mine"/"reported" spot pin opens the details bottom card
+  // (distance/time-since/ETA + Get Directions) -- see MapboxMap's onPinClick.
+  const handlePinClick = (pinId: string) => {
+    setSelectedSpotId(pinId);
+  };
+  const clickedNearbySpot = nearbySpots.find((s) => s.id === selectedSpotId) ?? null;
+
+  // "Get Directions" on the details card -- reuses navigateToSpotPin
+  // verbatim, the exact same turn-by-turn routing path (Mapbox Directions
+  // API via getDrivingDirections) the search bar's own destination flow
+  // already goes through, just pointed straight at this specific pin
+  // instead of the nearest-spot-to-a-searched-POI lookup.
+  const handleGetDirectionsFromPin = async () => {
+    if (!clickedNearbySpot) return;
+    const { lng, lat } = clickedNearbySpot;
+    setSelectedSpotId(null);
+    await navigateToSpotPin({ lng, lat });
   };
 
   const handleStaticMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -771,6 +810,7 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
           locateRequestId={locateRequestId}
           flyToTarget={flyToTarget}
           flyToRequestId={flyToRequestId}
+          onPinClick={handlePinClick}
           pins={[
             ...nearbySpots.map((s) => ({
               id: s.id,
@@ -1025,6 +1065,13 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
             {t('map.confirmSpot')}
           </Button>
         </div>
+      ) : clickedNearbySpot && !isNavigating ? (
+        <SpotDetailsCard
+          distanceMeters={distanceMeters(userLngLat[0], userLngLat[1], clickedNearbySpot.lng, clickedNearbySpot.lat)}
+          declaredAt={clickedNearbySpot.declared_at}
+          onGetDirections={handleGetDirectionsFromPin}
+          onClose={() => setSelectedSpotId(null)}
+        />
       ) : isRouting ? (
         <div className="absolute top-1/2 left-4 -translate-y-1/2 z-20 flex flex-col gap-3" data-tour="actions">
           {/* `group` + `group-hover`/`group-focus-within` tooltip: the FAB
