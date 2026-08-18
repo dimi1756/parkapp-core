@@ -12,14 +12,6 @@ export interface LeaderboardEntry {
   isCurrentUser: boolean;
 }
 
-interface LeaderboardRow {
-  user_id: string;
-  full_name: string;
-  municipality_id: string | null;
-  points_today?: number | null;
-  points_this_week?: number | null;
-}
-
 /**
  * Reads the real leaderboard_daily / leaderboard_weekly views (0001_init_schema.sql)
  * -- derived live from the points_transactions ledger, so this can never drift
@@ -48,42 +40,50 @@ export function useLeaderboard(period: LeaderboardPeriod, limit = 20) {
     setLoading(true);
     setError(null);
 
-    const view = period === 'daily' ? 'leaderboard_daily' : 'leaderboard_weekly';
-    const pointsCol = period === 'daily' ? 'points_today' : 'points_this_week';
-
     const load = async () => {
-      // Select only the points column the active view actually has --
-      // leaderboard_daily has points_today, leaderboard_weekly has
-      // points_this_week, never both. Unconditionally selecting both
-      // (as this used to) makes every query fail with "column ... does
-      // not exist" on whichever one the current view doesn't define.
-      let query = supabase
-        .from(view)
-        .select(`user_id, full_name, municipality_id, ${pointsCol}`)
-        .order(pointsCol, { ascending: false, nullsFirst: false })
-        .limit(limit);
-
-      if (profile?.municipality_id) {
-        query = query.eq('municipality_id', profile.municipality_id);
-      }
-
-      const { data, error: queryError } = await query;
+      // Two static branches (rather than a dynamic `.from(view)` table name)
+      // so Supabase's generated types can resolve each view's real row shape
+      // at compile time -- leaderboard_daily has points_today,
+      // leaderboard_weekly has points_this_week, never both, and a runtime
+      // table-name string can't be narrowed by TS.
+      const { data, error: queryError } =
+        period === 'daily'
+          ? await (() => {
+              let query = supabase
+                .from('leaderboard_daily')
+                .select('user_id, full_name, municipality_id, points_today')
+                .order('points_today', { ascending: false, nullsFirst: false })
+                .limit(limit);
+              if (profile?.municipality_id) query = query.eq('municipality_id', profile.municipality_id);
+              return query;
+            })()
+          : await (() => {
+              let query = supabase
+                .from('leaderboard_weekly')
+                .select('user_id, full_name, municipality_id, points_this_week')
+                .order('points_this_week', { ascending: false, nullsFirst: false })
+                .limit(limit);
+              if (profile?.municipality_id) query = query.eq('municipality_id', profile.municipality_id);
+              return query;
+            })();
       if (cancelled) return;
 
       if (queryError) {
-        console.error(`[useLeaderboard] failed to load ${view}:`, queryError);
+        console.error(`[useLeaderboard] failed to load leaderboard_${period}:`, queryError);
         setError(queryError.message);
         setLoading(false);
         return;
       }
 
       setEntries(
-        ((data ?? []) as LeaderboardRow[]).map((row) => ({
-          userId: row.user_id,
-          fullName: row.full_name,
-          points: (period === 'daily' ? row.points_today : row.points_this_week) ?? 0,
-          isCurrentUser: row.user_id === profile?.id,
-        }))
+        (data ?? [])
+          .filter((row): row is typeof row & { user_id: string; full_name: string } => !!row.user_id && !!row.full_name)
+          .map((row) => ({
+            userId: row.user_id,
+            fullName: row.full_name,
+            points: ('points_today' in row ? row.points_today : row.points_this_week) ?? 0,
+            isCurrentUser: row.user_id === profile?.id,
+          }))
       );
       setLoading(false);
     };

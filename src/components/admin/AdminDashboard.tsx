@@ -15,6 +15,11 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { MOCK_ADMIN_KPIS, getMockAdminSpots, getMockWeeklyTrend } from '@/lib/demoMockData';
 
+const LIVE_SPOT_STATUSES: readonly LiveSpot['status'][] = ['active', 'claimed', 'expired', 'invalid', 'reported'];
+function isLiveSpotStatus(value: string): value is LiveSpot['status'] {
+  return (LIVE_SPOT_STATUSES as readonly string[]).includes(value);
+}
+
 export const AdminDashboard = () => {
   const { setAdminMode } = useApp();
   const { isDemoAccount } = useAuth();
@@ -64,7 +69,17 @@ export const AdminDashboard = () => {
       setDataError(firstError.message);
     }
     setKpis(kpiRes.data?.[0] ?? null);
-    setSpots(spotsRes.data ?? []);
+    // admin_live_spots returns status as plain text (the DB doesn't enforce
+    // the enum) -- narrow at the boundary rather than trusting the RPC's
+    // string type, so an unexpected value fails loud instead of silently
+    // mis-typing as a LiveSpot['status'] it isn't.
+    setSpots(
+      (spotsRes.data ?? []).map((s) => {
+        if (isLiveSpotStatus(s.status)) return { ...s, status: s.status };
+        console.warn(`[AdminDashboard] unexpected spot status "${s.status}"`, s.id);
+        return { ...s, status: 'invalid' as const };
+      })
+    );
     setTrend(trendRes.data ?? []);
     setDataLoading(false);
     setLastUpdated(new Date());

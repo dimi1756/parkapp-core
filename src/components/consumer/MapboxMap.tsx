@@ -491,11 +491,14 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     const map = mapRef.current;
 
     const drawRoute = () => {
-      const data: GeoJSON.Feature<GeoJSON.LineString> = {
-        type: 'Feature',
+      // Untyped literal (rather than an explicit GeoJSON.* annotation) --
+      // the global GeoJSON namespace isn't resolvable in this project's
+      // tsconfig; mapboxgl's addSource/setData signatures accept this shape fine.
+      const data = {
+        type: 'Feature' as const,
         properties: {},
         geometry: {
-          type: 'LineString',
+          type: 'LineString' as const,
           coordinates: routeCoordinates ?? [],
         },
       };
