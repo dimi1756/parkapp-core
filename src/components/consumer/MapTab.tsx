@@ -980,56 +980,47 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         )}
       </div>
 
-      {/* Points Pill -- faded out (not just visually behind) while the search
-          dropdown is open: they occupy the same top-left corner, and at
-          z-20 both the pill sat in front of and overlapped the dropdown's
-          top rows, making those results unreadable. Fades back in the
-          instant the dropdown closes, whether from a selection or clearing
-          the search box, since both already empty `suggestions`. */}
+      {/* Top action row: Points pill + Claimable-spot banner grouped
+          side-by-side directly under the search bar, instead of the pill on
+          the left and the banner pushed down the right edge -- that
+          previous layout cleared Mapbox's controls but left the banner
+          stranded awkwardly mid-map. pr-14 (well past the right-4 edge
+          padding) reserves the top-right zoom/compass/geolocate control
+          column's width so this row's content can never reach under it
+          regardless of viewport size; overflow-x-auto is the fallback for
+          narrow phones where the pill + the (long, especially in Greek)
+          button text genuinely don't both fit -- the row scrolls within its
+          own reserved bounds rather than spilling out past that padding.
+          Both elements still fade out together while the search dropdown is
+          open, exactly as before. */}
       <div
-        className={`absolute top-24 left-4 z-20 transition-opacity duration-200 ${
+        className={`absolute top-24 left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto transition-opacity duration-200 ${
           suggestions.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
-        data-tour="points"
       >
         <button
           type="button"
           onClick={() => onNavigateToOffers?.()}
           aria-label={`${profile?.points_balance ?? 0} ${t('map.points')} — ${t('nav.offers')}`}
-          className="points-pill flex items-center gap-2 cursor-pointer transition-transform active:scale-95 hover:brightness-110"
+          className="points-pill flex items-center gap-2 cursor-pointer transition-transform active:scale-95 hover:brightness-110 shrink-0"
+          data-tour="points"
         >
           <span>💎</span>
           <span>{profile?.points_balance ?? 0} {t('map.points')}</span>
         </button>
-      </div>
 
-      {/* Claimable spot banner -- pushed down clear of Mapbox's own top-right
-          control stack (NavigationControl's 3 zoom/compass buttons +
-          GeolocateControl, offset 5rem by the CSS in index.css to clear the
-          search bar, together spanning roughly 80-200px): top-24 (96px) sat
-          right inside that range and was covering the compass/geolocate
-          buttons. top-56 (224px) clears the full stack with margin to spare.
-          Also fades out alongside the Points pill during search/autocomplete
-          -- both occupy prime real estate the dropdown needs, and a floating
-          green button over search results was just as much a problem as the
-          Points pill overlapping them. */}
-      {!activeSession && nearestClaimable && (
-        <div
-          className={`absolute top-56 right-4 z-20 transition-opacity duration-200 ${
-            suggestions.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'
-          }`}
-        >
+        {!activeSession && nearestClaimable && (
           <Button
             onClick={handleClaimNearest}
             disabled={busyAction === 'claim'}
             size="sm"
-            className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground"
+            className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground shrink-0"
           >
             {busyAction === 'claim' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ParkingCircle className="h-3.5 w-3.5" />}
             {t('map.claimNearest')}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* My Location -- real accounts only; demo intentionally never touches real GPS. */}
       {!isDemoAccount && (
