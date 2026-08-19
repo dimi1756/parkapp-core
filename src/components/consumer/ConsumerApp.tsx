@@ -42,7 +42,7 @@ export const ConsumerApp = () => {
   const renderTab = () => {
     switch (activeTab) {
       case 'map':
-        return <MapTab onNavigateToPlans={() => setActiveTab('plans')} />;
+        return <MapTab onNavigateToPlans={() => setActiveTab('plans')} onNavigateToOffers={() => setActiveTab('offers')} />;
       case 'offers':
         return <OffersTab />;
       case 'plans':
@@ -52,7 +52,7 @@ export const ConsumerApp = () => {
       case 'profile':
         return <ProfileTab />;
       default:
-        return <MapTab onNavigateToPlans={() => setActiveTab('plans')} />;
+        return <MapTab onNavigateToPlans={() => setActiveTab('plans')} onNavigateToOffers={() => setActiveTab('offers')} />;
     }
   };
 

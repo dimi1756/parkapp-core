@@ -149,9 +149,10 @@ function ManeuverIcon({ type, modifier, className }: { type: string; modifier?: 
 
 interface MapTabProps {
   onNavigateToPlans?: () => void;
+  onNavigateToOffers?: () => void;
 }
 
-export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
+export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) => {
   const { incrementSearches } = useApp();
   const { profile, isDemoAccount } = useAuth();
   const { t, language } = useLanguage();
@@ -991,15 +992,33 @@ export const MapTab = ({ onNavigateToPlans }: MapTabProps) => {
         }`}
         data-tour="points"
       >
-        <div className="points-pill flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onNavigateToOffers?.()}
+          aria-label={`${profile?.points_balance ?? 0} ${t('map.points')} — ${t('nav.offers')}`}
+          className="points-pill flex items-center gap-2 cursor-pointer transition-transform active:scale-95 hover:brightness-110"
+        >
           <span>💎</span>
           <span>{profile?.points_balance ?? 0} {t('map.points')}</span>
-        </div>
+        </button>
       </div>
 
-      {/* Claimable spot banner */}
+      {/* Claimable spot banner -- pushed down clear of Mapbox's own top-right
+          control stack (NavigationControl's 3 zoom/compass buttons +
+          GeolocateControl, offset 5rem by the CSS in index.css to clear the
+          search bar, together spanning roughly 80-200px): top-24 (96px) sat
+          right inside that range and was covering the compass/geolocate
+          buttons. top-56 (224px) clears the full stack with margin to spare.
+          Also fades out alongside the Points pill during search/autocomplete
+          -- both occupy prime real estate the dropdown needs, and a floating
+          green button over search results was just as much a problem as the
+          Points pill overlapping them. */}
       {!activeSession && nearestClaimable && (
-        <div className="absolute top-24 right-4 z-20">
+        <div
+          className={`absolute top-56 right-4 z-20 transition-opacity duration-200 ${
+            suggestions.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          }`}
+        >
           <Button
             onClick={handleClaimNearest}
             disabled={busyAction === 'claim'}
