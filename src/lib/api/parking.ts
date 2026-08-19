@@ -96,6 +96,29 @@ export function checkLazyUnpark(params: { lat: number; lng: number }) {
   return invoke<{ autoUnparked: boolean }>('check-lazy-unpark', params);
 }
 
+// Soft-locks a spot for this driver the moment navigation toward it starts
+// (well before they're close enough for the real claim-spot proximity
+// check to pass) so a second driver's nearby-spots query excludes it too --
+// see supabase/migrations/0012_spot_reservations.sql. The RPC's own WHERE
+// clause is the concurrency control; a false return just means someone
+// else's reservation is currently active, not a network/auth failure.
+export async function reserveSpot(spotId: string): Promise<{ reserved: boolean; error: string | null }> {
+  const { data, error } = await supabase.rpc('reserve_spot', { p_spot_id: spotId });
+  if (error) {
+    console.error('[api:reserveSpot] failed', error);
+    return { reserved: false, error: error.message };
+  }
+  return { reserved: Boolean(data), error: null };
+}
+
+// Frees a reservation early (e.g. "No, it's taken" moving on, or navigation
+// cancelled) instead of leaving it to expire on its own 5-minute TTL. Safe
+// to call speculatively -- no-ops server-side if this driver doesn't hold it.
+export async function releaseSpotReservation(spotId: string): Promise<void> {
+  const { error } = await supabase.rpc('release_spot_reservation', { p_spot_id: spotId });
+  if (error) console.error('[api:releaseSpotReservation] failed', error);
+}
+
 export async function reportSpot(spotId: string, reason: 'taken' | 'fake' | 'invalid_location') {
   const {
     data: { session },

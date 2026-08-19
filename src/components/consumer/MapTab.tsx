@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
-import { declareSpot, claimSpot, manualUnpark } from '@/lib/api/parking';
+import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation } from '@/lib/api/parking';
 import {
   Search,
   MapPin,
@@ -32,6 +32,7 @@ import {
   searchPlaces,
   retrievePlace,
   getDrivingDirections,
+  getWalkingDirections,
   snapToRoad,
   type PlaceSuggestion,
   type RouteStep,
@@ -64,10 +65,12 @@ const SELECTION_FLY_ZOOM = 18.5;
 const CLAIM_FLY_ZOOM = 16.5;
 const CLAIM_FLY_DURATION_MS = 1000;
 
-// "Is the spot free?" triggers once the driver is within this radius of the
-// target spot -- close enough that they're plausibly right next to it, per
-// the 50-100m range this MVP flow calls for.
-const SPOT_PROXIMITY_METERS = 75;
+// "Is the spot free?" (the "moment of truth" prompt) triggers once the
+// driver is within this radius of the target spot -- tight enough that
+// they're plausibly standing right next to it, matching claim-spot's own
+// server-side CLAIM_RADIUS_M so "yes, I'm parking" here and the actual claim
+// call a moment later are judging the same distance.
+const SPOT_PROXIMITY_METERS = 30;
 
 type RouteState = 'idle' | 'searching' | 'found' | 'not_found';
 
@@ -192,6 +195,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const [excludedSpotIds, setExcludedSpotIds] = useState<string[]>([]);
   const [showSpotPrompt, setShowSpotPrompt] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
+  // 'walking' once "Yes, I'm parking" hands off to a final POI leg -- swaps
+  // the route line to dashed and levels the 3D driving camera back out.
+  const [routeProfile, setRouteProfile] = useState<'driving' | 'walking'>('driving');
 
   // "I saw a free space" (white button) enters this mode: the next map tap
   // drops a temporary yellow pin instead of declaring immediately, so the
@@ -403,10 +409,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     const closest = findNearestSpotTo(poi, []);
     const destination: Destination = closest ? { name: poi.name, lng: closest.lng, lat: closest.lat } : poi;
     setActiveDestination(destination);
+    setRouteProfile('driving');
     if (closest) {
       setPoiMarker({ lng: poi.lng, lat: poi.lat, name: poi.name });
       setTargetSpotId(closest.id);
       setWalkMinutes(walkingMinutes(closest.d));
+      // Soft-lock the spot the instant it's picked as the target, not only
+      // once actually claimed -- see 0012_spot_reservations.sql. A false
+      // return (someone else reserved it a moment earlier) isn't fatal here:
+      // the drive still proceeds, worst case this driver finds out at
+      // arrival via the same "is it still free?" prompt a stale/expired
+      // spot would have hit anyway.
+      reserveSpot(closest.id);
     }
 
     const directions = await getDrivingDirections(
@@ -525,6 +539,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   };
 
   const clearRoute = () => {
+    // Free the reservation this driver was holding (if any) instead of
+    // leaving it locked out for other drivers until its 5-minute TTL
+    // expires -- best-effort, fire-and-forget, matches the "safe to call
+    // speculatively" contract releaseSpotReservation documents.
+    if (targetSpotId) releaseSpotReservation(targetSpotId);
     setRouteState('idle');
     setActiveDestination(null);
     setPoiMarker(null);
@@ -538,6 +557,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setCurrentStepIndex(0);
     setSearchQuery('');
     setSuggestions([]);
+    setRouteProfile('driving');
   };
 
   // "Yes, I Parked" -- claims the target spot right where the driver is
@@ -548,15 +568,57 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     if (!targetSpotId) return;
     setBusyAction('claim');
     const [lng, lat] = userLngLat;
+    const spotLng = activeDestination?.lng ?? lng;
+    const spotLat = activeDestination?.lat ?? lat;
+    const finalPoi = poiMarker;
     const { data, error } = await claimSpot({ spotId: targetSpotId, userLat: lat, userLng: lng, accuracy: userAccuracy });
+    setBusyAction(null);
+
     if (error) {
       toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
-    } else if (data) {
-      toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
-      await refetchSession();
+      return;
     }
-    setBusyAction(null);
-    clearRoute();
+    if (!data) return;
+
+    await refetchSession();
+
+    if (!finalPoi) {
+      // No searched destination -- this WAS the destination, so parking here
+      // is the end of the trip.
+      toast({ title: t('map.pointsEarnedToast') });
+      clearRoute();
+      return;
+    }
+
+    // Had a final POI (shop/restaurant/etc): hand off to a walking leg from
+    // the spot just claimed to that POI instead of ending navigation --
+    // reuses the same active-nav UI, just with a dashed line and a level
+    // (non-tilted) camera.
+    setShowSpotPrompt(false);
+    setTargetSpotId(null);
+    setExcludedSpotIds([]);
+    setRouteState('searching');
+    const walking = await getWalkingDirections([spotLng, spotLat], [finalPoi.lng, finalPoi.lat], language === 'gr' ? 'el' : 'en');
+    if (walking) {
+      setRouteProfile('walking');
+      setRouteCoords(walking.coordinates);
+      setRouteSteps(walking.steps.length > 0 ? walking.steps : null);
+      setCurrentStepIndex(0);
+      setRouteTotals({ distanceMeters: walking.distanceMeters, durationSeconds: walking.durationSeconds });
+      setActiveDestination({ name: finalPoi.name, lng: finalPoi.lng, lat: finalPoi.lat });
+      setRouteState('found');
+      setIsRouting(true);
+      toast({
+        title: t('map.walkingToDestination', { name: finalPoi.name }),
+        description: t('map.walkingToDestinationDesc', { min: walkingMinutes(walking.distanceMeters) }),
+      });
+    } else {
+      // Walking directions failed (offline, no route) -- still a successful
+      // parking outcome, just end navigation instead of leaving a stale
+      // driving route on screen with nowhere left to go.
+      toast({ title: t('map.pointsEarnedToast') });
+      clearRoute();
+    }
   };
 
   // "No, Find Next" -- excludes the current spot, finds the next-closest
@@ -564,6 +626,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // is now), and instantly redraws the route to it.
   const handleFindNextSpot = async () => {
     if (!poiMarker || !targetSpotId) return;
+    // Release this spot's reservation immediately -- it's taken, so no
+    // reason to keep it locked out for other drivers for the rest of its TTL.
+    releaseSpotReservation(targetSpotId);
     const excluded = [...excludedSpotIds, targetSpotId];
     setExcludedSpotIds(excluded);
     setShowSpotPrompt(false);
@@ -575,6 +640,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       return;
     }
 
+    // Lock the next candidate before routing to it, same as the initial
+    // search -- otherwise a second driver could get routed here in the gap
+    // between this reroute and this driver's eventual claim.
+    reserveSpot(next.id);
     setTargetSpotId(next.id);
     setWalkMinutes(walkingMinutes(next.d));
     setActiveDestination({ name: poiMarker.name, lng: next.lng, lat: next.lat });
@@ -870,6 +939,8 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           onCenterChange={handleCenterChange}
           onConfirmSelection={handleConfirmSelection}
           routeCoordinates={routeCoords}
+          routeProfile={routeProfile}
+          isNavigating={isNavigating && routeProfile === 'driving'}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
@@ -1229,7 +1300,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
                 <p className="font-semibold text-sm truncate">{activeDestination.name}</p>
                 {remaining && (
                   <p className="text-xs text-muted-foreground">
-                    {t('map.navDistanceEta', {
+                    {t(routeProfile === 'walking' ? 'map.navDistanceEtaWalk' : 'map.navDistanceEta', {
                       km: (remaining.distanceMeters / 1000).toFixed(1),
                       min: Math.round(remaining.durationSeconds / 60),
                     })}
@@ -1278,14 +1349,15 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           isRouting), so this is front and center exactly when it matters. */}
       {showSpotPrompt && targetSpotId && (
         <div className="absolute bottom-28 left-4 right-4 z-30 flex justify-center">
-          <div className="glass-card p-4 shadow-2xl animate-fade-in w-full max-w-sm space-y-3">
-            <p className="font-semibold text-sm text-center">{t('map.isSpotFreeTitle')}</p>
+          <div className="glass-card p-4 shadow-2xl animate-fade-in w-full max-w-sm space-y-1">
+            <p className="font-bold text-base text-center">{t('map.arrivedTitle')}</p>
+            <p className="text-sm text-muted-foreground text-center pb-2">{t('map.isSpotFreeTitle')}</p>
             <div className="flex items-center gap-2">
               <Button
                 onClick={handleFindNextSpot}
                 disabled={busyAction !== null}
-                variant="outline"
-                className="flex-1 gap-1.5"
+                variant="destructive"
+                className="flex-1 gap-1.5 h-12 text-base"
               >
                 <X className="h-4 w-4" />
                 {t('map.noFindNext')}
@@ -1293,7 +1365,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               <Button
                 onClick={handleSpotConfirmedFree}
                 disabled={busyAction !== null}
-                className="flex-1 gap-1.5 bg-success hover:bg-success/90 text-success-foreground"
+                className="flex-1 gap-1.5 h-12 text-base bg-success hover:bg-success/90 text-success-foreground"
               >
                 {busyAction === 'claim' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 {t('map.yesIParked')}

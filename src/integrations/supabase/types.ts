@@ -188,20 +188,6 @@ export type Database = {
             foreignKeyName: "parking_sessions_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: "leaderboard_daily"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "parking_sessions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_weekly"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "parking_sessions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -217,6 +203,8 @@ export type Database = {
           id: string
           location: unknown
           municipality_id: string | null
+          reserved_by: string | null
+          reserved_until: string | null
           road_snapped: boolean
           shadow_hidden: boolean
           status: string
@@ -230,6 +218,8 @@ export type Database = {
           id?: string
           location: unknown
           municipality_id?: string | null
+          reserved_by?: string | null
+          reserved_until?: string | null
           road_snapped?: boolean
           shadow_hidden?: boolean
           status?: string
@@ -243,6 +233,8 @@ export type Database = {
           id?: string
           location?: unknown
           municipality_id?: string | null
+          reserved_by?: string | null
+          reserved_until?: string | null
           road_snapped?: boolean
           shadow_hidden?: boolean
           status?: string
@@ -252,36 +244,8 @@ export type Database = {
             foreignKeyName: "parking_spots_claimed_by_fkey"
             columns: ["claimed_by"]
             isOneToOne: false
-            referencedRelation: "leaderboard_daily"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "parking_spots_claimed_by_fkey"
-            columns: ["claimed_by"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_weekly"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "parking_spots_claimed_by_fkey"
-            columns: ["claimed_by"]
-            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "parking_spots_declared_by_fkey"
-            columns: ["declared_by"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_daily"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "parking_spots_declared_by_fkey"
-            columns: ["declared_by"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_weekly"
-            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "parking_spots_declared_by_fkey"
@@ -302,6 +266,13 @@ export type Database = {
             columns: ["municipality_id"]
             isOneToOne: false
             referencedRelation: "municipalities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parking_spots_reserved_by_fkey"
+            columns: ["reserved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -365,20 +336,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "parking_sessions"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "points_transactions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_daily"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "points_transactions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_weekly"
-            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "points_transactions_user_id_fkey"
@@ -458,6 +415,27 @@ export type Database = {
           },
         ]
       }
+      resident_code_attempts: {
+        Row: {
+          failed_count: number
+          locked_until: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          failed_count?: number
+          locked_until?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          failed_count?: number
+          locked_until?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       spatial_ref_sys: {
         Row: {
           auth_name: string | null
@@ -505,20 +483,6 @@ export type Database = {
           spot_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "spot_reports_reported_by_fkey"
-            columns: ["reported_by"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_daily"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "spot_reports_reported_by_fkey"
-            columns: ["reported_by"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_weekly"
-            referencedColumns: ["user_id"]
-          },
           {
             foreignKeyName: "spot_reports_reported_by_fkey"
             columns: ["reported_by"]
@@ -587,36 +551,8 @@ export type Database = {
             foreignKeyName: "trust_events_reported_by_fkey"
             columns: ["reported_by"]
             isOneToOne: false
-            referencedRelation: "leaderboard_daily"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "trust_events_reported_by_fkey"
-            columns: ["reported_by"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_weekly"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "trust_events_reported_by_fkey"
-            columns: ["reported_by"]
-            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trust_events_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_daily"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "trust_events_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "leaderboard_weekly"
-            referencedColumns: ["user_id"]
           },
           {
             foreignKeyName: "trust_events_user_id_fkey"
@@ -705,10 +641,10 @@ export type Database = {
       }
       leaderboard_daily: {
         Row: {
-          full_name: string | null
+          display_name: string | null
           municipality_id: string | null
           points_today: number | null
-          user_id: string | null
+          rank: number | null
         }
         Relationships: [
           {
@@ -729,10 +665,10 @@ export type Database = {
       }
       leaderboard_weekly: {
         Row: {
-          full_name: string | null
+          display_name: string | null
           municipality_id: string | null
           points_this_week: number | null
-          user_id: string | null
+          rank: number | null
         }
         Relationships: [
           {
@@ -1105,6 +1041,11 @@ export type Database = {
       redeem_resident_code: { Args: { p_code: string }; Returns: boolean }
       redeem_trial_premium: { Args: never; Returns: undefined }
       release_claim: { Args: { p_spot_id: string }; Returns: undefined }
+      release_spot_reservation: {
+        Args: { p_spot_id: string }
+        Returns: undefined
+      }
+      reserve_spot: { Args: { p_spot_id: string }; Returns: boolean }
       session_distance_meters: {
         Args: { p_lat: number; p_lng: number; p_session_id: string }
         Returns: number

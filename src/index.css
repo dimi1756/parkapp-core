@@ -201,6 +201,10 @@
   background: hsl(var(--primary));
   border: 3px solid white;
   box-shadow: 0 0 0 6px hsla(var(--primary), 0.25), 0 2px 6px rgba(0, 0, 0, 0.3);
+  /* Mapbox repositions this marker via a `transform: translate` on the
+     element itself -- transitioning that property is what turns every
+     setLngLat() into a smooth glide instead of a harsh jump between fixes. */
+  transition: transform 0.3s linear;
 }
 
 .mapbox-pin-wrapper {

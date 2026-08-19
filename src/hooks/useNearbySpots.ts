@@ -27,6 +27,8 @@ export interface NearbySpot {
    * first. Undefined (not false) for every real row, straight from Postgres.
    */
   isMock?: boolean;
+  /** True when this driver (not someone else) currently holds the spot's reservation. */
+  reservedByMe?: boolean;
 }
 
 // PostGIS returns `location` as WKB hex over PostgREST; parsing the small,
@@ -69,6 +71,7 @@ export function useNearbySpots() {
       status: NearbySpot['status'];
       declared_at: string;
       expires_at: string;
+      reserved_by: string | null;
     }
 
     const mapRow = (row: SpotRow): NearbySpot | null => {
@@ -82,6 +85,7 @@ export function useNearbySpots() {
         status: row.status,
         declared_at: row.declared_at,
         expires_at: row.expires_at,
+        reservedByMe: row.reserved_by === session.user.id,
       };
     };
 
@@ -101,11 +105,17 @@ export function useNearbySpots() {
       // parking_spots_select_own) accumulated on the map forever, and an
       // already-claimed spot could wrongly surface as "nearest claimable".
       const cutoff = new Date(Date.now() - MAX_SPOT_AGE_MINUTES * 60 * 1000).toISOString();
+      const now = new Date().toISOString();
       const { data, error } = await supabase
         .from('parking_spots')
-        .select('id, declared_by, location, status, declared_at, expires_at')
+        .select('id, declared_by, location, status, declared_at, expires_at, reserved_by')
         .eq('status', 'active')
-        .gte('declared_at', cutoff);
+        .gte('declared_at', cutoff)
+        // Excludes spots someone ELSE is currently mid-navigation-to (see
+        // 0012_spot_reservations.sql/reserveSpot) -- unreserved (null),
+        // expired (self-clearing TTL, no cleanup job needed), or reserved by
+        // this same driver all still pass through.
+        .or(`reserved_until.is.null,reserved_until.lt.${now},reserved_by.eq.${session.user.id}`);
       if (error) {
         console.error('[useNearbySpots] failed to load spots:', error);
         return;

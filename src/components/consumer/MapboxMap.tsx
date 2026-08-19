@@ -134,10 +134,30 @@ export async function getDrivingDirections(
   destination: [number, number],
   language: 'en' | 'el' = 'en'
 ): Promise<DirectionsResult | null> {
+  return getDirections(origin, destination, 'driving', language);
+}
+
+// The "Yes, I'm parking" -> final-POI leg: same Directions API, walking
+// profile, no turn-by-turn banner needed (the dashed line + destination pin
+// carry it for a short walk) so `steps` comes back empty rather than unused.
+export async function getWalkingDirections(
+  origin: [number, number],
+  destination: [number, number],
+  language: 'en' | 'el' = 'en'
+): Promise<DirectionsResult | null> {
+  return getDirections(origin, destination, 'walking', language);
+}
+
+async function getDirections(
+  origin: [number, number],
+  destination: [number, number],
+  profile: 'driving' | 'walking',
+  language: 'en' | 'el'
+): Promise<DirectionsResult | null> {
   if (!MAPBOX_TOKEN) return null;
 
   const coordsParam = `${origin[0]},${origin[1]};${destination[0]},${destination[1]}`;
-  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsParam}?geometries=geojson&overview=full&steps=true&language=${language}&access_token=${MAPBOX_TOKEN}`;
+  const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coordsParam}?geometries=geojson&overview=full&steps=true&language=${language}&access_token=${MAPBOX_TOKEN}`;
 
   try {
     const res = await fetch(url);
@@ -224,6 +244,10 @@ interface MapboxMapProps {
   onCenterChange?: (lng: number, lat: number) => void;
   /** Full driving-route geometry from the Directions API; null clears the line. */
   routeCoordinates?: [number, number][] | null;
+  /** 'walking' renders the route as a dashed line (post-claim leg to a final POI); default 'driving' is solid. */
+  routeProfile?: 'driving' | 'walking';
+  /** True while turn-by-turn driving navigation is actively running -- tilts the camera to a 3D chase view and follows the driver's heading, Google-Maps-style. Left level for the walking leg (nobody wants a tilted phone for a 2-minute walk). */
+  isNavigating?: boolean;
   /** Confirm-spot button shown above the temporary yellow "selection" pin. */
   onConfirmSelection?: () => void;
   /** Increment to imperatively re-trigger a fresh GPS fix + camera fly-to (wired to MapTab's "My Location" button). */
@@ -244,6 +268,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onPinClick,
   onCenterChange,
   routeCoordinates,
+  routeProfile = 'driving',
+  isNavigating = false,
   onConfirmSelection,
   locateRequestId,
   flyToTarget,
@@ -271,6 +297,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onConfirmSelectionRef.current = onConfirmSelection;
   const showCustomUserDotRef = useRef(showCustomUserDot);
   showCustomUserDotRef.current = showCustomUserDot;
+  const isNavigatingRef = useRef(isNavigating);
+  isNavigatingRef.current = isNavigating;
+  const routeProfileRef = useRef(routeProfile);
+  routeProfileRef.current = routeProfile;
   const confirmLabelRef = useRef(t('map.confirmSpot'));
   confirmLabelRef.current = t('map.confirmSpot');
 
@@ -297,8 +327,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     map.addControl(geolocate, 'top-right');
 
     geolocate.on('geolocate', (e) => {
-      const { longitude, latitude, accuracy } = (e as GeolocationPosition).coords;
+      const { longitude, latitude, accuracy, heading } = (e as GeolocationPosition).coords;
       onUserLocationChangeRef.current?.(longitude, latitude, accuracy);
+      // Chase-camera rotation: only while actively driving (a walk or idle
+      // browsing shouldn't spin the map), and only on a real compass
+      // heading -- most desktop/no-motion fixes report heading as null, so
+      // this simply never fires there rather than snapping to a bogus 0.
+      if (isNavigatingRef.current && routeProfileRef.current === 'driving' && heading != null && !Number.isNaN(heading)) {
+        mapRef.current?.easeTo({ bearing: heading, duration: 500 });
+      }
     });
 
     geolocateControlRef.current = geolocate;
@@ -513,13 +550,35 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       } else {
         if (!routeCoordinates) return;
         map.addSource('route', { type: 'geojson', data });
+        // Composite line, Google-Maps style: a wider dark-navy casing under a
+        // slightly thinner bright cyan/blue core reads as one crisp route at
+        // any zoom, instead of a single flat line disappearing against the
+        // basemap's own road/water colors. Casing added first so it paints
+        // underneath.
+        map.addLayer({
+          id: 'route-casing',
+          type: 'line',
+          source: 'route',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#0B3D6B', 'line-width': 9 },
+        });
         map.addLayer({
           id: 'route',
           type: 'line',
           source: 'route',
           layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: { 'line-color': '#0059B3', 'line-width': 5 },
+          paint: { 'line-color': '#2FA8FF', 'line-width': 5 },
         });
+      }
+
+      // Dashed core line marks the post-claim walking leg to a final POI so
+      // it reads unmistakably as "on foot" against the solid driving route
+      // that came before it; casing stays solid underneath either way.
+      // [0, 2] with line-cap: 'round' is the standard Mapbox trick for a
+      // dotted line -- each zero-length "dash" renders as a round dot.
+      const dasharray = routeProfile === 'walking' ? [0, 2] : undefined;
+      if (map.getLayer('route')) {
+        map.setPaintProperty('route', 'line-dasharray', dasharray ?? null);
       }
 
       if (routeCoordinates && routeCoordinates.length > 1) {
@@ -543,7 +602,23 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     } else {
       map.once('load', drawRoute);
     }
-  }, [routeCoordinates]);
+  }, [routeCoordinates, routeProfile]);
+
+  // Google-Maps-style 3D chase camera while actively driving: pitched for
+  // depth, bearing rotated to the driver's live heading so the route always
+  // points "up" the way it does in a real turn-by-turn app. Only during
+  // driving nav -- levels back out (pitch 0) the instant it ends or the
+  // walking leg to a final POI takes over, since a tilted view makes no
+  // sense for a short walk or for browsing the map freely.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+    if (isNavigating && routeProfile === 'driving') {
+      map.easeTo({ pitch: 55, duration: 800 });
+    } else {
+      map.easeTo({ pitch: 0, bearing: 0, duration: 800 });
+    }
+  }, [isNavigating, routeProfile]);
 
   return <div ref={containerRef} className="parkapp-map-shell absolute inset-0 w-full h-full" />;
 };
