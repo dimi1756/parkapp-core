@@ -106,6 +106,10 @@ export function getMockKarystosSpots(): NearbySpot[] {
     // that "time since declared" on each pin's detail card isn't identical.
     declared_at: new Date(now - (60 + i * 90) * 1000).toISOString(),
     expires_at: new Date(now + (240 - i * 40) * 1000).toISOString(),
+    // These ids/declared_by never correspond to a real parking_spots row --
+    // isMock is what stops "Claim nearest spot" (and any other claim path)
+    // from ever sending one to claim-spot, where it can only 409.
+    isMock: true,
   }));
 }
 

@@ -229,7 +229,7 @@ interface MapboxMapProps {
   /** Increment to imperatively re-trigger a fresh GPS fix + camera fly-to (wired to MapTab's "My Location" button). */
   locateRequestId?: number;
   /** Where the next flyToRequestId bump should smoothly fly/zoom the camera to (street-level zoom). */
-  flyToTarget?: { lng: number; lat: number; zoom?: number } | null;
+  flyToTarget?: { lng: number; lat: number; zoom?: number; duration?: number } | null;
   /** Increment (with flyToTarget set) to imperatively fly the camera to a location at street-level zoom. */
   flyToRequestId?: number;
 }
@@ -357,11 +357,16 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       // declare/selection-mode callers that omit it just want "at least
       // street level," not to zoom back out if already tighter than that.
       const zoom = flyToTarget.zoom ?? Math.max(mapRef.current.getZoom(), STREET_ZOOM);
+      // An explicit duration (e.g. "Claim nearest spot" asking for a snappy,
+      // predictable 1000ms hop straight to the claimed spot) wins outright;
+      // everything else keeps the original speed-based timing, which varies
+      // with distance -- appropriate for "fly to wherever the user is,"
+      // wrong for "always take exactly this long."
       mapRef.current.flyTo({
         center: [flyToTarget.lng, flyToTarget.lat],
         zoom,
         essential: true,
-        speed: 1.4,
+        ...(flyToTarget.duration != null ? { duration: flyToTarget.duration } : { speed: 1.4 }),
       });
     }
   }, [flyToRequestId, flyToTarget]);

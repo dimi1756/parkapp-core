@@ -57,6 +57,13 @@ const SEARCH_FLY_ZOOM = 16.5;
 // of clipping the building it fronts.
 const SELECTION_FLY_ZOOM = 18.5;
 
+// "Claim nearest spot": a snappy, fixed-duration hop straight to the spot
+// that was just claimed, not the distance-scaled speed the other flyTo
+// callers use -- this one should always feel the same regardless of how far
+// the spot happens to be.
+const CLAIM_FLY_ZOOM = 16.5;
+const CLAIM_FLY_DURATION_MS = 1000;
+
 // "Is the spot free?" triggers once the driver is within this radius of the
 // target spot -- close enough that they're plausibly right next to it, per
 // the 50-100m range this MVP flow calls for.
@@ -208,9 +215,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // street level centered on the user, right before a manual tap or an
   // automatic declaration -- see MapboxMap's flyToRequestId effect.
   const [flyToRequestId, setFlyToRequestId] = useState(0);
-  const [flyToTarget, setFlyToTarget] = useState<{ lng: number; lat: number; zoom?: number } | null>(null);
-  const flyToLocation = (lng: number, lat: number, zoom?: number) => {
-    setFlyToTarget({ lng, lat, zoom });
+  const [flyToTarget, setFlyToTarget] = useState<{ lng: number; lat: number; zoom?: number; duration?: number } | null>(null);
+  const flyToLocation = (lng: number, lat: number, zoom?: number, duration?: number) => {
+    setFlyToTarget({ lng, lat, zoom, duration });
     setFlyToRequestId((n) => n + 1);
   };
 
@@ -347,8 +354,12 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // sparse pilot-stage data instead of failing outright.
   function findNearestSpotTo(point: { lng: number; lat: number }, excludeIds: string[]) {
     const excluded = new Set(excludeIds);
+    // !s.isMock: the investor-demo pins (getMockKarystosSpots) render on the
+    // map like any real spot but their id has no matching parking_spots row
+    // -- routing/prompting toward one is fine, but the eventual claimSpot()
+    // call can only ever 409 against it, so it's excluded as a candidate here.
     const candidates = nearbySpots.filter(
-      (s) => s.declared_by !== profile?.id && s.status === 'active' && !excluded.has(s.id)
+      (s) => s.declared_by !== profile?.id && s.status === 'active' && !s.isMock && !excluded.has(s.id)
     );
     return candidates.reduce<{ id: string; lng: number; lat: number; d: number } | null>((best, s) => {
       const d = distanceMeters(point.lng, point.lat, s.lng, s.lat);
@@ -759,8 +770,20 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     handleMapTap(lng, lat);
   };
 
+  // Bug: this used to filter out only spots the driver themselves *declared*
+  // (`declared_by !== profile.id`), not ones they'd already *claimed* -- RLS
+  // (0004_anti_spam_support.sql's parking_spots_select_own) keeps a spot the
+  // driver claimed visible to them via its `claimed_by` column regardless of
+  // status, and its `declared_by` is whoever originally reported it (someone
+  // else), so that filter never excluded it. If that stale, no-longer-active
+  // row happened to be geographically nearest, "Claim nearest spot" would
+  // try to claim it again and the server would correctly reject it with
+  // "no longer available" -- from the driver's side, a green button that
+  // just... failed. Requiring status === 'active' is what actually means
+  // "available to claim," matching findNearestSpotTo's search-based
+  // routing (which already had this right).
   const nearestClaimable = nearbySpots
-    .filter((s) => s.declared_by !== profile?.id)
+    .filter((s) => s.declared_by !== profile?.id && s.status === 'active' && !s.isMock)
     .map((s) => ({ ...s, d: distanceMeters(userLngLat[0], userLngLat[1], s.lng, s.lat) }))
     .sort((a, b) => a.d - b.d)[0];
 
@@ -779,7 +802,14 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     } else if (data) {
       toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
       await refetchSession();
-      await navigateToSpotPin({ lng: nearestClaimable.lng, lat: nearestClaimable.lat });
+      // Fly straight to the claimed spot at street zoom and open its details
+      // card (distance/time + a "Get Directions" button that reuses
+      // navigateToSpotPin) instead of launching full turn-by-turn
+      // immediately -- claiming and committing to navigate are two
+      // different intents, and the card lets the driver confirm the right
+      // spot lit up before starting a route.
+      flyToLocation(nearestClaimable.lng, nearestClaimable.lat, CLAIM_FLY_ZOOM, CLAIM_FLY_DURATION_MS);
+      setSelectedSpotId(nearestClaimable.id);
     }
     setBusyAction(null);
   };
@@ -994,7 +1024,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           Both elements still fade out together while the search dropdown is
           open, exactly as before. */}
       <div
-        className={`absolute top-24 left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto transition-opacity duration-200 ${
+        className={`absolute top-24 left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-opacity duration-200 ${
           suggestions.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >

@@ -19,6 +19,14 @@ export interface NearbySpot {
   status: 'active' | 'claimed' | 'expired' | 'invalid' | 'reported';
   declared_at: string;
   expires_at: string;
+  /**
+   * True only for the investor-demo pins layered in below (getMockKarystosSpots)
+   * -- they render on the map like any real spot, but their `id` doesn't
+   * correspond to an actual parking_spots row, so any code path that ends in
+   * an actual claimSpot()/declareSpot() call against this id must exclude it
+   * first. Undefined (not false) for every real row, straight from Postgres.
+   */
+  isMock?: boolean;
 }
 
 // PostGIS returns `location` as WKB hex over PostgREST; parsing the small,

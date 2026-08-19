@@ -45,6 +45,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// The shared demo/reviewer account -- "Quick Demo Login" must always land
+// straight on the map, never the vehicle-onboarding step.
+const DEMO_EMAIL = 'demo@parkapp.tech';
+
 // GDPR: only the last 2 characters of the plate are ever shown in the UI.
 // The full plate is stored server-side for municipality enforcement use only.
 export function maskPlate(plate: string | null | undefined): string {
@@ -59,7 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = useCallback(async (userId: string) => {
+  const fetchProfile = useCallback(async (userId: string, userEmail?: string | null) => {
     // Self-heals a trial that expired since the last check-in -- there's no
     // cron/scheduled-function infra to downgrade it in the background, so
     // this runs it on every profile fetch instead (see
@@ -67,20 +71,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // specific account is a premium, non-resident row past its expiry.
     await supabase.rpc('sync_expired_membership');
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+
+    // Defensive self-heal for the shared demo/reviewer account specifically:
+    // "Quick Demo Login" promises a straight shot to the map, never the
+    // vehicle-details step, and that promise shouldn't depend on nobody
+    // having ever cleared this row's vehicle columns. Every other account
+    // still goes through onboarding normally -- this never fires for them.
+    if (data && userEmail === DEMO_EMAIL && (!data.vehicle_make || !data.vehicle_plate)) {
+      const { data: healed } = await supabase
+        .from('profiles')
+        .update({ vehicle_make: 'Toyota', vehicle_color: 'Silver', vehicle_plate: 'ABC-1234' })
+        .eq('id', userId)
+        .select('*')
+        .maybeSingle();
+      setProfile(healed ?? data);
+      return;
+    }
+
     setProfile(data ?? null);
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
-      if (session?.user) fetchProfile(session.user.id);
+      // Awaited before setLoading(false) -- previously this fired the fetch
+      // without waiting for it, so `loading` flipped false the instant the
+      // session was known but `profile` was still null. AuthGate reads
+      // isOnboardingComplete off `profile` directly, so that gap flashed the
+      // vehicle-onboarding screen for a frame even when the real profile
+      // already had vehicle details set (masking that as *this account
+      // needs onboarding* rather than *the profile just hasn't loaded yet*).
+      if (session?.user) await fetchProfile(session.user.id, session.user.email);
       setLoading(false);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        fetchProfile(session.user.id, session.user.email);
       } else {
         setProfile(null);
       }
@@ -195,7 +223,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const isOnboardingComplete = Boolean(profile?.vehicle_make && profile?.vehicle_plate);
-  const isDemoAccount = session?.user?.email === 'demo@parkapp.tech';
+  const isDemoAccount = session?.user?.email === DEMO_EMAIL;
 
   return (
     <AuthContext.Provider
