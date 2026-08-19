@@ -78,7 +78,7 @@ interface RouteTotals {
 const MOCK_DESTINATIONS = {
   mikel: { name: 'Mikel Coffee', x: 55, y: 35 },
   sklavenitis: { name: 'Sklavenitis', x: 70, y: 50 },
-  public: { name: 'Public Chalkida', x: 52, y: 48 },
+  public: { name: 'Public Karystos', x: 52, y: 48 },
 };
 
 // Fallback center (Karystos, Greece -- the live pilot/demo city) used
@@ -293,7 +293,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     const requestId = ++searchRequestIdRef.current;
     const timer = setTimeout(async () => {
       // Biased toward wherever the driver actually is right now, not the
-      // fallback Chalkida map center -- a "pharmacy" search from a different
+      // fallback Karystos map center -- a "pharmacy" search from a different
       // town should surface that town's pharmacies first, not Athens'.
       const results = await searchPlaces(searchQuery, userLngLatRef.current, sessionTokenRef.current);
       if (searchRequestIdRef.current === requestId) setSuggestions(results);
@@ -843,7 +843,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
-          <img src={chalkidaMap} alt="Chalkida Map" className="w-full h-full object-cover" />
+          <img src={chalkidaMap} alt="Karystos Map" className="w-full h-full object-cover" />
         </div>
       )}
 

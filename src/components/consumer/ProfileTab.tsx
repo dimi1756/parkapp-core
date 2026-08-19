@@ -254,7 +254,7 @@ export const ProfileTab = () => {
 
         {/* App Version */}
         <p className="text-center text-xs text-muted-foreground pt-4">
-          ParkApp v1.0.0 • Chalkida
+          ParkApp v1.0.0 • {t('common.tagline')}
         </p>
       </div>
 

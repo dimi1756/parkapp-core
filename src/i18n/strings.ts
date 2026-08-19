@@ -3,6 +3,11 @@
 // missing translation is a tsc error, not a silent English fallback.
 
 const en = {
+  // Scalable product tagline -- replaces the old single-city "Smart parking
+  // in Chalkida" copy now that the app spans multiple pilot cities (see
+  // Chunk 4's city leaderboard / demoMockData's multi-city list).
+  'common.tagline': 'Changing the Parking Experience',
+
   // Bottom navigation
   'nav.map': 'Map',
   'nav.offers': 'Offers',
@@ -146,13 +151,13 @@ const en = {
   'plans.adFree': 'Ad-Free',
   'plans.active': 'Active ✓',
   'plans.startTrial': 'Start {n}-Day Free Trial',
-  'plans.residentTitle': 'Chalkida Resident?',
+  'plans.residentTitle': 'Local Resident?',
   'plans.residentDesc': 'Get Premium FREE with resident verification',
   'plans.residentId': 'Resident ID',
   'plans.verify': 'Verify',
   'plans.verified': 'Verified Resident',
   'plans.verifySuccess': 'Verification Successful! 🎉',
-  'plans.verifySuccessDesc': 'Premium activated for free as a Chalkida resident.',
+  'plans.verifySuccessDesc': 'Premium activated for free as a verified local resident.',
   'plans.verifyError': 'Error',
   'plans.verifyErrorDesc': 'Please enter your resident ID.',
   'plans.verifyInvalid': "That code didn't work",
@@ -349,6 +354,8 @@ const en = {
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
+  'common.tagline': 'Αλλάζουμε την εμπειρία στάθμευσης',
+
   'nav.map': 'Χάρτης',
   'nav.offers': 'Προσφορές',
   'nav.plans': 'Πλάνα',
@@ -485,13 +492,13 @@ const gr: Record<keyof typeof en, string> = {
   'plans.adFree': 'Χωρίς Διαφημίσεις',
   'plans.active': 'Ενεργό ✓',
   'plans.startTrial': 'Ξεκίνα {n} Ημέρες Δωρεάν',
-  'plans.residentTitle': 'Κάτοικος Χαλκίδας;',
+  'plans.residentTitle': 'Κάτοικος της περιοχής;',
   'plans.residentDesc': 'Απόκτησε Premium ΔΩΡΕΑΝ με επιβεβαίωση κατοίκου',
   'plans.residentId': 'Αριθμός Δημότη',
   'plans.verify': 'Επιβεβαίωση',
   'plans.verified': 'Επιβεβαιωμένος Κάτοικος',
   'plans.verifySuccess': 'Επιτυχής Επιβεβαίωση! 🎉',
-  'plans.verifySuccessDesc': 'Το Premium ενεργοποιήθηκε δωρεάν ως κάτοικος Χαλκίδας.',
+  'plans.verifySuccessDesc': 'Το Premium ενεργοποιήθηκε δωρεάν ως επαληθευμένος κάτοικος.',
   'plans.verifyError': 'Σφάλμα',
   'plans.verifyErrorDesc': 'Συμπλήρωσε τον αριθμό δημότη.',
   'plans.verifyInvalid': 'Ο κωδικός δεν ίσχυε',
@@ -679,6 +686,8 @@ const gr: Record<keyof typeof en, string> = {
 };
 
 const tr: Record<keyof typeof en, string> = {
+  'common.tagline': 'Park etme deneyimini değiştiriyoruz',
+
   'nav.map': 'Harita',
   'nav.offers': 'Teklifler',
   'nav.plans': 'Planlar',
@@ -815,13 +824,13 @@ const tr: Record<keyof typeof en, string> = {
   'plans.adFree': 'Reklamsız',
   'plans.active': 'Aktif ✓',
   'plans.startTrial': '{n} Günlük Ücretsiz Denemeyi Başlat',
-  'plans.residentTitle': 'Chalkida Sakini misin?',
+  'plans.residentTitle': 'Yerel Sakin misiniz?',
   'plans.residentDesc': "Sakin doğrulamasıyla Premium'u ÜCRETSİZ al",
   'plans.residentId': 'Sakinlik Numarası',
   'plans.verify': 'Doğrula',
   'plans.verified': 'Doğrulanmış Sakin',
   'plans.verifySuccess': 'Doğrulama Başarılı! 🎉',
-  'plans.verifySuccessDesc': 'Chalkida sakini olarak Premium ücretsiz etkinleştirildi.',
+  'plans.verifySuccessDesc': 'Doğrulanmış yerel sakin olarak Premium ücretsiz etkinleştirildi.',
   'plans.verifyError': 'Hata',
   'plans.verifyErrorDesc': 'Lütfen sakinlik numaranı gir.',
   'plans.verifyInvalid': 'Bu kod çalışmadı',
