@@ -96,6 +96,22 @@ export function checkLazyUnpark(params: { lat: number; lng: number }) {
   return invoke<{ autoUnparked: boolean }>('check-lazy-unpark', params);
 }
 
+// Removes a driver's own still-active declared spot from the map on demand
+// (the X badge on 'mine' pins) instead of waiting out its 5-minute TTL --
+// e.g. they declared it by mistake, or someone else already took it and they
+// noticed before the TTL would have caught it. See
+// supabase/migrations/0013_cancel_own_spot.sql. A false return means the
+// spot wasn't (or no longer is) this driver's own active declaration --
+// already claimed/expired/cancelled -- not a network/auth failure.
+export async function cancelOwnSpot(spotId: string): Promise<{ cancelled: boolean; error: string | null }> {
+  const { data, error } = await supabase.rpc('cancel_own_spot', { p_spot_id: spotId });
+  if (error) {
+    console.error('[api:cancelOwnSpot] failed', error);
+    return { cancelled: false, error: error.message };
+  }
+  return { cancelled: Boolean(data), error: null };
+}
+
 // Soft-locks a spot for this driver the moment navigation toward it starts
 // (well before they're close enough for the real claim-spot proximity
 // check to pass) so a second driver's nearby-spots query excludes it too --

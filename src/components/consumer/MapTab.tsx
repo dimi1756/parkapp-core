@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
-import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation } from '@/lib/api/parking';
+import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation, cancelOwnSpot } from '@/lib/api/parking';
 import {
   Search,
   MapPin,
@@ -816,6 +816,19 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const handlePinClick = (pinId: string) => {
     setSelectedSpotId(pinId);
   };
+
+  // X badge on the driver's own ('mine') pins -- removes a declaration they
+  // made themselves straight off the map instead of waiting out its TTL.
+  // No optimistic removal: useNearbySpots' realtime subscription already
+  // refetches on any parking_spots change, and cancel_own_spot's UPDATE is
+  // typically faster than the round trip to show a stale state worth hiding.
+  const handleDeleteOwnPin = async (pinId: string) => {
+    if (selectedSpotId === pinId) setSelectedSpotId(null);
+    const { cancelled, error } = await cancelOwnSpot(pinId);
+    if (error || !cancelled) {
+      toast({ title: t('map.cancelSpotFailed'), variant: 'destructive' });
+    }
+  };
   const clickedNearbySpot = nearbySpots.find((s) => s.id === selectedSpotId) ?? null;
 
   // "Get Directions" on the details card -- reuses navigateToSpotPin
@@ -911,6 +924,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           flyToTarget={flyToTarget}
           flyToRequestId={flyToRequestId}
           onPinClick={handlePinClick}
+          onDeleteOwnPin={handleDeleteOwnPin}
           pins={[
             ...nearbySpots.map((s) => ({
               id: s.id,

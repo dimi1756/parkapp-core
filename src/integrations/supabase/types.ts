@@ -844,6 +844,7 @@ export type Database = {
           declarations: number
         }[]
       }
+      cancel_own_spot: { Args: { p_spot_id: string }; Returns: boolean }
       cleanup_expired_spots: { Args: never; Returns: number }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:

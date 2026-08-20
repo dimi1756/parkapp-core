@@ -240,6 +240,8 @@ interface MapboxMapProps {
   onMapClick?: (lng: number, lat: number) => void;
   /** Fires when a 'mine'/'reported' spot pin itself is tapped (opens the spot details card). */
   onPinClick?: (pinId: string) => void;
+  /** Fires when the X badge on one of the driver's own ('mine') pins is tapped -- removes that declaration from the map. */
+  onDeleteOwnPin?: (pinId: string) => void;
   /** Fires after every pan/zoom settles with the new map center. */
   onCenterChange?: (lng: number, lat: number) => void;
   /** Full driving-route geometry from the Directions API; null clears the line. */
@@ -266,6 +268,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   pins,
   onMapClick,
   onPinClick,
+  onDeleteOwnPin,
   onCenterChange,
   routeCoordinates,
   routeProfile = 'driving',
@@ -289,6 +292,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onMapClickRef.current = onMapClick;
   const onPinClickRef = useRef(onPinClick);
   onPinClickRef.current = onPinClick;
+  const onDeleteOwnPinRef = useRef(onDeleteOwnPin);
+  onDeleteOwnPinRef.current = onDeleteOwnPin;
   const onCenterChangeRef = useRef(onCenterChange);
   onCenterChangeRef.current = onCenterChange;
   const onUserLocationChangeRef = useRef(onUserLocationChange);
@@ -481,16 +486,34 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       // visually subordinate (smaller, distinct purple) so it never competes
       // with the primary red spot/destination pin for attention.
       const isPoi = pin.type === 'poi';
-      const color = pin.type === 'mine' ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : isPoi ? '#9333ea' : '#dc2626';
+      const isMine = pin.type === 'mine';
+      const color = isMine ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : isPoi ? '#9333ea' : '#dc2626';
       const size = isPoi ? 22 : 34;
       const el = document.createElement('div');
-      el.className = 'mapbox-pin-wrapper';
+      // 'mine' pins get a small red X badge pinned to their top-right corner
+      // (relative positioning here is what anchors it there) so the driver
+      // can wipe a declaration they made themselves straight off the map,
+      // without waiting out its TTL or hunting through a menu for it.
+      el.className = isMine ? 'mapbox-pin-wrapper relative' : 'mapbox-pin-wrapper';
       el.innerHTML = `
         <svg width="${size}" height="${Math.round((size * 44) / 34)}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
           <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
           <circle cx="17" cy="17" r="6" fill="white"/>
         </svg>
+        ${
+          isMine
+            ? `<button type="button" class="delete-own-pin-btn" aria-label="Remove this spot" style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:9999px;background:#dc2626;border:2px solid white;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.4);cursor:pointer;padding:0;">
+                <svg width="9" height="9" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M1 1L9 9M9 1L1 9"/></svg>
+              </button>`
+            : ''
+        }
       `;
+      if (isMine) {
+        el.querySelector('.delete-own-pin-btn')?.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          onDeleteOwnPinRef.current?.(pin.id);
+        });
+      }
 
       // 'mine'/'reported' pins open the spot details bottom card on tap
       // (distance/time/ETA + Get Directions) instead of Mapbox's own text
