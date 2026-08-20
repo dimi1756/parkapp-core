@@ -234,6 +234,15 @@ interface MapboxMapProps {
   userLocation: [number, number];
   /** Demo accounts render a custom mock dot; real accounts rely on Mapbox's own GeolocateControl blue dot. */
   showCustomUserDot: boolean;
+  /**
+   * True for the whole demo session, unlike showCustomUserDot (only true
+   * during Map Selection Mode's manual pin drop) -- gates whether
+   * GeolocateControl ever asks for/tracks real GPS at all. Demo accounts
+   * must never trigger it: a real permission grant would render Mapbox's
+   * own blue dot at the tester's actual location while every pin renders at
+   * the simulated Karystos map-center, visibly desyncing the two.
+   */
+  isDemoAccount?: boolean;
   /** Fires with each real GPS fix once GeolocateControl starts tracking (real accounts only). */
   onUserLocationChange?: (lng: number, lat: number, accuracy: number) => void;
   pins: MapPin[];
@@ -264,6 +273,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   center,
   userLocation,
   showCustomUserDot,
+  isDemoAccount = false,
   onUserLocationChange,
   pins,
   onMapClick,
@@ -302,6 +312,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onConfirmSelectionRef.current = onConfirmSelection;
   const showCustomUserDotRef = useRef(showCustomUserDot);
   showCustomUserDotRef.current = showCustomUserDot;
+  const isDemoAccountRef = useRef(isDemoAccount);
+  isDemoAccountRef.current = isDemoAccount;
   const isNavigatingRef = useRef(isNavigating);
   isNavigatingRef.current = isNavigating;
   const routeProfileRef = useRef(routeProfile);
@@ -357,8 +369,13 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     map.on('load', () => {
       // Real accounts: prompt for location permission immediately and start
       // live tracking. Demo accounts keep the mocked map-center position and
-      // never trigger a real GPS prompt.
-      if (!showCustomUserDotRef.current) {
+      // must never trigger a real GPS prompt -- gating this on
+      // showCustomUserDot (true only during Map Selection Mode's pin drop,
+      // false the rest of a demo session) previously let it fire for demo
+      // accounts too, rendering Mapbox's real blue dot at the tester's
+      // actual location while every pin sat at the simulated Karystos
+      // center.
+      if (!isDemoAccountRef.current) {
         geolocate.trigger();
       }
     });
@@ -490,23 +507,32 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       const color = isMine ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : isPoi ? '#9333ea' : '#dc2626';
       const size = isPoi ? 22 : 34;
       const el = document.createElement('div');
-      // 'mine' pins get a small red X badge pinned to their top-right corner
-      // (relative positioning here is what anchors it there) so the driver
-      // can wipe a declaration they made themselves straight off the map,
-      // without waiting out its TTL or hunting through a menu for it.
-      el.className = isMine ? 'mapbox-pin-wrapper relative' : 'mapbox-pin-wrapper';
+      // Mapbox's own `.mapboxgl-marker` CSS class sets `position: absolute`
+      // on this exact element -- it's what keeps the marker shrink-wrapped
+      // to the SVG's actual 34x44 box instead of a block-level div's default
+      // 100%-of-parent width, which is what the anchor-offset math (-50%,
+      // -100% of the element's own rendered size) is computed against. A
+      // `relative` class here previously won that cascade (later stylesheet,
+      // same specificity) and blew the box out to the full map width --
+      // desyncing the pin from its actual GPS coordinate and scattering the
+      // X badge god knows where. The badge's relative positioning now lives
+      // on an inner, non-marker wrapper instead, leaving el's own position
+      // untouched.
+      el.className = 'mapbox-pin-wrapper';
       el.innerHTML = `
-        <svg width="${size}" height="${Math.round((size * 44) / 34)}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
-          <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
-          <circle cx="17" cy="17" r="6" fill="white"/>
-        </svg>
-        ${
-          isMine
-            ? `<button type="button" class="delete-own-pin-btn" aria-label="Remove this spot" style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:9999px;background:#dc2626;border:2px solid white;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.4);cursor:pointer;padding:0;">
-                <svg width="9" height="9" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M1 1L9 9M9 1L1 9"/></svg>
-              </button>`
-            : ''
-        }
+        <div style="position:relative;width:${size}px;height:${Math.round((size * 44) / 34)}px;">
+          <svg width="${size}" height="${Math.round((size * 44) / 34)}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
+            <circle cx="17" cy="17" r="6" fill="white"/>
+          </svg>
+          ${
+            isMine
+              ? `<button type="button" class="delete-own-pin-btn" aria-label="Remove this spot" style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:9999px;background:#dc2626;border:2px solid white;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.4);cursor:pointer;padding:0;">
+                  <svg width="9" height="9" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M1 1L9 9M9 1L1 9"/></svg>
+                </button>`
+              : ''
+          }
+        </div>
       `;
       if (isMine) {
         el.querySelector('.delete-own-pin-btn')?.addEventListener('click', (ev) => {

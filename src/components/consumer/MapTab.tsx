@@ -919,6 +919,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           // drop will use" -- now that only "I saw a free space" drops a
           // manual pin, the dot has no reason to show outside that mode.
           showCustomUserDot={isDemoAccount && selectionMode}
+          isDemoAccount={isDemoAccount}
           onUserLocationChange={handleUserLocationChange}
           locateRequestId={locateRequestId}
           flyToTarget={flyToTarget}
