@@ -119,6 +119,14 @@ export async function releaseSpotReservation(spotId: string): Promise<void> {
   if (error) console.error('[api:releaseSpotReservation] failed', error);
 }
 
+// Removes one of the caller's own declared spots (the green "mine" pins) --
+// see supabase/functions/delete-spot for why this goes through an edge
+// function rather than a direct client update (RLS revokes UPDATE/DELETE on
+// parking_spots entirely).
+export function deleteSpot(spotId: string) {
+  return invoke<{ removed: boolean }>('delete-spot', { spotId });
+}
+
 export async function reportSpot(spotId: string, reason: 'taken' | 'fake' | 'invalid_location') {
   const {
     data: { session },

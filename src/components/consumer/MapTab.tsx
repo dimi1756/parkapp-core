@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
-import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation } from '@/lib/api/parking';
+import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation, deleteSpot } from '@/lib/api/parking';
 import {
   Search,
   MapPin,
@@ -818,6 +818,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   };
   const clickedNearbySpot = nearbySpots.find((s) => s.id === selectedSpotId) ?? null;
 
+  // The small "x" badge on the caller's own green "mine" pins -- pulls a
+  // mistaken/no-longer-relevant declared spot off the map directly, without
+  // going through the details card. useNearbySpots' realtime subscription
+  // picks up the resulting status change and drops the pin on its own.
+  const handleDeletePin = async (pinId: string) => {
+    if (selectedSpotId === pinId) setSelectedSpotId(null);
+    const { error } = await deleteSpot(pinId);
+    if (error) {
+      toast({ title: t('map.deleteSpotFailed'), description: error, variant: 'destructive' });
+    }
+  };
+
   // "Get Directions" on the details card -- reuses navigateToSpotPin
   // verbatim, the exact same turn-by-turn routing path (Mapbox Directions
   // API via getDrivingDirections) the search bar's own destination flow
@@ -911,6 +923,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           flyToTarget={flyToTarget}
           flyToRequestId={flyToRequestId}
           onPinClick={handlePinClick}
+          onDeletePin={handleDeletePin}
           pins={[
             ...nearbySpots.map((s) => ({
               id: s.id,
