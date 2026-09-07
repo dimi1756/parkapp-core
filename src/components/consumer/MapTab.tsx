@@ -19,7 +19,6 @@ import {
   AlertTriangle,
   Check,
   ParkingCircle,
-  LocateFixed,
   ArrowUp,
   CornerUpLeft,
   CornerUpRight,
@@ -176,7 +175,6 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const [walkMinutes, setWalkMinutes] = useState<number>(2);
   const [busyAction, setBusyAction] = useState<'declare' | 'spotted' | 'claim' | null>(null);
   const [celebrating, setCelebrating] = useState(false);
-  const [locateRequestId, setLocateRequestId] = useState(0);
 
   // Smart parking routing: when a search resolves to a POI, the actual
   // route/main pin target is the nearest available parking spot to it, not
@@ -277,13 +275,6 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     },
     [isDemoAccount]
   );
-
-  // "My Location" button: bumps a counter MapboxMap watches to re-trigger
-  // GeolocateControl (permission prompt + fresh fix + camera fly-to), reusing
-  // the exact same tested path the auto-trigger-on-mount already uses.
-  const handleLocateMe = () => {
-    setLocateRequestId((n) => n + 1);
-  };
 
   // Live autocomplete: debounce keystrokes, ignore stale responses that
   // resolve out of order.
@@ -983,13 +974,8 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         <MapboxMap
           center={MAP_CENTER}
           userLocation={userLngLat}
-          // The demo mock dot only ever meant "here's the point a manual pin
-          // drop will use" -- now that only "I saw a free space" drops a
-          // manual pin, the dot has no reason to show outside that mode.
-          showCustomUserDot={isDemoAccount && selectionMode}
           isDemoAccount={isDemoAccount}
           onUserLocationChange={handleUserLocationChange}
-          locateRequestId={locateRequestId}
           flyToTarget={flyToTarget}
           flyToRequestId={flyToRequestId}
           onPinClick={handlePinClick}
@@ -1022,6 +1008,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           onCenterChange={handleCenterChange}
           onConfirmSelection={handleConfirmSelection}
           zones={KARYSTOS_ZONES}
+          onLocateFailed={() => toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' })}
           routeCoordinates={routeCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
@@ -1214,17 +1201,6 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           </Button>
         )}
       </div>
-
-      {/* My Location -- real accounts only; demo intentionally never touches real GPS. */}
-      {!isDemoAccount && (
-        <button
-          onClick={handleLocateMe}
-          aria-label={t('map.myLocation')}
-          className="absolute bottom-60 right-4 z-20 w-11 h-11 rounded-full bg-background shadow-lg border border-border flex items-center justify-center hover:bg-secondary transition-colors"
-        >
-          <LocateFixed className="h-5 w-5 text-primary" />
-        </button>
-      )}
 
       {/* Standing inside a controlled/resident zone: say so before the driver
           taps a declare button and gets refused. Yields the slot to Map

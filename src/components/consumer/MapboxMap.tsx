@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Plus, Minus, Compass } from 'lucide-react';
+import { Plus, Minus, Compass, LocateFixed, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getLastFix, requestFreshFix, subscribeToPosition } from '@/lib/geolocation';
 import { zonesToGeoJson, type ParkingZone } from '@/lib/zones';
@@ -258,15 +258,11 @@ interface MapboxMapProps {
   center: [number, number]; // [lng, lat]
   /** Mock position for the demo account; ignored once real GPS is live. */
   userLocation: [number, number];
-  /** Demo accounts render a custom mock dot; real accounts rely on Mapbox's own GeolocateControl blue dot. */
-  showCustomUserDot: boolean;
   /**
-   * True for the whole demo session, unlike showCustomUserDot (only true
-   * during Map Selection Mode's manual pin drop) -- gates whether
-   * GeolocateControl ever asks for/tracks real GPS at all. Demo accounts
-   * must never trigger it: a real permission grant would render Mapbox's
-   * own blue dot at the tester's actual location while every pin renders at
-   * the simulated Karystos map-center, visibly desyncing the two.
+   * Gates whether this component asks for / tracks real GPS at all. Demo
+   * accounts must never trigger it: a real permission grant would put the
+   * user dot at the tester's actual location while every pin renders at the
+   * simulated Karystos map-centre, visibly desyncing the two.
    */
   isDemoAccount?: boolean;
   /** Fires with each real GPS fix once GeolocateControl starts tracking (real accounts only). */
@@ -295,12 +291,13 @@ interface MapboxMapProps {
   flyToRequestId?: number;
   /** Controlled/resident parking zones, drawn as shaded no-declare areas. Omit to draw none. */
   zones?: ParkingZone[];
+  /** Fires when the location button can't get a fix (permission refused, no signal) so the caller can explain why. */
+  onLocateFailed?: () => void;
 }
 
 export const MapboxMap: React.FC<MapboxMapProps> = ({
   center,
   userLocation,
-  showCustomUserDot,
   isDemoAccount = false,
   onUserLocationChange,
   pins,
@@ -316,6 +313,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   flyToTarget,
   flyToRequestId,
   zones,
+  onLocateFailed,
 }) => {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -333,6 +331,9 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // user dot, which now belongs to this component rather than to Mapbox's
   // GeolocateControl.
   const [hasRealFix, setHasRealFix] = useState(() => getLastFix() !== null);
+
+  // True while the location button is waiting on a fresh fix.
+  const [locating, setLocating] = useState(false);
 
   // Flipped the moment the driver moves the camera themselves (drag, pinch,
   // rotate). From then on, live GPS fixes update the dot but never move the
@@ -355,6 +356,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onUserLocationChangeRef.current = onUserLocationChange;
   const onConfirmSelectionRef = useRef(onConfirmSelection);
   onConfirmSelectionRef.current = onConfirmSelection;
+  const onLocateFailedRef = useRef(onLocateFailed);
+  onLocateFailedRef.current = onLocateFailed;
   const isNavigatingRef = useRef(isNavigating);
   isNavigatingRef.current = isNavigating;
   const routeProfileRef = useRef(routeProfile);
@@ -397,10 +400,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       if ((e as { originalEvent?: unknown }).originalEvent) userMovedCameraRef.current = true;
     });
 
-    map.on('rotate', () => {
+    // 'rotate' covers gesture rotation; 'move' also catches bearing changes
+    // that arrive through an easeTo/flyTo (the driving chase camera, or the
+    // reset below), so the needle can never drift out of sync with the map.
+    const syncBearing = () => {
       const next = Math.round(map.getBearing());
       setBearing((prev) => (prev === next ? prev : next));
-    });
+    };
+    map.on('rotate', syncBearing);
+    map.on('move', syncBearing);
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -515,12 +523,14 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     }
   }, [flyToRequestId, flyToTarget]);
 
-  // The user dot. Real accounts now get it from this component (once a real
-  // fix exists) rather than from GeolocateControl's own blue dot, which came
-  // bundled with camera behaviour we no longer want. Demo accounts keep the
-  // old rule: a dot only during Map Selection Mode's manual pin drop, where
-  // it means "this is the point a tap will use".
-  const showUserDot = isDemoAccount ? showCustomUserDot : hasRealFix;
+  // The user dot: this component's job now, rather than GeolocateControl's
+  // blue dot, which came bundled with camera behaviour we no longer want.
+  //
+  // Demo accounts show it unconditionally, at their simulated position. It
+  // used to appear only during Map Selection Mode's pin drop, which left the
+  // demo map with no "you are here" at all for the rest of the session --
+  // once GeolocateControl was gone there was nothing else drawing one.
+  const showUserDot = isDemoAccount || hasRealFix;
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -831,6 +841,52 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // did to my map".
   const handleResetNorth = () => mapRef.current?.easeTo({ bearing: 0, pitch: 0, duration: 400 });
 
+  /**
+   * Location button. Lives here rather than in MapTab so it sits in the same
+   * control column as zoom and the compass, and so it can reach the map
+   * directly instead of round-tripping through a request counter.
+   *
+   * Demo accounts never touch real GPS -- their position is simulated at the
+   * map centre, and a real fix would put the blue dot at the tester's actual
+   * location while every pin sits in Karystos. For them this recentres on
+   * the simulated position at street zoom.
+   */
+  const handleLocate = async () => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // An explicit "take me to my position" also hands camera-following back
+    // to the app until the driver pans away again.
+    userMovedCameraRef.current = false;
+
+    const flyTo = (lng: number, lat: number) =>
+      map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), essential: true, speed: 1.4 });
+
+    if (isDemoAccount) {
+      flyTo(userLocation[0], userLocation[1]);
+      return;
+    }
+
+    // Move immediately on the cached fix so the tap always feels like it did
+    // something, then correct once a fresh one lands.
+    const cached = getLastFix();
+    if (cached) flyTo(cached.lng, cached.lat);
+
+    setLocating(true);
+    const fix = await requestFreshFix();
+    setLocating(false);
+
+    if (!fix) {
+      // No cached position either means we never had one: nothing happened
+      // on screen, so the driver needs to be told why.
+      if (!cached) onLocateFailedRef.current?.();
+      return;
+    }
+    setHasRealFix(true);
+    onUserLocationChangeRef.current?.(fix.lng, fix.lat, fix.accuracy);
+    flyTo(fix.lng, fix.lat);
+  };
+
   const controlButton =
     'w-11 h-11 flex items-center justify-center text-foreground/80 hover:text-foreground hover:bg-secondary/70 active:scale-95 transition-all';
 
@@ -864,6 +920,20 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
             className="h-5 w-5 text-primary transition-transform duration-200"
             style={{ transform: `rotate(${-bearing}deg)` }}
           />
+        </button>
+
+        <button
+          type="button"
+          onClick={handleLocate}
+          disabled={locating}
+          aria-label={t('map.myLocation')}
+          className={`${controlButton} rounded-full bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] disabled:opacity-70`}
+        >
+          {locating ? (
+            <Loader2 className="h-5 w-5 text-primary animate-spin" />
+          ) : (
+            <LocateFixed className="h-5 w-5 text-primary" />
+          )}
         </button>
       </div>
     </div>

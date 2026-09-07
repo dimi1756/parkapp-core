@@ -207,6 +207,46 @@
   transition: transform 0.3s linear;
 }
 
+/* Expanding halo, drawn on a pseudo-element so the pulse animation never
+   touches the dot's own transform -- Mapbox owns that property for
+   positioning, and animating it here would fight every position update and
+   drag the dot off its coordinate. */
+.mapbox-user-dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  opacity: 0.35;
+  pointer-events: none;
+  animation: parkapp-user-pulse 2s ease-out infinite;
+}
+
+@keyframes parkapp-user-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* Respect a reduced-motion preference: the dot still reads as "you are
+   here" from its halo, just without the repeating animation. */
+@media (prefers-reduced-motion: reduce) {
+  .mapbox-user-dot::after {
+    animation: none;
+    transform: scale(2);
+    opacity: 0.2;
+  }
+}
+
 .mapbox-pin-wrapper {
   cursor: pointer;
   filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.4));
