@@ -80,7 +80,16 @@ export const KPICards: React.FC<KPICardsProps> = ({ kpis, loading }) => {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       {cards.map((kpi, index) => (
-        <div key={kpi.title} style={{ animationDelay: `${index * 100}ms` }}>
+        // The tour points at the first card rather than the whole grid.
+        // On a phone the grid is a single column four cards tall -- taller
+        // than the screen -- so spotlighting it dimmed nothing, and left the
+        // tour card nowhere sensible to sit. One card makes the same point
+        // and leaves room to explain it.
+        <div
+          key={kpi.title}
+          style={{ animationDelay: `${index * 100}ms` }}
+          {...(index === 0 ? { 'data-tour': 'admin-kpis' } : {})}
+        >
           <KPICard {...kpi} />
         </div>
       ))}

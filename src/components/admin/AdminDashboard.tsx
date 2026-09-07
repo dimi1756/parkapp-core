@@ -155,9 +155,10 @@ export const AdminDashboard = () => {
       case 'overview':
         return (
           <div className="space-y-6">
-            <div data-tour="admin-kpis">
-              <KPICards kpis={kpis} loading={dataLoading} />
-            </div>
+            {/* data-tour lives on the first KPI card inside KPICards, not on
+                this wrapper: the wrapper is the full four-card column on a
+                phone, which is taller than the screen. */}
+            <KPICards kpis={kpis} loading={dataLoading} />
             <div data-tour="admin-map">
               <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} />
             </div>

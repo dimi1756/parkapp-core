@@ -147,10 +147,16 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
   const spotWidth = rect.width + SPOT_PADDING * 2;
   const spotHeight = rect.height + SPOT_PADDING * 2;
 
-  // visualViewport, not innerHeight: on iOS the latter reports the large
-  // viewport (browser toolbars retracted) even while they are on screen, and
-  // positioning against it puts the card partly under them.
+  // The visible window, in the same coordinate space as getBoundingClientRect
+  // and position:fixed -- the layout viewport.
+  //
+  // Height alone isn't enough: on iOS the visible area can also be *offset*
+  // within the layout viewport (toolbars overlaying the top, pinch-zoom, the
+  // keyboard), so a card at top: 12 can still land behind the address bar.
+  // offsetTop is where the visible window actually starts.
+  const visibleTop = window.visualViewport?.offsetTop ?? 0;
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const visibleBottom = visibleTop + viewportHeight;
   const GAP = 12;
 
   const cardWidth = Math.min(300, window.innerWidth - 24);
@@ -165,8 +171,8 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
   // screen: it chose "above", and "above a target that starts near the top"
   // is off the top of the screen -- which is why only the card's bottom
   // edge, with the Skip and Next buttons, was visible.
-  const spaceBelow = viewportHeight - (spotTop + spotHeight);
-  const spaceAbove = spotTop;
+  const spaceBelow = visibleBottom - (spotTop + spotHeight);
+  const spaceAbove = spotTop - visibleTop;
 
   let cardTop: number;
   if (spaceBelow >= cardHeight + GAP) {
@@ -176,14 +182,24 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
   } else {
     // Fits on neither side -- the target is bigger than the screen. Pin the
     // card to the bottom, where it overlaps the target but stays readable.
-    cardTop = viewportHeight - cardHeight - GAP;
+    cardTop = visibleBottom - cardHeight - GAP;
   }
 
   // The clamp the original comment promised and never applied: whatever the
-  // arithmetic above decides, the card stays on screen.
-  cardTop = Math.min(Math.max(GAP, cardTop), Math.max(GAP, viewportHeight - cardHeight - GAP));
+  // arithmetic above decides, the card stays inside the visible window.
+  const lowestTop = Math.max(visibleTop + GAP, visibleBottom - cardHeight - GAP);
+  cardTop = Math.min(Math.max(visibleTop + GAP, cardTop), lowestTop);
 
-  const cardStyle: React.CSSProperties = { top: cardTop, left: cardLeft, width: cardWidth };
+  const cardStyle: React.CSSProperties = {
+    top: cardTop,
+    left: cardLeft,
+    width: cardWidth,
+    // Belt and braces for a step whose text is longer than the screen: the
+    // card scrolls internally instead of growing past the viewport and
+    // taking its own Skip/Next buttons with it.
+    maxHeight: Math.max(160, viewportHeight - GAP * 2),
+    overflowY: 'auto',
+  };
 
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-label={t('tour.aria')}>
