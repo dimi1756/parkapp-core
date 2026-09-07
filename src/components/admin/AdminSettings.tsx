@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Gauge, Download, Loader2 } from 'lucide-react';
+import { Bell, Gauge, Download, Loader2, KeyRound } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,7 +51,8 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ municipalityId, sp
   const dirty =
     form.notify_high_occupancy !== settings.notify_high_occupancy ||
     form.moderate_spot_threshold !== settings.moderate_spot_threshold ||
-    form.full_spot_threshold !== settings.full_spot_threshold;
+    form.full_spot_threshold !== settings.full_spot_threshold ||
+    (form.resident_code ?? '') !== (settings.resident_code ?? '');
 
   const handleSave = async () => {
     if (form.moderate_spot_threshold >= form.full_spot_threshold) {
@@ -125,6 +126,37 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ municipalityId, sp
               checked={form.notify_high_occupancy}
               onCheckedChange={(checked) => setForm((f) => ({ ...f, notify_high_occupancy: checked }))}
             />
+          </div>
+        </div>
+
+        {/* Resident code.
+            Without one, redeem_resident_code has nothing to compare against
+            and every code a resident types is rejected -- while the message
+            tells them to check the code, which is not the problem. It had no
+            UI at all before this, so a municipality could not set one
+            without direct database access. */}
+        <div className="p-4 bg-secondary/50 rounded-xl">
+          <h4 className="font-medium mb-1 flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-primary" />
+            {t('admin.residentCode')}
+          </h4>
+          <p className="text-sm text-muted-foreground mb-3">{t('admin.residentCodeDesc')}</p>
+          <div className="max-w-md space-y-1.5">
+            <Label htmlFor="resident-code" className="text-xs text-muted-foreground">
+              {t('admin.residentCodeLabel')}
+            </Label>
+            <Input
+              id="resident-code"
+              value={form.resident_code ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, resident_code: e.target.value }))}
+              placeholder={t('admin.residentCodePlaceholder')}
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            {!settings.resident_code && (
+              <p className="text-xs text-warning">{t('admin.residentCodeUnset')}</p>
+            )}
           </div>
         </div>
 

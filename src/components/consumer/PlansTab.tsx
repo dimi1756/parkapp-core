@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getMembershipStatus, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
@@ -6,6 +6,7 @@ import { Check, X, Crown, Zap, Ban, Radar, Gift, Star, Loader2 } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export const PlansTab = () => {
   const { profile, upgradeToPremium, redeemResidentCode } = useAuth();
@@ -20,6 +21,21 @@ export const PlansTab = () => {
   const [citizenId, setCitizenId] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [startingTrial, setStartingTrial] = useState(false);
+  // Whether this user's municipality has set a code at all. Only ever a
+  // yes/no -- the code itself stays admin-only under RLS, since anyone who
+  // could read it would have free Premium for the asking.
+  const [codeConfigured, setCodeConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!profile?.municipality_id) return;
+    supabase.rpc('has_resident_code').then(({ data, error }) => {
+      if (error) {
+        console.error('[PlansTab] has_resident_code failed:', error);
+        return;
+      }
+      setCodeConfigured(Boolean(data));
+    });
+  }, [profile?.municipality_id]);
 
   const handleStartTrial = async () => {
     setStartingTrial(true);
@@ -43,6 +59,14 @@ export const PlansTab = () => {
     // actual problem.
     if (!profile?.municipality_id) {
       toast({ title: t('plans.verifyNoCity'), description: t('plans.verifyNoCityDesc'), variant: 'destructive' });
+      return;
+    }
+
+    // "Double-check your code" is the wrong advice when the municipality
+    // never set one: no code could have worked, and the resident has no way
+    // to know that.
+    if (codeConfigured === false) {
+      toast({ title: t('plans.verifyNoCode'), description: t('plans.verifyNoCodeDesc'), variant: 'destructive' });
       return;
     }
 
@@ -241,6 +265,9 @@ export const PlansTab = () => {
                 disabled={verifying}
                 className="bg-background"
               />
+              {codeConfigured === false && (
+                <p className="text-xs text-warning">{t('plans.verifyNoCodeDesc')}</p>
+              )}
               <Button
                 onClick={handleVerify}
                 disabled={verifying}

@@ -1038,6 +1038,7 @@ export type Database = {
       }
       geomfromewkt: { Args: { "": string }; Returns: unknown }
       gettransactionid: { Args: never; Returns: unknown }
+      has_resident_code: { Args: never; Returns: boolean }
       is_municipality_admin: {
         Args: { target_municipality_id: string }
         Returns: boolean
