@@ -330,6 +330,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // degrees so a rotate gesture (or the driving chase camera) doesn't
   // re-render this component on every animation frame.
   const [bearing, setBearing] = useState(() => Math.round(lastCamera?.bearing ?? 0));
+  const [pitch, setPitch] = useState(() => Math.round(lastCamera?.pitch ?? 0));
 
   // True once a real GPS fix exists for this (non-demo) session -- gates the
   // user dot, which now belongs to this component rather than to Mapbox's
@@ -415,12 +416,14 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     // 'rotate' covers gesture rotation; 'move' also catches bearing changes
     // that arrive through an easeTo/flyTo (the driving chase camera, or the
     // reset below), so the needle can never drift out of sync with the map.
-    const syncBearing = () => {
-      const next = Math.round(map.getBearing());
-      setBearing((prev) => (prev === next ? prev : next));
+    const syncCamera = () => {
+      const nextBearing = Math.round(map.getBearing());
+      const nextPitch = Math.round(map.getPitch());
+      setBearing((prev) => (prev === nextBearing ? prev : nextBearing));
+      setPitch((prev) => (prev === nextPitch ? prev : nextPitch));
     };
-    map.on('rotate', syncBearing);
-    map.on('move', syncBearing);
+    map.on('rotate', syncCamera);
+    map.on('move', syncCamera);
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -1072,17 +1075,26 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleResetNorth}
-          aria-label={t('map.resetNorth')}
-          className={`${controlButton} rounded-2xl bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]`}
-        >
-          <Compass
-            className="h-5 w-5 text-primary transition-transform duration-200"
-            style={{ transform: `rotate(${-bearing}deg)` }}
-          />
-        </button>
+        {/* Shown only while the map is actually rotated or tilted.
+            A compass whose whole job is "put the map back to north" has
+            nothing to do when the map is already north-up and flat, and a
+            button that cannot do anything reads as broken -- which is
+            exactly how this one was reported. Google and Apple Maps hide
+            theirs for the same reason. Rotating (two-finger twist) or
+            starting turn-by-turn brings it back. */}
+        {(Math.abs(bearing) > 0.5 || pitch > 0.5) && (
+          <button
+            type="button"
+            onClick={handleResetNorth}
+            aria-label={t('map.resetNorth')}
+            className={`${controlButton} rounded-2xl bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] animate-fade-in`}
+          >
+            <Compass
+              className="h-5 w-5 text-primary transition-transform duration-200"
+              style={{ transform: `rotate(${-bearing}deg)` }}
+            />
+          </button>
+        )}
 
         <button
           type="button"

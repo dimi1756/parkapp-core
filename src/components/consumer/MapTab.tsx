@@ -15,6 +15,7 @@ import { isInsideOperatingArea } from '@/lib/operatingArea';
 import { PILOT_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parkingFacilities';
 import { FacilityDetailsCard } from './FacilityDetailsCard';
 import { ZoneInfoCard } from './ZoneInfoCard';
+import { LocationHelpCard } from './LocationHelpCard';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
@@ -180,6 +181,23 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // which deliberately means "no boundary" rather than "nowhere allowed".
   const { area: operatingArea, cityName } = useOperatingArea();
 
+  /**
+   * Ask for location, and explain if the browser won't ask.
+   *
+   * After a refusal no script can raise the prompt again -- the call just
+   * fails instantly -- so "Enable location" looked like a dead button. It
+   * still tries first (that succeeds on a fresh install, and on Android),
+   * and falls back to showing where the setting actually lives.
+   */
+  const askForLocation = async () => {
+    const next = await requestLocation();
+    if (next === 'granted') {
+      setShowLocationHelp(false);
+      return;
+    }
+    setShowLocationHelp(true);
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [routeState, setRouteState] = useState<RouteState>('idle');
@@ -233,6 +251,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const [showFacilities, setShowFacilities] = useState(true);
   const [selectedFacilityId, setSelectedFacilityId] = useState<string | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [showLocationHelp, setShowLocationHelp] = useState(false);
 
   // Follow mode: the camera tracks the driver while a route is running, the
   // way every turn-by-turn app behaves. MapboxMap drops out of it the moment
@@ -402,11 +421,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
    */
   const requireLocation = (): boolean => {
     if (!locationDenied) return true;
-    toast({
-      title: t('map.locationRequired'),
-      description: t('map.locationRequiredDesc'),
-      variant: 'destructive',
-    });
+    setShowLocationHelp(true);
     return false;
   };
 
@@ -1138,7 +1153,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           onMapClick={handleMapTap}
           onConfirmSelection={handleConfirmSelection}
           zones={zones}
-          onLocateFailed={() => toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' })}
+          onLocateFailed={() => {
+            // A refusal is the common case and has a fix the driver can
+            // act on; anything else (no signal, no GPS hardware) does not,
+            // so that keeps the plain message.
+            if (locationDenied) setShowLocationHelp(true);
+            else toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' });
+          }}
           onZoneClick={(zoneId) => {
             setSelectedSpotId(null);
             setSelectedFacilityId(null);
@@ -1370,7 +1391,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
                 <p className="text-xs font-semibold">{t('map.locationRequired')}</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">{t('map.locationRequiredDesc')}</p>
                 <button
-                  onClick={() => requestLocation()}
+                  onClick={askForLocation}
                   className="mt-2 text-xs font-semibold text-primary hover:underline"
                 >
                   {t('map.locationEnable')}
@@ -1533,6 +1554,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             )}
           </div>
         </div>
+      )}
+
+      {showLocationHelp && (
+        <LocationHelpCard onClose={() => setShowLocationHelp(false)} onRetry={askForLocation} />
       )}
 
       {/* Demo-only celebration on successful declarations */}
