@@ -10,7 +10,9 @@ import { requestFreshFix } from '@/lib/geolocation';
 import { findZoneAt } from '@/lib/zones';
 import { useParkingZones } from '@/hooks/useParkingZones';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
-import { KARYSTOS_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parkingFacilities';
+import { useOperatingArea } from '@/hooks/useOperatingArea';
+import { isInsideOperatingArea } from '@/lib/operatingArea';
+import { PILOT_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parkingFacilities';
 import { FacilityDetailsCard } from './FacilityDetailsCard';
 import { ZoneInfoCard } from './ZoneInfoCard';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
@@ -34,7 +36,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import chalkidaMap from '@/assets/chalkida-map.png';
+import offlineMapImage from '@/assets/chalkida-map.png';
 import {
   MapboxMap,
   isMapboxConfigured,
@@ -91,26 +93,31 @@ interface RouteTotals {
   durationSeconds: number;
 }
 
+// Destination names for the static offline fallback map only, where there
+// is no geocoder to ask. Generic on purpose: the app is not tied to any one
+// city, so these are categories rather than named businesses.
 const MOCK_DESTINATIONS = {
-  mikel: { name: 'Mikel Coffee', x: 55, y: 35 },
-  sklavenitis: { name: 'Sklavenitis', x: 70, y: 50 },
-  public: { name: 'Public Karystos', x: 52, y: 48 },
+  cafe: { name: 'Cafe', x: 55, y: 35 },
+  supermarket: { name: 'Supermarket', x: 70, y: 50 },
+  pharmacy: { name: 'Pharmacy', x: 52, y: 48 },
 };
 
-// Fallback center (Karystos, Greece -- the live pilot/demo city) used
-// whenever real geolocation isn't available (denied permission, desktop
-// demo browser, etc).
-const MAP_CENTER: [number, number] = [24.4167, 38.0167];
+// Last-resort map centre, used only until the driver's own municipality
+// centre or a real GPS fix arrives. Deliberately not a pilot city: the app
+// is location-agnostic, and hardcoding one city here is what made it look
+// single-city in the first place. Athens is the country's geographic
+// reference point, not a claim about where the service runs.
+const FALLBACK_CENTER: [number, number] = [23.7275, 37.9838];
 
 function percentToLngLat(x: number, y: number): [number, number] {
-  const lng = MAP_CENTER[0] + ((x - 50) / 50) * 0.01;
-  const lat = MAP_CENTER[1] - ((y - 50) / 50) * 0.008;
+  const lng = FALLBACK_CENTER[0] + ((x - 50) / 50) * 0.01;
+  const lat = FALLBACK_CENTER[1] - ((y - 50) / 50) * 0.008;
   return [lng, lat];
 }
 
 function lngLatToPercent(lng: number, lat: number): { x: number; y: number } {
-  const x = 50 + ((lng - MAP_CENTER[0]) / 0.01) * 50;
-  const y = 50 - ((lat - MAP_CENTER[1]) / 0.008) * 50;
+  const x = 50 + ((lng - FALLBACK_CENTER[0]) / 0.01) * 50;
+  const y = 50 - ((lat - FALLBACK_CENTER[1]) / 0.008) * 50;
   return { x, y };
 }
 
@@ -169,6 +176,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // rendered visibly off the real streets.
   const { zones } = useParkingZones();
   const { denied: locationDenied, request: requestLocation } = useLocationPermission();
+  // The circle this municipality's pilot covers. Null until a city sets one,
+  // which deliberately means "no boundary" rather than "nowhere allowed".
+  const { area: operatingArea, cityName } = useOperatingArea();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -252,7 +262,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const sessionTokenRef = useRef<string>(crypto.randomUUID());
 
   // Real device position; falls back to the demo city center if unavailable.
-  const [userLngLat, setUserLngLat] = useState<[number, number]>(MAP_CENTER);
+  const [userLngLat, setUserLngLat] = useState<[number, number]>(FALLBACK_CENTER);
   const [userAccuracy, setUserAccuracy] = useState<number>(9999);
 
   // Mirrors userLngLat without being a search-debounce dependency -- reading
@@ -306,7 +316,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     const requestId = ++searchRequestIdRef.current;
     const timer = setTimeout(async () => {
       // Biased toward wherever the driver actually is right now, not the
-      // fallback Karystos map center -- a "pharmacy" search from a different
+      // fallback map centre -- a "pharmacy" search from a different
       // town should surface that town's pharmacies first, not Athens'.
       const results = await searchPlaces(searchQuery, userLngLatRef.current, sessionTokenRef.current);
       if (searchRequestIdRef.current === requestId) setSuggestions(results);
@@ -360,7 +370,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // sparse pilot-stage data instead of failing outright.
   function findNearestSpotTo(point: { lng: number; lat: number }, excludeIds: string[]) {
     const excluded = new Set(excludeIds);
-    // The investor-demo pins (getMockKarystosSpots) render on the map like
+    // The investor-demo pins (getMockDemoSpots) render on the map like
     // any real spot but have no matching parking_spots row. They used to be
     // excluded here outright, which quietly disabled the app's flagship flow
     // for the one account it exists for: on a sparse pilot database, a demo
@@ -395,6 +405,26 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     toast({
       title: t('map.locationRequired'),
       description: t('map.locationRequiredDesc'),
+      variant: 'destructive',
+    });
+    return false;
+  };
+
+  /**
+   * Refuses actions taken outside the municipality's covered area.
+   *
+   * Separate from the zone rule below: a zone says "this particular street
+   * is not ours to give away", this says "we do not operate here at all
+   * yet". A city that hasn't drawn its boundary has no geofence, so this
+   * passes -- an unconfigured municipality must not lock out its own drivers.
+   */
+  const requireInsideOperatingArea = (lng: number, lat: number): boolean => {
+    if (isInsideOperatingArea(lng, lat, operatingArea)) return true;
+    toast({
+      title: t('map.outsideAreaTitle'),
+      description: cityName
+        ? t('map.outsideAreaDescCity', { city: cityName })
+        : t('map.outsideAreaDesc'),
       variant: 'destructive',
     });
     return false;
@@ -769,7 +799,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         // has EVER produced a real fix (permission denied,
         // no signal, desktop with no GPS). Previously this silently fell
         // through and submitted at userLngLat's own initial value --
-        // MAP_CENTER, the hardcoded map fallback -- which looks like "the
+        // FALLBACK_CENTER, the hardcoded map fallback -- which looks like "the
         // pin always drops at the same wrong spot" rather than wherever the
         // driver actually is. Fail loudly instead of guessing a location.
         toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' });
@@ -781,6 +811,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     // Checked against the final coordinates, after the fresh GPS fix above
     // has had its say -- the zone rule applies to where the spot actually
     // is, not to whatever stale position the map happened to be showing.
+    if (!requireInsideOperatingArea(lng, lat)) {
+      setBusyAction(null);
+      return;
+    }
+
     if (blockedByZone(lng, lat)) {
       setBusyAction(null);
       return;
@@ -865,6 +900,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     // -- this is the path that can actually reach into a zone the driver
     // isn't standing in, so it matters more here, not less. The pin stays
     // on the map so they can drag it somewhere legal instead of starting over.
+    if (!requireInsideOperatingArea(selectedSpot.lng, selectedSpot.lat)) return;
     if (blockedByZone(selectedSpot.lng, selectedSpot.lat)) return;
     setBusyAction('spotted');
     const [userLng, userLat] = userLngLat;
@@ -909,7 +945,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const handlePinClick = (pinId: string) => {
     // Facility markers share the pin-click channel; route by id so a car
     // park opens its own card rather than the community-spot one.
-    if (KARYSTOS_FACILITIES.some((f) => f.id === pinId)) {
+    if (PILOT_FACILITIES.some((f) => f.id === pinId)) {
       setSelectedSpotId(null);
       setSelectedFacilityId(pinId);
       return;
@@ -918,7 +954,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setSelectedSpotId(pinId);
   };
 
-  const selectedFacility = KARYSTOS_FACILITIES.find((f) => f.id === selectedFacilityId) ?? null;
+  const selectedFacility = PILOT_FACILITIES.find((f) => f.id === selectedFacilityId) ?? null;
   const selectedZone = zones.find((z) => z.id === selectedZoneId) ?? null;
 
   // "Drive there": the same turn-by-turn path every other destination uses,
@@ -1010,6 +1046,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const handleClaimNearest = async () => {
     if (!nearestClaimable) return;
     if (!requireLocation()) return;
+    if (!requireInsideOperatingArea(userLngLat[0], userLngLat[1])) return;
     setBusyAction('claim');
     const { ok, error } = await claimTargetSpot(nearestClaimable.id);
     if (!ok) {
@@ -1055,7 +1092,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     <div className="relative h-full w-full overflow-hidden">
       {isMapboxConfigured ? (
         <MapboxMap
-          center={MAP_CENTER}
+          center={operatingArea?.center ?? FALLBACK_CENTER}
           userLocation={userLngLat}
           onUserLocationChange={handleUserLocationChange}
           flyToTarget={flyToTarget}
@@ -1088,7 +1125,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             // Colour carries the occupancy level, so the marker and the card
             // it opens can never disagree about how full a car park is.
             ...(showFacilities
-              ? KARYSTOS_FACILITIES.map((f) => ({
+              ? PILOT_FACILITIES.map((f) => ({
                   id: f.id,
                   lng: f.lng,
                   lat: f.lat,
@@ -1108,13 +1145,14 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             setSelectedZoneId(zoneId);
           }}
           followUser={followMode}
+          operatingArea={operatingArea}
           routeCoordinates={routeCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
-          <img src={chalkidaMap} alt={t('map.offlineMapAlt')} className="w-full h-full object-cover" />
+          <img src={offlineMapImage} alt={t('map.offlineMapAlt')} className="w-full h-full object-cover" />
           {/* Says out loud that this is the no-token fallback. Without it a
               missing VITE_MAPBOX_TOKEN just looks like a live map that has
               stopped responding to pinch, drag and search. */}

@@ -5,6 +5,7 @@ import { Plus, Minus, Compass, LocateFixed, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getLastFix, requestFreshFix, subscribeToPosition } from '@/lib/geolocation';
 import { zonesToGeoJson, type ParkingZone } from '@/lib/zones';
+import { operatingAreaToGeoJson, type OperatingArea } from '@/lib/operatingArea';
 
 // Reads the token from an env variable so it's never hardcoded in source.
 // Add VITE_MAPBOX_TOKEN=pk.xxxxx to a .env file at the project root.
@@ -292,6 +293,8 @@ interface MapboxMapProps {
   onZoneClick?: (zoneId: string) => void;
   /** While true, each new GPS fix recentres the camera -- until the driver pans away. */
   followUser?: boolean;
+  /** The municipality's covered area, drawn as a boundary circle. Omit to draw none. */
+  operatingArea?: OperatingArea | null;
 }
 
 export const MapboxMap: React.FC<MapboxMapProps> = ({
@@ -314,6 +317,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onLocateFailed,
   onZoneClick,
   followUser = false,
+  operatingArea,
 }) => {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -713,6 +717,66 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       }
     });
   }, [pins]);
+
+  // The operating-area boundary. Drawn as a faint fill with a dashed edge
+  // rather than a dimming mask over everything outside it: the driver still
+  // needs to read the map beyond the boundary (that is where they might be
+  // heading), they just need to know where the service stops.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    const draw = () => {
+      const source = map.getSource('operating-area') as mapboxgl.GeoJSONSource | undefined;
+      if (!operatingArea) {
+        // Emptying the source rather than removing the layers keeps this
+        // idempotent -- the area can arrive, change, or clear at any time.
+        source?.setData({ type: 'FeatureCollection', features: [] });
+        return;
+      }
+      const data = operatingAreaToGeoJson(operatingArea);
+      if (source) {
+        source.setData(data);
+        return;
+      }
+
+      // First time the boundary arrives: if the camera is still sitting on a
+      // default (no restored position, no GPS fix, driver hasn't panned),
+      // open on the city rather than on a generic fallback point. Matters
+      // most for a driver who refused location -- they should still see
+      // their own town.
+      if (!lastCamera && !getLastFix() && !userMovedCameraRef.current) {
+        map.jumpTo({ center: operatingArea.center, zoom: 13 });
+      }
+
+      map.addSource('operating-area', { type: 'geojson', data });
+      // Added at the very bottom of the app's own layers so zones, routes and
+      // markers all stay legible over it.
+      const beforeId = map.getLayer('parking-zones-line') ? 'parking-zones-line' : undefined;
+      map.addLayer(
+        {
+          id: 'operating-area-fill',
+          type: 'fill',
+          source: 'operating-area',
+          paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.06 },
+        },
+        beforeId
+      );
+      map.addLayer(
+        {
+          id: 'operating-area-outline',
+          type: 'line',
+          source: 'operating-area',
+          layout: { 'line-join': 'round' },
+          paint: { 'line-color': '#2563eb', 'line-width': 2, 'line-dasharray': [3, 2], 'line-opacity': 0.7 },
+        },
+        beforeId
+      );
+    };
+
+    if (map.isStyleLoaded()) draw();
+    else map.once('load', draw);
+  }, [operatingArea]);
 
   // Controlled/resident parking zones, drawn as thick lines along the street
   // axis. A filled corridor polygon (what this used to be) inevitably spilled

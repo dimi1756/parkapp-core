@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { getMockKarystosSpots } from '@/lib/demoMockData';
+import { getMockDemoSpots } from '@/lib/demoMockData';
 
 // Upper bound on how old a spot can be and still show on the driver map --
 // RLS's expires_at TTL (0007_five_minute_spot_ttl.sql) already caps this at
@@ -20,7 +20,7 @@ export interface NearbySpot {
   declared_at: string;
   expires_at: string;
   /**
-   * True only for the investor-demo pins layered in below (getMockKarystosSpots)
+   * True only for the investor-demo pins layered in below (getMockDemoSpots)
    * -- they render on the map like any real spot, but their `id` doesn't
    * correspond to an actual parking_spots row, so any code path that ends in
    * an actual claimSpot()/declareSpot() call against this id must exclude it
@@ -133,7 +133,7 @@ export function useNearbySpots() {
         // Investor-pitch mock pins for the shared demo account only, layered
         // on top of whatever's genuinely in the database -- see
         // src/lib/demoMockData.ts. Never touches a real user's session.
-        setSpots(isDemoAccount ? [...real, ...getMockKarystosSpots()] : real);
+        setSpots(isDemoAccount ? [...real, ...getMockDemoSpots()] : real);
       }
     };
 

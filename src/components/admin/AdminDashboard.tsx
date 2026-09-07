@@ -10,11 +10,12 @@ import { CityMap, type LiveSpot } from './CityMap';
 import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
 import { AdminSettings } from './AdminSettings';
 import { ZoningConfig } from './ZoningConfig';
+import { OperatingAreaConfig } from './OperatingAreaConfig';
 import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
 import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import { MOCK_ADMIN_KPIS, KARYSTOS_CENTER, getMockAdminSpots, getMockWeeklyTrend } from '@/lib/demoMockData';
+import { MOCK_ADMIN_KPIS, DEMO_CENTER, getMockAdminSpots, getMockWeeklyTrend } from '@/lib/demoMockData';
 
 const LIVE_SPOT_STATUSES: readonly LiveSpot['status'][] = ['active', 'claimed', 'expired', 'invalid', 'reported'];
 function isLiveSpotStatus(value: string): value is LiveSpot['status'] {
@@ -195,7 +196,12 @@ export const AdminDashboard = () => {
       case 'livemap':
         return <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} tall />;
       case 'zoning':
-        return <ZoningConfig municipalityId={municipalityId} center={KARYSTOS_CENTER} />;
+        return (
+          <div className="space-y-8">
+            <OperatingAreaConfig municipalityId={municipalityId} fallbackCenter={DEMO_CENTER} />
+            <ZoningConfig municipalityId={municipalityId} center={DEMO_CENTER} />
+          </div>
+        );
       case 'settings':
         return <AdminSettings municipalityId={municipalityId} spots={spots} trend={trend} />;
       default:

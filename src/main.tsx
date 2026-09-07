@@ -17,14 +17,34 @@ function trackViewportHeight() {
   const viewport = window.visualViewport;
   if (!viewport) return; // Older browsers keep the 100dvh fallback in index.css.
 
+  const isEditing = () => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLElement)) return false;
+    return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
+  };
+
   const apply = () => {
+    // Ignore the shrink caused by the on-screen keyboard.
+    //
+    // The keyboard cuts visualViewport.height roughly in half. Following it
+    // would shrink the whole app shell to the strip above the keyboard,
+    // dragging the bottom tab bar up over the form and collapsing the
+    // layout -- which is exactly what focusing the resident-code field did.
+    // The shell keeps its height and the focused field scrolls into view
+    // inside its own overflow-y-auto pane, which is the behaviour a native
+    // app has.
+    if (isEditing()) return;
     document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
   };
+
   apply();
   viewport.addEventListener("resize", apply);
-  // Pinch-zoom and the on-screen keyboard shift the visual viewport without
-  // resizing it; re-applying on scroll keeps the shell aligned to it.
+  // Pinch-zoom shifts the visual viewport without resizing it; re-applying
+  // on scroll keeps the shell aligned to it.
   viewport.addEventListener("scroll", apply);
+  // Once the keyboard closes the reading is trustworthy again. focusout
+  // fires before the viewport has finished animating back, hence the tick.
+  document.addEventListener("focusout", () => setTimeout(apply, 100));
 }
 
 trackViewportHeight();

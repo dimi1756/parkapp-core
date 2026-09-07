@@ -71,7 +71,7 @@ export const OCCUPANCY_COLOR: Record<OccupancyLevel, string> = {
  * spread across all three occupancy levels so the indicator is legible at a
  * glance during a demo.
  */
-export const KARYSTOS_FACILITIES: ParkingFacility[] = [
+export const PILOT_FACILITIES: ParkingFacility[] = [
   {
     id: 'facility-dimotiko',
     name: 'Δημοτικό Πάρκινγκ Καρύστου',

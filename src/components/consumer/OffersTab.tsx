@@ -51,7 +51,7 @@ const offers: Offer[] = [
   },
   {
     id: '3',
-    business: 'Cinema Chalkida',
+    business: 'Cinema Odeon',
     rewardKey: 'offers.reward.popcorn',
     cost: 200,
     category: 'food',

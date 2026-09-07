@@ -45,6 +45,9 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          operating_center_lat: number | null
+          operating_center_lng: number | null
+          operating_radius_km: number | null
         }
         Insert: {
           boundary?: unknown
@@ -55,6 +58,9 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          operating_center_lat?: number | null
+          operating_center_lng?: number | null
+          operating_radius_km?: number | null
         }
         Update: {
           boundary?: unknown
@@ -65,6 +71,9 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          operating_center_lat?: number | null
+          operating_center_lng?: number | null
+          operating_radius_km?: number | null
         }
         Relationships: []
       }

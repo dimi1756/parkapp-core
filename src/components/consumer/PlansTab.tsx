@@ -66,7 +66,7 @@ export const PlansTab = () => {
   const trialDays = 14;
 
   return (
-    <div className="h-full overflow-y-auto pb-24">
+    <div className="h-full overflow-y-auto overscroll-none pb-24">
       {/* Header */}
       <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 p-4 border-b border-border">
         <h1 className="text-2xl font-bold">{t('plans.title')}</h1>
@@ -222,14 +222,20 @@ export const PlansTab = () => {
           </p>
 
           {status.kind === 'resident' ? (
-            <div className="flex items-center gap-2 text-success bg-success/10 p-3 rounded-lg">
-              <Check className="h-5 w-5" />
-              <span className="font-medium">{t('plans.verified')}</span>
+            // Inline confirmation, not just a toast: a toast is gone in
+            // seconds, and "did my code actually work?" is a question the
+            // screen should still answer a minute later.
+            <div className="flex items-start gap-3 text-success bg-success/10 border border-success/30 p-4 rounded-2xl animate-fade-in">
+              <Check className="h-5 w-5 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-semibold text-sm">{t('plans.verified')}</p>
+                <p className="text-xs text-success/90 mt-0.5">{t('plans.verifiedDesc')}</p>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
               <Input
-                placeholder={t('plans.residentId')}
+                placeholder={t('plans.residentIdPlaceholder')}
                 value={citizenId}
                 onChange={(e) => setCitizenId(e.target.value)}
                 disabled={verifying}
