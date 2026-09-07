@@ -5,6 +5,8 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
 import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation, cancelOwnSpot } from '@/lib/api/parking';
+import { claimMockSpot, isMockSpotId } from '@/lib/demoMockData';
+import { requestFreshFix } from '@/lib/geolocation';
 import {
   Search,
   MapPin,
@@ -119,25 +121,15 @@ function distanceMeters(lng1: number, lat1: number, lng2: number, lat2: number):
   return R * c;
 }
 
-// A guaranteed fresh, one-off GPS fix -- unlike the position tracked in
-// state (which only updates whenever GeolocateControl happens to have last
-// fired), this is captured at the exact moment the driver taps "Emptying a
-// space", right where they're actually standing. Resolves null (never
-// rejects) on any failure -- no geolocation API, permission denied, or a
-// dead zone with no fix in time -- so callers can fall back to state.
-function getFreshPosition(): Promise<{ lng: number; lat: number; accuracy: number } | null> {
-  return new Promise((resolve) => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude, accuracy: pos.coords.accuracy }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
-    );
-  });
-}
+// A guaranteed fresh, one-off GPS fix, captured at the exact moment the
+// driver taps "Emptying a space" rather than whenever the live watch last
+// ticked. Delegates to the shared geolocation module (src/lib/geolocation.ts)
+// so this shares one permission grant and one cache with the live tracking
+// behind the user dot, instead of opening a second, independent request.
+// Resolves null (never rejects) on any failure -- no geolocation API,
+// permission denied, or a dead zone with no fix in time -- so callers can
+// fall back to state.
+const getFreshPosition = requestFreshFix;
 
 function walkingMinutes(meters: number): number {
   return Math.max(1, Math.round(meters / 80));
@@ -167,7 +159,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const { profile, isDemoAccount } = useAuth();
   const { t, language } = useLanguage();
   const { activeSession, refetch: refetchSession } = useActiveSession();
-  const nearbySpots = useNearbySpots();
+  const { spots: nearbySpots, refetch: refetchSpots } = useNearbySpots();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -360,12 +352,19 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // sparse pilot-stage data instead of failing outright.
   function findNearestSpotTo(point: { lng: number; lat: number }, excludeIds: string[]) {
     const excluded = new Set(excludeIds);
-    // !s.isMock: the investor-demo pins (getMockKarystosSpots) render on the
-    // map like any real spot but their id has no matching parking_spots row
-    // -- routing/prompting toward one is fine, but the eventual claimSpot()
-    // call can only ever 409 against it, so it's excluded as a candidate here.
+    // The investor-demo pins (getMockKarystosSpots) render on the map like
+    // any real spot but have no matching parking_spots row. They used to be
+    // excluded here outright, which quietly disabled the app's flagship flow
+    // for the one account it exists for: on a sparse pilot database, a demo
+    // search found no candidate at all and landed in 'not_found'. They're
+    // now valid targets for the demo account, with every server call along
+    // the way simulated instead (see claimTargetSpot / reserveSpotIfReal).
     const candidates = nearbySpots.filter(
-      (s) => s.declared_by !== profile?.id && s.status === 'active' && !s.isMock && !excluded.has(s.id)
+      (s) =>
+        s.declared_by !== profile?.id &&
+        s.status === 'active' &&
+        (isDemoAccount || !s.isMock) &&
+        !excluded.has(s.id)
     );
     return candidates.reduce<{ id: string; lng: number; lat: number; d: number } | null>((best, s) => {
       const d = distanceMeters(point.lng, point.lat, s.lng, s.lat);
@@ -373,6 +372,38 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       return best;
     }, null);
   }
+
+  // Reservations are a real-database concern (0012_spot_reservations.sql):
+  // a demo pin has no row to lock, and sending its id would just log an RPC
+  // error mid-demo. Both are fire-and-forget by design, so skipping them for
+  // a simulated spot changes nothing else about the flow.
+  const reserveSpotIfReal = (spotId: string) => {
+    if (!isMockSpotId(spotId)) reserveSpot(spotId);
+  };
+  const releaseSpotIfReal = (spotId: string) => {
+    if (!isMockSpotId(spotId)) releaseSpotReservation(spotId);
+  };
+
+  /**
+   * Claims the spot navigation is currently pointed at. A demo pin is
+   * settled entirely client-side -- marked as taken so it leaves the map,
+   * exactly as a real claim would, without ever reaching claim-spot (where a
+   * fabricated id can only 409). Everything downstream (the walking handoff,
+   * the toasts) is identical either way, so the demo shows the real flow.
+   */
+  const claimTargetSpot = async (spotId: string): Promise<{ ok: boolean; error?: string }> => {
+    if (isMockSpotId(spotId)) {
+      claimMockSpot(spotId);
+      refetchSpots();
+      return { ok: true };
+    }
+    const [lng, lat] = userLngLat;
+    const { data, error } = await claimSpot({ spotId, userLat: lat, userLng: lng, accuracy: userAccuracy });
+    if (error) return { ok: false, error };
+    if (!data) return { ok: false };
+    await refetchSession();
+    return { ok: true };
+  };
 
   const runDestinationSearch = async (poi: Destination) => {
     const canSearch = incrementSearches();
@@ -420,7 +451,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       // the drive still proceeds, worst case this driver finds out at
       // arrival via the same "is it still free?" prompt a stale/expired
       // spot would have hit anyway.
-      reserveSpot(closest.id);
+      reserveSpotIfReal(closest.id);
     }
 
     const directions = await getDrivingDirections(
@@ -543,7 +574,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     // leaving it locked out for other drivers until its 5-minute TTL
     // expires -- best-effort, fire-and-forget, matches the "safe to call
     // speculatively" contract releaseSpotReservation documents.
-    if (targetSpotId) releaseSpotReservation(targetSpotId);
+    if (targetSpotId) releaseSpotIfReal(targetSpotId);
     setRouteState('idle');
     setActiveDestination(null);
     setPoiMarker(null);
@@ -571,16 +602,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     const spotLng = activeDestination?.lng ?? lng;
     const spotLat = activeDestination?.lat ?? lat;
     const finalPoi = poiMarker;
-    const { data, error } = await claimSpot({ spotId: targetSpotId, userLat: lat, userLng: lng, accuracy: userAccuracy });
+    const { ok, error } = await claimTargetSpot(targetSpotId);
     setBusyAction(null);
 
-    if (error) {
-      toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
+    if (!ok) {
+      if (error) toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
       return;
     }
-    if (!data) return;
-
-    await refetchSession();
 
     if (!finalPoi) {
       // No searched destination -- this WAS the destination, so parking here
@@ -628,7 +656,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     if (!poiMarker || !targetSpotId) return;
     // Release this spot's reservation immediately -- it's taken, so no
     // reason to keep it locked out for other drivers for the rest of its TTL.
-    releaseSpotReservation(targetSpotId);
+    releaseSpotIfReal(targetSpotId);
     const excluded = [...excludedSpotIds, targetSpotId];
     setExcludedSpotIds(excluded);
     setShowSpotPrompt(false);
@@ -643,7 +671,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     // Lock the next candidate before routing to it, same as the initial
     // search -- otherwise a second driver could get routed here in the gap
     // between this reroute and this driver's eventual claim.
-    reserveSpot(next.id);
+    reserveSpotIfReal(next.id);
     setTargetSpotId(next.id);
     setWalkMinutes(walkingMinutes(next.d));
     setActiveDestination({ name: poiMarker.name, lng: next.lng, lat: next.lat });
@@ -864,26 +892,22 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // just... failed. Requiring status === 'active' is what actually means
   // "available to claim," matching findNearestSpotTo's search-based
   // routing (which already had this right).
+  // Demo pins are claimable candidates too (simulated client-side, see
+  // claimTargetSpot) -- otherwise this button never appears at all for the
+  // one account whose map is guaranteed to have spots on it.
   const nearestClaimable = nearbySpots
-    .filter((s) => s.declared_by !== profile?.id && s.status === 'active' && !s.isMock)
+    .filter((s) => s.declared_by !== profile?.id && s.status === 'active' && (isDemoAccount || !s.isMock))
     .map((s) => ({ ...s, d: distanceMeters(userLngLat[0], userLngLat[1], s.lng, s.lat) }))
     .sort((a, b) => a.d - b.d)[0];
 
   const handleClaimNearest = async () => {
     if (!nearestClaimable) return;
     setBusyAction('claim');
-    const [lng, lat] = userLngLat;
-    const { data, error } = await claimSpot({
-      spotId: nearestClaimable.id,
-      userLat: lat,
-      userLng: lng,
-      accuracy: userAccuracy,
-    });
-    if (error) {
-      toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
-    } else if (data) {
+    const { ok, error } = await claimTargetSpot(nearestClaimable.id);
+    if (!ok) {
+      if (error) toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
+    } else {
       toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
-      await refetchSession();
       // Fly straight to the claimed spot at street zoom and open its details
       // card (distance/time + a "Get Directions" button that reuses
       // navigateToSpotPin) instead of launching full turn-by-turn
@@ -959,7 +983,15 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
-          <img src={chalkidaMap} alt="Karystos Map" className="w-full h-full object-cover" />
+          <img src={chalkidaMap} alt={t('map.offlineMapAlt')} className="w-full h-full object-cover" />
+          {/* Says out loud that this is the no-token fallback. Without it a
+              missing VITE_MAPBOX_TOKEN just looks like a live map that has
+              stopped responding to pinch, drag and search. */}
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+            <span className="glass-card rounded-full px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-lg whitespace-nowrap">
+              {t('map.offlineMapBadge')}
+            </span>
+          </div>
         </div>
       )}
 

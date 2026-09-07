@@ -217,9 +217,12 @@
   transform: scale(1.1);
 }
 
-/* The consumer map's search bar floats over the top of the canvas -- push
-   Mapbox's own zoom/compass/geolocate controls down clear of it so they
-   stay fully clickable instead of hiding underneath. */
-.parkapp-map-shell .mapboxgl-ctrl-top-right {
-  margin-top: 5rem;
+/* Zoom/compass/geolocate are now app-rendered controls (see MapboxMap.tsx),
+   so nothing of Mapbox's own is left in the top-right corner. What remains
+   is the attribution and logo along the bottom edge, which the tab bar
+   overlays -- lift them clear so they stay readable, as Mapbox's terms
+   require, without colliding with the action row at bottom-28. */
+.parkapp-map-shell .mapboxgl-ctrl-bottom-right,
+.parkapp-map-shell .mapboxgl-ctrl-bottom-left {
+  margin-bottom: 4.25rem;
 }

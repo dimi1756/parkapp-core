@@ -1,7 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { Plus, Minus, Compass } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { getLastFix, requestFreshFix, subscribeToPosition } from '@/lib/geolocation';
 
 // Reads the token from an env variable so it's never hardcoded in source.
 // Add VITE_MAPBOX_TOKEN=pk.xxxxx to a .env file at the project root.
@@ -14,9 +16,32 @@ const PLACEHOLDER_TOKEN = 'pk.your_mapbox_token_here';
 
 export const isMapboxConfigured = Boolean(MAPBOX_TOKEN && MAPBOX_TOKEN !== PLACEHOLDER_TOKEN);
 
+// Loud, one-off console notice instead of a live map silently turning into a
+// flat picture: the static fallback is a deliberate safety net, but a
+// deployment that hit it by accident (missing/placeholder token) should be
+// obvious to whoever opens the console, not something noticed mid-demo.
+if (!isMapboxConfigured) {
+  console.warn(
+    '[MapboxMap] VITE_MAPBOX_TOKEN is missing or still the .env.example placeholder -- ' +
+      'falling back to the static offline map. Live map, search and routing are disabled.'
+  );
+}
+
 // Street-level detail: close enough that a tap reliably lands on the
 // intended side of the road rather than clipping a neighboring one.
 export const STREET_ZOOM = 17.5;
+
+// Camera state survives a remount. ConsumerApp renders the active tab with
+// `key={activeTab}`, so leaving the Map tab and coming back tears this
+// component down completely -- without this, every return snapped the driver
+// back to the default center/zoom and threw away wherever they had panned.
+let lastCamera: { center: [number, number]; zoom: number; bearing: number; pitch: number } | null = null;
+
+// Whether this session has already performed its one automatic "centre on
+// the driver" move. Module-scoped for the same reason as lastCamera: the
+// auto-centre is a first-run courtesy, not something to redo on every
+// remount (which is exactly what re-triggering GeolocateControl used to do).
+let hasAutoCenteredThisSession = false;
 
 // Mapbox's classic Geocoding API (mapbox.places, used here previously)
 // returns zero POI results for this token regardless of the `types` param --
@@ -291,9 +316,25 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const geolocateControlRef = useRef<mapboxgl.GeolocateControl | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+
+  // Live compass heading of the camera, mirrored into React state purely so
+  // the orientation button's needle can rotate with it. Rounded to whole
+  // degrees so a rotate gesture (or the driving chase camera) doesn't
+  // re-render this component on every animation frame.
+  const [bearing, setBearing] = useState(() => Math.round(lastCamera?.bearing ?? 0));
+
+  // True once a real GPS fix exists for this (non-demo) session -- gates the
+  // user dot, which now belongs to this component rather than to Mapbox's
+  // GeolocateControl.
+  const [hasRealFix, setHasRealFix] = useState(() => getLastFix() !== null);
+
+  // Flipped the moment the driver moves the camera themselves (drag, pinch,
+  // rotate). From then on, live GPS fixes update the dot but never move the
+  // camera -- panning away to look at another street is a deliberate act and
+  // must not be undone half a second later by the next position tick.
+  const userMovedCameraRef = useRef(false);
 
   // Refs keep the map's native event listeners (bound once, at mount) wired
   // to whatever the latest render's callbacks/values are, without needing to
@@ -310,10 +351,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onUserLocationChangeRef.current = onUserLocationChange;
   const onConfirmSelectionRef = useRef(onConfirmSelection);
   onConfirmSelectionRef.current = onConfirmSelection;
-  const showCustomUserDotRef = useRef(showCustomUserDot);
-  showCustomUserDotRef.current = showCustomUserDot;
-  const isDemoAccountRef = useRef(isDemoAccount);
-  isDemoAccountRef.current = isDemoAccount;
   const isNavigatingRef = useRef(isNavigating);
   isNavigatingRef.current = isNavigating;
   const routeProfileRef = useRef(routeProfile);
@@ -327,57 +364,49 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
     mapboxgl.accessToken = MAPBOX_TOKEN;
 
+    // Resume exactly where this session's camera was left, if the Map tab
+    // has been open before -- otherwise start from the caller's center.
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center,
-      zoom: STREET_ZOOM,
+      center: lastCamera?.center ?? center,
+      zoom: lastCamera?.zoom ?? STREET_ZOOM,
+      bearing: lastCamera?.bearing ?? 0,
+      pitch: lastCamera?.pitch ?? 0,
+      // Mapbox's own zoom/compass/geolocate widgets are gone: they were
+      // pinned under the floating search bar (top-right, y=10) where they
+      // were physically unclickable, and GeolocateControl moved the camera
+      // as a side effect of every fix. Both jobs are now done by this
+      // component's own controls plus src/lib/geolocation.ts.
+      attributionControl: true,
     });
-
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-    const geolocate = new mapboxgl.GeolocateControl({
-      positionOptions: { enableHighAccuracy: true },
-      trackUserLocation: true,
-      showUserHeading: true,
-    });
-    map.addControl(geolocate, 'top-right');
-
-    geolocate.on('geolocate', (e) => {
-      const { longitude, latitude, accuracy, heading } = (e as GeolocationPosition).coords;
-      onUserLocationChangeRef.current?.(longitude, latitude, accuracy);
-      // Chase-camera rotation: only while actively driving (a walk or idle
-      // browsing shouldn't spin the map), and only on a real compass
-      // heading -- most desktop/no-motion fixes report heading as null, so
-      // this simply never fires there rather than snapping to a bogus 0.
-      if (isNavigatingRef.current && routeProfileRef.current === 'driving' && heading != null && !Number.isNaN(heading)) {
-        mapRef.current?.easeTo({ bearing: heading, duration: 500 });
-      }
-    });
-
-    geolocateControlRef.current = geolocate;
 
     map.on('click', (e) => {
       onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat);
     });
 
-    map.on('moveend', () => {
-      const c = map.getCenter();
-      onCenterChangeRef.current?.(c.lng, c.lat);
+    // `originalEvent` is only present when the movement came from a real
+    // gesture (drag/pinch/rotate/scroll), never from our own flyTo/easeTo --
+    // which is exactly the distinction "did the driver take over the
+    // camera?" needs.
+    map.on('movestart', (e) => {
+      if ((e as { originalEvent?: unknown }).originalEvent) userMovedCameraRef.current = true;
     });
 
-    map.on('load', () => {
-      // Real accounts: prompt for location permission immediately and start
-      // live tracking. Demo accounts keep the mocked map-center position and
-      // must never trigger a real GPS prompt -- gating this on
-      // showCustomUserDot (true only during Map Selection Mode's pin drop,
-      // false the rest of a demo session) previously let it fire for demo
-      // accounts too, rendering Mapbox's real blue dot at the tester's
-      // actual location while every pin sat at the simulated Karystos
-      // center.
-      if (!isDemoAccountRef.current) {
-        geolocate.trigger();
-      }
+    map.on('rotate', () => {
+      const next = Math.round(map.getBearing());
+      setBearing((prev) => (prev === next ? prev : next));
+    });
+
+    map.on('moveend', () => {
+      const c = map.getCenter();
+      lastCamera = {
+        center: [c.lng, c.lat],
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
+      onCenterChangeRef.current?.(c.lng, c.lat);
     });
 
     mapRef.current = map;
@@ -389,17 +418,69 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // "My Location" button (rendered by MapTab) bumps this counter to request
-  // a fresh fix. Re-uses GeolocateControl's own trigger(), which prompts for
-  // permission if needed, updates its blue dot, and flies the camera to the
-  // result -- the skip-on-mount guard keeps the initial render from firing.
+  // Live position for real accounts. One shared watch for the whole session
+  // (see src/lib/geolocation.ts) means the permission prompt happens once
+  // and stays granted across tab switches, instead of a fresh control being
+  // created and re-triggered on every remount of this component.
+  //
+  // Camera policy, deliberately conservative: a fix moves the dot always,
+  // and moves the camera only on the session's very first fix and only if
+  // the driver hasn't already panned somewhere themselves.
+  useEffect(() => {
+    if (isDemoAccount) return;
+    return subscribeToPosition((fix) => {
+      setHasRealFix(true);
+      onUserLocationChangeRef.current?.(fix.lng, fix.lat, fix.accuracy);
+
+      const map = mapRef.current;
+      if (!map) return;
+
+      // Chase-camera rotation: only while actively driving (a walk or idle
+      // browsing shouldn't spin the map), and only on a real compass
+      // heading -- most desktop/no-motion fixes report heading as null, so
+      // this simply never fires there rather than snapping to a bogus 0.
+      if (isNavigatingRef.current && routeProfileRef.current === 'driving' && fix.heading != null && !Number.isNaN(fix.heading)) {
+        map.easeTo({ bearing: fix.heading, duration: 500 });
+      }
+
+      if (!hasAutoCenteredThisSession && !userMovedCameraRef.current) {
+        hasAutoCenteredThisSession = true;
+        map.easeTo({
+          center: [fix.lng, fix.lat],
+          zoom: Math.max(map.getZoom(), STREET_ZOOM),
+          duration: 800,
+        });
+      }
+    });
+  }, [isDemoAccount]);
+
+  // "My Location" button (rendered by MapTab) bumps this counter. This is
+  // the one gesture that explicitly asks to be re-centred, so it also clears
+  // the "driver took over the camera" flag. The cached fix moves the camera
+  // instantly; a fresh one corrects it a moment later if the device has
+  // moved since. The skip-on-mount guard keeps the initial render from firing.
   const prevLocateRequestRef = useRef(locateRequestId ?? 0);
   useEffect(() => {
     const id = locateRequestId ?? 0;
-    if (id !== prevLocateRequestRef.current) {
-      prevLocateRequestRef.current = id;
-      geolocateControlRef.current?.trigger();
-    }
+    if (id === prevLocateRequestRef.current) return;
+    prevLocateRequestRef.current = id;
+    userMovedCameraRef.current = false;
+
+    const centerOn = (lng: number, lat: number) => {
+      const map = mapRef.current;
+      if (!map) return;
+      map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), duration: 700 });
+    };
+
+    const cached = getLastFix();
+    if (cached) centerOn(cached.lng, cached.lat);
+
+    requestFreshFix().then((fix) => {
+      if (!fix) return;
+      setHasRealFix(true);
+      onUserLocationChangeRef.current?.(fix.lng, fix.lat, fix.accuracy);
+      centerOn(fix.lng, fix.lat);
+    });
   }, [locateRequestId]);
 
   // "I saw a free space" / "Emptying a space" bump this counter so the
@@ -430,12 +511,16 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     }
   }, [flyToRequestId, flyToTarget]);
 
-  // Demo-only mock dot. Real accounts rely entirely on GeolocateControl's
-  // own blue dot, which tracks position independently of React state.
+  // The user dot. Real accounts now get it from this component (once a real
+  // fix exists) rather than from GeolocateControl's own blue dot, which came
+  // bundled with camera behaviour we no longer want. Demo accounts keep the
+  // old rule: a dot only during Map Selection Mode's manual pin drop, where
+  // it means "this is the point a tap will use".
+  const showUserDot = isDemoAccount ? showCustomUserDot : hasRealFix;
   useEffect(() => {
     if (!mapRef.current) return;
 
-    if (!showCustomUserDot) {
+    if (!showUserDot) {
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
       return;
@@ -448,7 +533,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     } else {
       userMarkerRef.current.setLngLat(userLocation);
     }
-  }, [userLocation, showCustomUserDot]);
+  }, [userLocation, showUserDot]);
 
   // Sync pins with markers
   useEffect(() => {
@@ -659,9 +744,23 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // driving nav -- levels back out (pitch 0) the instant it ends or the
   // walking leg to a final POI takes over, since a tilted view makes no
   // sense for a short walk or for browsing the map freely.
+  //
+  // Skipped on the very first run: the camera restored from lastCamera (or
+  // whatever the driver had rotated to before switching tabs) is theirs, and
+  // a mount is not a navigation state change -- levelling it out here would
+  // silently undo the orientation they chose.
+  const prevNavStateRef = useRef<string | null>(null);
   useEffect(() => {
     if (!mapRef.current) return;
     const map = mapRef.current;
+    const navState = `${isNavigating}:${routeProfile}`;
+    if (prevNavStateRef.current === null) {
+      prevNavStateRef.current = navState;
+      return;
+    }
+    if (prevNavStateRef.current === navState) return;
+    prevNavStateRef.current = navState;
+
     if (isNavigating && routeProfile === 'driving') {
       map.easeTo({ pitch: 55, duration: 800 });
     } else {
@@ -669,5 +768,48 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     }
   }, [isNavigating, routeProfile]);
 
-  return <div ref={containerRef} className="parkapp-map-shell absolute inset-0 w-full h-full" />;
+  const handleZoomIn = () => mapRef.current?.zoomIn({ duration: 300 });
+  const handleZoomOut = () => mapRef.current?.zoomOut({ duration: 300 });
+  // Orientation button: back to north-up and flat. Also hands the camera
+  // back to the driver, so it doubles as "undo whatever the 3D chase view
+  // did to my map".
+  const handleResetNorth = () => mapRef.current?.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+
+  const controlButton =
+    'w-11 h-11 flex items-center justify-center text-foreground/80 hover:text-foreground hover:bg-secondary/70 active:scale-95 transition-all';
+
+  return (
+    <div className="absolute inset-0 w-full h-full">
+      <div ref={containerRef} className="parkapp-map-shell absolute inset-0 w-full h-full" />
+
+      {/* Zoom + orientation stack. Deliberately on the right edge well below
+          the floating search bar and the points/claim row above it (which
+          reserves this column's width) and well above the bottom cards --
+          Mapbox's own controls sat at y=10 underneath the search bar, which
+          is why tapping them did nothing. */}
+      <div className="absolute right-4 bottom-72 z-10 flex flex-col items-center gap-2">
+        <div className="flex flex-col rounded-2xl overflow-hidden bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
+          <button type="button" onClick={handleZoomIn} aria-label={t('map.zoomIn')} className={controlButton}>
+            <Plus className="h-5 w-5" />
+          </button>
+          <div className="h-px bg-border/60 mx-2" />
+          <button type="button" onClick={handleZoomOut} aria-label={t('map.zoomOut')} className={controlButton}>
+            <Minus className="h-5 w-5" />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleResetNorth}
+          aria-label={t('map.resetNorth')}
+          className={`${controlButton} rounded-2xl bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]`}
+        >
+          <Compass
+            className="h-5 w-5 text-primary transition-transform duration-200"
+            style={{ transform: `rotate(${-bearing}deg)` }}
+          />
+        </button>
+      </div>
+    </div>
+  );
 };

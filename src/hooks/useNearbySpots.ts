@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { getMockKarystosSpots } from '@/lib/demoMockData';
@@ -51,10 +51,18 @@ function parseEwkbPoint(hex: string): { lat: number; lng: number } | null {
  * Live list of parking spots this user is allowed to see (RLS: public active
  * spots + the user's own, regardless of hidden/expired state). Refetches on
  * mount and stays in sync via Realtime for as long as the tab is open.
+ *
+ * `refetch` covers the one case Realtime can't: the demo account's mock pins
+ * live purely client-side, so "claiming" one changes nothing in Postgres and
+ * fires no postgres_changes event to react to.
  */
 export function useNearbySpots() {
   const { session, isDemoAccount } = useAuth();
   const [spots, setSpots] = useState<NearbySpot[]>([]);
+  // Points at the current effect's `load`, so refetch keeps a stable
+  // identity across renders instead of re-triggering every consumer's
+  // dependency arrays.
+  const loadRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!session?.user) {
@@ -129,6 +137,7 @@ export function useNearbySpots() {
       }
     };
 
+    loadRef.current = load;
     load();
 
     // Realtime can only target real tables, not views -- but any change to
@@ -145,5 +154,9 @@ export function useNearbySpots() {
     };
   }, [session?.user, isDemoAccount]);
 
-  return spots;
+  const refetch = useCallback(() => {
+    loadRef.current();
+  }, []);
+
+  return { spots, refetch };
 }

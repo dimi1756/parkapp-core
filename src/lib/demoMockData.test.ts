@@ -7,6 +7,9 @@ import {
   getMockKarystosSpots,
   getMockWeeklyTrend,
   getMockAdminSpots,
+  isMockSpotId,
+  claimMockSpot,
+  __resetClaimedMockSpots,
 } from './demoMockData';
 
 describe('getMockDriverLeaderboard', () => {
@@ -166,5 +169,47 @@ describe('getMockWeeklyTrend', () => {
     for (let i = 1; i < days.length; i++) {
       expect(days[i]).toBeGreaterThan(days[i - 1]);
     }
+  });
+});
+
+describe('mock spot claiming (demo happy path)', () => {
+  beforeEach(() => {
+    __resetClaimedMockSpots();
+  });
+
+  afterEach(() => {
+    __resetClaimedMockSpots();
+  });
+
+  it('recognises every mock spot id, and nothing else', () => {
+    for (const spot of getMockKarystosSpots()) {
+      expect(isMockSpotId(spot.id)).toBe(true);
+    }
+    // Shaped like the real thing: a Postgres uuid from parking_spots.
+    expect(isMockSpotId('0f6c2f9e-8f3a-4a1d-9c2b-1f6d4e5a7b3c')).toBe(false);
+  });
+
+  it('removes a claimed spot from the map, and leaves the rest alone', () => {
+    const before = getMockKarystosSpots();
+    const target = before[0];
+
+    claimMockSpot(target.id);
+
+    const after = getMockKarystosSpots();
+    expect(after.map((s) => s.id)).not.toContain(target.id);
+    expect(after).toHaveLength(before.length - 1);
+  });
+
+  it('does not bring a claimed spot back on the next read', () => {
+    const target = getMockKarystosSpots()[0];
+    claimMockSpot(target.id);
+    expect(getMockKarystosSpots().map((s) => s.id)).not.toContain(target.id);
+    expect(getMockKarystosSpots().map((s) => s.id)).not.toContain(target.id);
+  });
+
+  it('keeps the admin live map complete when a driver claims a spot', () => {
+    const adminBefore = getMockAdminSpots();
+    claimMockSpot(getMockKarystosSpots()[0].id);
+    expect(getMockAdminSpots()).toEqual(adminBefore);
   });
 });

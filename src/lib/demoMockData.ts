@@ -94,10 +94,41 @@ const KARYSTOS_OFFSETS: [number, number][] = [
   [-0.0007, -0.0008],
 ];
 
-export function getMockKarystosSpots(): NearbySpot[] {
+/** Every mock spot id starts with this -- see isMockSpotId below. */
+const MOCK_SPOT_ID_PREFIX = 'demo-spot-';
+
+/**
+ * True for the demo pins minted by getMockKarystosSpots(). They render like
+ * any real spot but have no parking_spots row behind them, so every code
+ * path that would hit the server with a spot id (claim-spot, reserve_spot,
+ * release_spot_reservation) must check this first and simulate instead.
+ * Prefix-based rather than a lookup so it still answers correctly for a spot
+ * that has already been removed from the live list.
+ */
+export function isMockSpotId(id: string): boolean {
+  return id.startsWith(MOCK_SPOT_ID_PREFIX);
+}
+
+// Mock spots the demo account has already "claimed" this session. Without
+// this, a claimed demo pin came straight back on the next refetch (the list
+// is regenerated from scratch on every call), so the map kept offering a
+// spot the reviewer had just parked in.
+const claimedMockSpotIds = new Set<string>();
+
+/** Marks a demo pin as taken so it disappears from the map, like a real claim. */
+export function claimMockSpot(id: string): void {
+  claimedMockSpotIds.add(id);
+}
+
+/** Test-only: puts every demo pin back on the map between test cases. */
+export function __resetClaimedMockSpots(): void {
+  claimedMockSpotIds.clear();
+}
+
+function buildMockSpots(): NearbySpot[] {
   const now = Date.now();
   return KARYSTOS_OFFSETS.map(([dLng, dLat], i) => ({
-    id: `demo-spot-${i}`,
+    id: `${MOCK_SPOT_ID_PREFIX}${i}`,
     declared_by: `demo-driver-${i}`,
     lng: KARYSTOS_CENTER[0] + dLng,
     lat: KARYSTOS_CENTER[1] + dLat,
@@ -108,9 +139,15 @@ export function getMockKarystosSpots(): NearbySpot[] {
     expires_at: new Date(now + (240 - i * 40) * 1000).toISOString(),
     // These ids/declared_by never correspond to a real parking_spots row --
     // isMock is what stops "Claim nearest spot" (and any other claim path)
-    // from ever sending one to claim-spot, where it can only 409.
+    // from ever sending one to claim-spot, where it can only 409. The demo
+    // account routes to and claims these locally instead (see MapTab).
     isMock: true,
   }));
+}
+
+/** Demo pins still on the map: everything except what's been claimed this session. */
+export function getMockKarystosSpots(): NearbySpot[] {
+  return buildMockSpots().filter((spot) => !claimedMockSpotIds.has(spot.id));
 }
 
 export function getMockWeeklyTrend(): TrendDay[] {
@@ -123,9 +160,11 @@ export function getMockWeeklyTrend(): TrendDay[] {
   });
 }
 
+// Built from the unfiltered set on purpose: a spot the demo driver claimed
+// on the consumer map is exactly the kind of thing a city dashboard should
+// still show (as history), and the admin view has its own status cycle.
 export function getMockAdminSpots(): LiveSpot[] {
-  const now = Date.now();
-  return getMockKarystosSpots().map((s, i) => ({
+  return buildMockSpots().map((s, i) => ({
     id: s.id,
     lat: s.lat,
     lng: s.lng,

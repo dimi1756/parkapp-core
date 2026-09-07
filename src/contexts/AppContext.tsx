@@ -3,15 +3,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { isPremiumActive } from '@/lib/membership';
 
 interface AppState {
-  points: number;
   darkMode: boolean;
   searchesToday: number;
   isAdmin: boolean;
 }
 
 interface AppContextType extends AppState {
-  addPoints: (amount: number) => void;
-  deductPoints: (amount: number) => boolean;
   toggleDarkMode: () => void;
   incrementSearches: () => boolean;
   setAdminMode: (isAdmin: boolean) => void;
@@ -28,10 +25,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   // the search-limit check below was enforcing against that fake state
   // instead of reality. Removed in favor of reading the real profile
   // (locked down server-side, see 0008/0009_*.sql) via useAuth().
-  const { profile } = useAuth();
+  //
+  // `points`/`addPoints`/`deductPoints` are gone for the same reason: they
+  // were a second, purely client-side points counter seeded at a hardcoded
+  // 150 that nothing ever read (every surface shows the real, server-written
+  // profiles.points_balance) and nothing ever wrote. Dead state that could
+  // only ever contradict the truth.
+  const { profile, isDemoAccount } = useAuth();
 
   const [state, setState] = useState<AppState>({
-    points: 150,
     darkMode: false,
     searchesToday: 0,
     isAdmin: false,
@@ -45,24 +47,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [state.darkMode]);
 
-  const addPoints = (amount: number) => {
-    setState(prev => ({ ...prev, points: prev.points + amount }));
-  };
-
-  const deductPoints = (amount: number): boolean => {
-    if (state.points >= amount) {
-      setState(prev => ({ ...prev, points: prev.points - amount }));
-      return true;
-    }
-    return false;
-  };
-
   const toggleDarkMode = () => {
     setState(prev => ({ ...prev, darkMode: !prev.darkMode }));
   };
 
   const incrementSearches = (): boolean => {
-    if (isPremiumActive(profile) || state.searchesToday < 1) {
+    // The shared demo/reviewer account is never rate-limited on searches.
+    // The free tier's one-search-a-day cap is a real product rule, but on
+    // the demo account it means the second search of a live presentation
+    // opens an upgrade paywall instead of a route -- the same carve-out
+    // declare-spot already makes for that account's rate limits.
+    if (isDemoAccount || isPremiumActive(profile) || state.searchesToday < 1) {
       setState(prev => ({ ...prev, searchesToday: prev.searchesToday + 1 }));
       return true;
     }
@@ -80,8 +75,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   return (
     <AppContext.Provider value={{
       ...state,
-      addPoints,
-      deductPoints,
       toggleDarkMode,
       incrementSearches,
       setAdminMode,
