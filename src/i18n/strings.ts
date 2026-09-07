@@ -472,6 +472,14 @@ const en = {
   'zoneCard.controlledTitle': 'Controlled parking',
   'zoneCard.controlledDesc': 'Visitor zone with a maximum stay of 2 hours.',
   'zoneCard.noReporting': 'ParkApp does not share or report free spots on this street.',
+
+  // Predictive routing
+  'predict.title': 'High-probability streets',
+  'predict.subtitle': 'Nothing reported at your destination right now',
+  'predict.chance': '{n}% chance',
+  'predict.walk': '{n} min walk',
+  'predict.driveThere': 'Drive there',
+  'predict.disclaimer': 'Estimated from distance, recent reports nearby and time of day. An indication, not a guarantee.',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -925,6 +933,14 @@ const gr: Record<keyof typeof en, string> = {
   'zoneCard.controlledTitle': 'Ελεγχόμενη Στάθμευση',
   'zoneCard.controlledDesc': 'Ζώνη επισκεπτών με μέγιστη διάρκεια στάθμευσης τις 2 ώρες.',
   'zoneCard.noReporting': 'Το ParkApp δεν μοιράζεται ούτε αναφέρει ελεύθερες θέσεις σε αυτή την οδό.',
+
+  // Προβλεπτική δρομολόγηση
+  'predict.title': 'Δρόμοι υψηλής πιθανότητας',
+  'predict.subtitle': 'Καμία αναφορά στον προορισμό σου αυτή τη στιγμή',
+  'predict.chance': '{n}% πιθανότητα',
+  'predict.walk': '{n} λεπτά με τα πόδια',
+  'predict.driveThere': 'Οδήγηση εκεί',
+  'predict.disclaimer': 'Εκτίμηση βάσει απόστασης, πρόσφατων αναφορών στην περιοχή και ώρας. Ένδειξη, όχι εγγύηση.',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -1378,6 +1394,14 @@ const tr: Record<keyof typeof en, string> = {
   'zoneCard.controlledTitle': 'Kontrollü Otopark',
   'zoneCard.controlledDesc': 'En fazla 2 saat kalınabilen ziyaretçi bölgesi.',
   'zoneCard.noReporting': 'ParkApp bu caddede boş yer paylaşmaz veya bildirmez.',
+
+  // Tahminli yönlendirme
+  'predict.title': 'Yüksek olasılıklı caddeler',
+  'predict.subtitle': 'Şu anda varış noktanda bildirim yok',
+  'predict.chance': '%{n} olasılık',
+  'predict.walk': '{n} dk yürüyüş',
+  'predict.driveThere': 'Oraya sür',
+  'predict.disclaimer': 'Mesafe, çevredeki son bildirimler ve saate göre tahmin. Bir gösterge, garanti değil.',
 };
 
 export type StringKey = keyof typeof en;

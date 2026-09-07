@@ -133,6 +133,34 @@ export async function retrievePlace(mapboxId: string, sessionToken: string): Pro
   }
 }
 
+/**
+ * Street name at a coordinate, via Mapbox reverse geocoding.
+ *
+ * types=street asks for the road itself rather than the building or the
+ * neighbourhood, which is what the predictive suggestions are about. Returns
+ * null on any failure so a caller can simply drop that candidate -- a
+ * missing street name is not worth an error path of its own.
+ */
+export async function reverseGeocodeStreet(
+  lng: number,
+  lat: number,
+  language: 'en' | 'el' = 'en'
+): Promise<string | null> {
+  if (!MAPBOX_TOKEN) return null;
+  const url =
+    `https://api.mapbox.com/search/geocode/v6/reverse?longitude=${lng}&latitude=${lat}` +
+    `&types=street&limit=1&language=${language}&access_token=${MAPBOX_TOKEN}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const name = data?.features?.[0]?.properties?.name;
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface RouteStep {
   /** Human-readable maneuver text, already localized by Mapbox via the `language` param. */
   instruction: string;

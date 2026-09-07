@@ -16,6 +16,8 @@ import { PILOT_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parking
 import { FacilityDetailsCard } from './FacilityDetailsCard';
 import { ZoneInfoCard } from './ZoneInfoCard';
 import { LocationHelpCard } from './LocationHelpCard';
+import { AlternativeSpotsCard } from './AlternativeSpotsCard';
+import { buildPredictions, candidatePoints, type PredictedStreet } from '@/lib/prediction';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
@@ -47,6 +49,7 @@ import {
   getDrivingDirections,
   getWalkingDirections,
   snapToRoad,
+  reverseGeocodeStreet,
   type PlaceSuggestion,
   type RouteStep,
 } from './MapboxMap';
@@ -245,6 +248,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const [selectedFacilityId, setSelectedFacilityId] = useState<string | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [showLocationHelp, setShowLocationHelp] = useState(false);
+  // Predicted alternative streets, shown when a search turns up no reported
+  // spot near the destination. See src/lib/prediction.ts -- heuristic, not a
+  // trained model.
+  const [alternatives, setAlternatives] = useState<PredictedStreet[] | null>(null);
 
   // Follow mode: the camera tracks the driver while a route is running, the
   // way every turn-by-turn app behaves. MapboxMap drops out of it the moment
@@ -558,6 +565,73 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       toast({ title: t('map.spotFoundToast'), description: t('map.walkFromDest', { n: walkingMinutes(closest.d) }) });
     } else {
       setRouteState('not_found');
+      // Nothing reported nearby is exactly when the driver most needs an
+      // answer, so offer streets worth trying instead of a dead end.
+      void loadAlternatives(poi);
+    }
+  };
+
+  /**
+   * Names real streets around the destination and scores them.
+   *
+   * The names come from Mapbox reverse geocoding of a ring of points, so the
+   * suggestions are actual roads the driver can be sent to; the percentage
+   * beside each one is the heuristic in src/lib/prediction.ts, not a model.
+   * Candidates inside a protected zone are dropped -- suggesting a street the
+   * app itself refuses declarations on would contradict the whole zoning
+   * promise.
+   */
+  const loadAlternatives = async (poi: { lng: number; lat: number }) => {
+    setAlternatives(null);
+    const points = candidatePoints(poi);
+
+    const named = await Promise.all(
+      points.map(async (point) => {
+        if (findZoneAt(point.lng, point.lat, zones)) return null;
+        const name = await reverseGeocodeStreet(point.lng, point.lat, language === 'gr' ? 'el' : 'en');
+        return name ? { name, lng: point.lng, lat: point.lat } : null;
+      })
+    );
+
+    const streets = named.filter((entry): entry is { name: string; lng: number; lat: number } => entry !== null);
+    if (streets.length === 0) return;
+
+    setAlternatives(
+      buildPredictions(streets, {
+        destination: poi,
+        reportedSpots: nearbySpots.map((spot) => ({ lng: spot.lng, lat: spot.lat })),
+        hour: new Date().getHours(),
+      })
+    );
+  };
+
+  /** "Drive there" on a predicted street: a normal route to that road. */
+  const handleNavigateToStreet = async (street: PredictedStreet) => {
+    if (!requireLocation()) return;
+    setAlternatives(null);
+    setRouteState('searching');
+    setActiveDestination({ name: street.name, lng: street.lng, lat: street.lat });
+    setRouteTotals(null);
+    setRouteCoords(null);
+    setRouteSteps(null);
+    setCurrentStepIndex(0);
+    // No target spot: the driver is being sent to a street to look, not to a
+    // specific reported space, so the arrival prompt stays out of the way.
+    setTargetSpotId(null);
+    setPoiMarker(null);
+
+    const directions = await getDrivingDirections(userLngLat, [street.lng, street.lat], language === 'gr' ? 'el' : 'en');
+    if (directions) {
+      setRouteCoords(directions.coordinates);
+      setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+      setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+      setRouteState('found');
+      setIsRouting(true);
+      setFollowMode(true);
+    } else {
+      setRouteState('idle');
+      setActiveDestination(null);
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
   };
 
@@ -676,6 +750,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setSuggestions([]);
     setRouteProfile('driving');
     setFollowMode(false);
+    setAlternatives(null);
   };
 
   // "Yes, I Parked" -- claims the target spot right where the driver is
@@ -1491,6 +1566,12 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             {t('map.confirmSpot')}
           </Button>
         </div>
+      ) : alternatives && alternatives.length > 0 && !isNavigating ? (
+        <AlternativeSpotsCard
+          streets={alternatives}
+          onNavigate={handleNavigateToStreet}
+          onClose={() => setAlternatives(null)}
+        />
       ) : selectedZone && !isNavigating ? (
         <ZoneInfoCard zone={selectedZone} onClose={() => setSelectedZoneId(null)} />
       ) : selectedFacility && !isNavigating ? (
