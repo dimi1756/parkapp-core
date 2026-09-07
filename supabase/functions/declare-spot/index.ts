@@ -2,38 +2,28 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 // CORS.
 //
-// Two things were wrong here, and together they produced supabase-js's
-// "Failed to send a request to the Edge Function" while the logs showed a
-// perfectly healthy "OPTIONS | 200" and no POST at all -- the browser was
-// answering the preflight and then refusing to send the real request.
+// The origin is reflected back, for any https page (plus localhost in dev),
+// rather than matched against a configured allowlist.
 //
-// 1. No Access-Control-Allow-Methods. A request carrying Authorization and
-//    a JSON content-type is preflighted, and a preflight response that
-//    doesn't name the method is rejected, 200 or not.
-// 2. A single pinned origin. The app is legitimately served from more than
-//    one: the production domain, Vercel preview deployments, and localhost.
-//    Any origin but the pinned one failed the check.
+// The allowlist version broke production twice. It knew about *.vercel.app
+// and whatever APP_ORIGIN happened to hold, but the app is served from a
+// custom domain -- parkapp.tech -- which matched neither, so the preflight
+// came back naming an origin the browser was not on. The browser then
+// refused to send the request at all, which surfaces in the app as
+// supabase-js's "Failed to send a request to the Edge Function" while the
+// logs show a healthy OPTIONS 204 and no POST behind it. Every new domain,
+// preview URL or custom hostname would have reintroduced it.
 //
-// The origin is now reflected when it is allowed. APP_ORIGIN (comma-separated)
-// names the production origins; preview and local origins are recognised by
-// shape. Every response still requires a valid JWT, which is what actually
-// guards the function -- CORS only decides which pages may read the reply.
-const APP_ORIGINS = (Deno.env.get("APP_ORIGIN") ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-if (APP_ORIGINS.length === 0) {
-  console.warn("[declare-spot] APP_ORIGIN is not configured -- only preview/localhost origins will be reflected.");
-}
-
+// Reflecting is safe here because CORS is not what protects this function:
+// verify_jwt is. CORS only decides which *page* may read the reply, and an
+// attacker holding a stolen token does not need a browser to use it -- curl
+// ignores CORS entirely. Pinning origins bought no real protection and cost
+// two outages.
 function isAllowedOrigin(origin: string): boolean {
-  if (APP_ORIGINS.includes(origin)) return true;
   try {
     const { hostname, protocol } = new URL(origin);
-    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
-    if (protocol !== "https:" && !isLocal) return false;
-    return isLocal || hostname.endsWith(".vercel.app");
+    if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+    return protocol === "https:";
   } catch {
     return false;
   }
@@ -42,7 +32,7 @@ function isAllowedOrigin(origin: string): boolean {
 function corsHeadersFor(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") ?? "";
   return {
-    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : APP_ORIGINS[0] ?? "*",
+    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : "*",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     // Cuts a preflight round trip off every declaration after the first.

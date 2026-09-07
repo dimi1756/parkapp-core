@@ -17,6 +17,7 @@ import { FacilityDetailsCard } from './FacilityDetailsCard';
 import { ZoneInfoCard } from './ZoneInfoCard';
 import { LocationHelpCard } from './LocationHelpCard';
 import { AlternativeSpotsCard } from './AlternativeSpotsCard';
+import { SearchResultsList } from './SearchResultsList';
 import { buildPredictions, candidatePoints, type PredictedStreet } from '@/lib/prediction';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
@@ -175,7 +176,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const { denied: locationDenied, request: requestLocation } = useLocationPermission();
   // The circle this municipality's pilot covers. Null until a city sets one,
   // which deliberately means "no boundary" rather than "nowhere allowed".
-  const { area: operatingArea, cityName } = useOperatingArea();
+  const { area: operatingArea } = useOperatingArea();
 
   /**
    * Ask for location, and explain if the browser won't ask.
@@ -337,11 +338,17 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       // Biased toward wherever the driver actually is right now, not the
       // fallback map centre -- a "pharmacy" search from a different
       // town should surface that town's pharmacies first, not Athens'.
-      const results = await searchPlaces(searchQuery, userLngLatRef.current, sessionTokenRef.current);
+      const results = await searchPlaces(
+        searchQuery,
+        userLngLatRef.current,
+        sessionTokenRef.current,
+        5,
+        language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en'
+      );
       if (searchRequestIdRef.current === requestId) setSuggestions(results);
     }, 350);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, language]);
 
   // Drop the optimistic pin once the real, server-written spot has arrived
   // through useNearbySpots' realtime subscription -- matched by ownership
@@ -435,11 +442,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
    */
   const requireInsideOperatingArea = (lng: number, lat: number): boolean => {
     if (isInsideOperatingArea(lng, lat, operatingArea)) return true;
+    // Deliberately generic: no municipality name. The operating area is a
+    // circle an admin draws, not a municipal boundary, so naming a council
+    // here was both wrong at the edges and stale the moment the pilot moved
+    // to another town.
     toast({
       title: t('map.outsideAreaTitle'),
-      description: cityName
-        ? t('map.outsideAreaDescCity', { city: cityName })
-        : t('map.outsideAreaDesc'),
+      description: t('map.outsideAreaDesc'),
       variant: 'destructive',
     });
     return false;
@@ -1404,24 +1413,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             </Button>
 
             {suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-2 glass-card p-1 max-h-64 overflow-y-auto z-30 animate-fade-in">
-                {suggestions.map((s) => (
-                  <button
-                    key={s.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleSelectSuggestion(s);
-                    }}
-                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-secondary/70 transition-colors flex items-center gap-2"
-                  >
-                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium truncate">{s.name}</span>
-                      {s.address && <span className="block text-xs text-muted-foreground truncate">{s.address}</span>}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <SearchResultsList results={suggestions} onSelect={handleSelectSuggestion} />
             )}
           </div>
         )}

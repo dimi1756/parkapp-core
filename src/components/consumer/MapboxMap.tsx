@@ -80,6 +80,38 @@ export interface PlaceSuggestion {
   name: string;
   /** Street address -- the dropdown's secondary (muted) line. */
   address: string;
+  /**
+   * Metres from the `proximity` point, straight from Mapbox (it measures it
+   * against the same point we bias with). Real, not estimated. Undefined for
+   * results the API returns without one.
+   */
+  distanceMeters?: number;
+  /** Mapbox POI category ("pharmacy", "restaurant", ...), used to pick the row icon. */
+  category?: string;
+}
+
+/**
+ * Bounding box, in degrees, for a hard local restriction around `proximity`.
+ *
+ * `proximity` alone is only a soft bias: for a generic term like "pharmacy"
+ * Mapbox happily ranked well-known Athens results above the ones on the next
+ * street, because a brand match outweighs a few hundred kilometres. A bbox
+ * is a filter rather than a preference, so those simply stop coming back.
+ *
+ * 30km is wide enough to cover a town and everything a driver might plausibly
+ * drive to from it, and narrow enough to keep another city's results out.
+ */
+const LOCAL_SEARCH_RADIUS_KM = 30;
+
+function localBbox([lng, lat]: [number, number]): string {
+  const dLat = LOCAL_SEARCH_RADIUS_KM / 111.32;
+  // Longitude degrees shrink toward the poles; without this the box would be
+  // far too narrow in Greece and too wide near the equator.
+  const dLng = dLat / Math.max(Math.cos((lat * Math.PI) / 180), 0.01);
+  const clampLat = (v: number) => Math.min(90, Math.max(-90, v));
+  return [lng - dLng, clampLat(lat - dLat), lng + dLng, clampLat(lat + dLat)]
+    .map((v) => v.toFixed(6))
+    .join(',');
 }
 
 // Autocomplete-style multi-result search for the live search dropdown, biased
@@ -90,29 +122,55 @@ export interface PlaceSuggestion {
 // together for Search Box API billing. Returns an empty array (never
 // throws) on any failure so callers can render "no results" instead of
 // crashing mid-keystroke.
-export async function searchPlaces(
-  query: string,
-  proximity: [number, number],
-  sessionToken: string,
-  limit = 5
-): Promise<PlaceSuggestion[]> {
-  if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
+interface SuggestFeature {
+  mapbox_id: string;
+  name?: string;
+  full_address?: string;
+  place_formatted?: string;
+  distance?: number;
+  poi_category?: string[];
+  maki?: string;
+}
 
-  const url = `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}&session_token=${sessionToken}&limit=${limit}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
-
+async function fetchSuggestions(url: string, query: string): Promise<PlaceSuggestion[]> {
   try {
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
-    const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
-    return suggestions.map((s: { mapbox_id: string; name?: string; full_address?: string; place_formatted?: string }) => ({
+    const suggestions: SuggestFeature[] = Array.isArray(data?.suggestions) ? data.suggestions : [];
+    return suggestions.map((s) => ({
       id: s.mapbox_id,
       name: s.name ?? query,
       address: s.full_address ?? s.place_formatted ?? '',
+      distanceMeters: typeof s.distance === 'number' ? s.distance : undefined,
+      category: s.poi_category?.[0] ?? s.maki,
     }));
   } catch {
     return [];
   }
+}
+
+export async function searchPlaces(
+  query: string,
+  proximity: [number, number],
+  sessionToken: string,
+  limit = 5,
+  language = 'el'
+): Promise<PlaceSuggestion[]> {
+  if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
+
+  const base =
+    `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}` +
+    `&session_token=${sessionToken}&limit=${limit}&country=gr&language=${language}` +
+    `&proximity=${proximity[0]},${proximity[1]}`;
+
+  // Local first. If nothing in the box matches, fall back to the unbounded
+  // search so someone deliberately looking up another city still gets it --
+  // the bbox is there to reorder everyday searches, not to trap the driver
+  // inside a 30km circle.
+  const local = await fetchSuggestions(`${base}&bbox=${localBbox(proximity)}`, query);
+  if (local.length > 0) return local;
+  return fetchSuggestions(base, query);
 }
 
 // Resolves a suggestion's actual coordinates -- must be called with the same

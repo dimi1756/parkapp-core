@@ -1,24 +1,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 // CORS -- see declare-spot/index.ts for the full reasoning. In short: the
-// preflight response must name the method, and the origin is reflected from
-// an allowlist so production, Vercel previews and localhost all work.
-const APP_ORIGINS = (Deno.env.get("APP_ORIGIN") ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-if (APP_ORIGINS.length === 0) {
-  console.warn("[claim-spot] APP_ORIGIN is not configured -- only preview/localhost origins will be reflected.");
-}
-
+// preflight response must name the method, and the calling origin is
+// reflected back rather than matched against an allowlist, so production,
+// the custom domain, Vercel previews and localhost all work. verify_jwt,
+// not CORS, is what guards this function.
 function isAllowedOrigin(origin: string): boolean {
-  if (APP_ORIGINS.includes(origin)) return true;
   try {
     const { hostname, protocol } = new URL(origin);
-    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
-    if (protocol !== "https:" && !isLocal) return false;
-    return isLocal || hostname.endsWith(".vercel.app");
+    if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+    return protocol === "https:";
   } catch {
     return false;
   }
@@ -27,7 +18,7 @@ function isAllowedOrigin(origin: string): boolean {
 function corsHeadersFor(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") ?? "";
   return {
-    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : APP_ORIGINS[0] ?? "*",
+    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : "*",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Max-Age": "86400",
