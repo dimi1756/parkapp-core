@@ -301,5 +301,8 @@
    require, without colliding with the action row at bottom-28. */
 .parkapp-map-shell .mapboxgl-ctrl-bottom-right,
 .parkapp-map-shell .mapboxgl-ctrl-bottom-left {
-  margin-bottom: 4.25rem;
+  /* Just clear of the tab bar, and no further: every pixel above this is
+     map. The action row above it sits at bottom-20 (5rem), which leaves the
+     attribution its own band rather than overlapping it. */
+  margin-bottom: 3.25rem;
 }

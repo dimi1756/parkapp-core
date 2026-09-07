@@ -1354,16 +1354,16 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
 
       {/* Top action row: points, the car-park toggle, and "nearest spot",
           directly under the search bar.
-          It used to scroll horizontally inside a reserved right-hand gutter,
-          which meant that on a narrow phone the row simply cut its own
-          contents off at both ends -- the points pill sliced down the middle
-          and the green button running off the right edge. It wraps to a
-          second line now instead: nothing is ever clipped, and the gutter is
-          gone with the map controls that used to sit up here (they moved to
-          the bottom-right corner). Everything still fades out together while
-          the search dropdown is open. */}
+          It used to scroll horizontally inside a gutter reserved for map
+          controls that have since moved to the bottom-right corner, so on a
+          narrow phone it cut its own contents off at both ends. One line
+          now, with the last item allowed to shrink: with the shortened
+          label all three fit, and a longer translation truncates rather
+          than wrapping to a second row that would eat into the map.
+          Everything still fades out together while the search dropdown is
+          open. */}
       <div
-        className={`absolute top-[calc(6rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex flex-wrap items-center gap-2 transition-opacity duration-200 ${
+        className={`absolute top-[calc(6rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex flex-nowrap items-center gap-2 transition-opacity duration-200 ${
           // The driving screen earns every pixel: points and "claim nearest"
           // are browsing affordances, not things anyone acts on mid-route.
           suggestions.length > 0 || isNavigating ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -1373,7 +1373,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           type="button"
           onClick={() => onNavigateToOffers?.()}
           aria-label={`${profile?.points_balance ?? 0} ${t('map.points')} — ${t('nav.offers')}`}
-          className="points-pill flex items-center gap-2 cursor-pointer transition-transform active:scale-95 hover:brightness-110 shrink-0"
+          className="points-pill flex items-center gap-1.5 px-3 text-xs cursor-pointer transition-transform active:scale-95 hover:brightness-110 shrink-0"
           data-tour="points"
         >
           <span>💎</span>
@@ -1402,10 +1402,14 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             onClick={handleNavigateToNearest}
             disabled={busyAction === 'claim' || locationDenied}
             size="sm"
-            className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground shrink-0"
+            className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground min-w-0"
           >
-            {busyAction === 'claim' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ParkingCircle className="h-3.5 w-3.5" />}
-            {t('map.claimNearest')}
+            {busyAction === 'claim' ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            ) : (
+              <ParkingCircle className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span className="truncate">{t('map.claimNearest')}</span>
           </Button>
         )}
       </div>
@@ -1469,7 +1473,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           bottom bar, so turn-by-turn navigation isn't fighting the map for
           screen space -- reporting is still one tap away, just decluttered. */}
       {selectionMode ? (
-        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-4 px-4" data-tour="actions">
+        <div className="absolute bottom-20 left-0 right-0 z-20 flex items-center justify-center gap-4 px-4" data-tour="actions">
           <button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
@@ -1515,7 +1519,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         // pair wider than the screen, so both ended up clipped at the edges.
         // flex-1 + min-w-0 + truncate keeps them inside the padding at any
         // label length, in any language.
-        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-stretch justify-center gap-2 px-4" data-tour="actions">
+        <div className="absolute bottom-20 left-0 right-0 z-20 flex items-stretch justify-center gap-2 px-4" data-tour="actions">
           <Button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
@@ -1603,7 +1607,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           clears the whole route), plus the nearest already-reported free spot
           near it, if any. */}
       {activeDestination && routeState !== 'searching' && (
-        <div className="absolute bottom-44 left-4 right-4 z-20">
+        // Sits low too, for the same reason as the action row: while
+        // navigating this is the only thing on the bottom of the screen, and
+        // everything above it is map the driver is trying to read.
+        <div className="absolute bottom-24 left-4 right-4 z-20">
           <div className="glass-card p-4 animate-fade-in space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -1641,7 +1648,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           area the big action buttons vacated (they're FABs on the side while
           isRouting), so this is front and center exactly when it matters. */}
       {showSpotPrompt && targetSpotId && (
-        <div className="absolute bottom-28 left-4 right-4 z-30 flex justify-center">
+        <div className="absolute bottom-20 left-4 right-4 z-30 flex justify-center">
           <div className="glass-card p-4 shadow-2xl animate-fade-in w-full max-w-sm space-y-1">
             <p className="font-bold text-base text-center">{t('map.arrivedTitle')}</p>
             <p className="text-sm text-muted-foreground text-center pb-2">{t('map.isSpotFreeTitle')}</p>

@@ -45,7 +45,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({ distanceMeters
   }, []);
 
   return (
-    <div className="absolute bottom-28 left-4 right-4 z-30 flex justify-center animate-fade-in">
+    <div className="absolute bottom-20 left-4 right-4 z-30 flex justify-center animate-fade-in">
       <div className="glass-card p-4 shadow-2xl w-full max-w-sm relative">
         <button
           onClick={onClose}
