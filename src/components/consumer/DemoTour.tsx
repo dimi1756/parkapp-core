@@ -50,7 +50,20 @@ const TOURS: Record<TourId, TourStep[]> = {
 
 const doneKey = (id: TourId) => `parkapp_demo_tour_${id}_done_v1`;
 
-export const shouldShowTour = (id: TourId) => localStorage.getItem(doneKey(id)) !== '1';
+/**
+ * Master switch for the guided tours.
+ *
+ * Off for the investor pitch: the presenter narrates the dashboard himself,
+ * and a spotlight overlay that mistimes itself over a live screen is a risk
+ * with no upside in that room. Every tour is gated on this single flag --
+ * both the consumer tabs and the admin dashboard go through
+ * shouldShowTour() -- so flipping it back to true restores all of them,
+ * with their steps, targets and translations untouched.
+ */
+export const TOURS_ENABLED = false;
+
+export const shouldShowTour = (id: TourId) =>
+  TOURS_ENABLED && localStorage.getItem(doneKey(id)) !== '1';
 
 export const dismissTour = (id: TourId) => {
   localStorage.setItem(doneKey(id), '1');
