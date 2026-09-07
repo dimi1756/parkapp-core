@@ -260,13 +260,6 @@ interface MapboxMapProps {
   center: [number, number]; // [lng, lat]
   /** Mock position for the demo account; ignored once real GPS is live. */
   userLocation: [number, number];
-  /**
-   * Gates whether this component asks for / tracks real GPS at all. Demo
-   * accounts must never trigger it: a real permission grant would put the
-   * user dot at the tester's actual location while every pin renders at the
-   * simulated Karystos map-centre, visibly desyncing the two.
-   */
-  isDemoAccount?: boolean;
   /** Fires with each real GPS fix once GeolocateControl starts tracking (real accounts only). */
   onUserLocationChange?: (lng: number, lat: number, accuracy: number) => void;
   pins: MapPin[];
@@ -304,7 +297,6 @@ interface MapboxMapProps {
 export const MapboxMap: React.FC<MapboxMapProps> = ({
   center,
   userLocation,
-  isDemoAccount = false,
   onUserLocationChange,
   pins,
   onMapClick,
@@ -455,7 +447,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // and moves the camera only on the session's very first fix and only if
   // the driver hasn't already panned somewhere themselves.
   useEffect(() => {
-    if (isDemoAccount) return;
     return subscribeToPosition((fix) => {
       setHasRealFix(true);
       onUserLocationChangeRef.current?.(fix.lng, fix.lat, fix.accuracy);
@@ -489,7 +480,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         });
       }
     });
-  }, [isDemoAccount]);
+  }, []);
 
   // Turning follow mode on recentres straight away rather than waiting for
   // the next GPS tick, and clears any earlier pan -- starting navigation is
@@ -498,14 +489,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     if (!followUser) return;
     userMovedCameraRef.current = false;
     const map = mapRef.current;
-    const fix = isDemoAccount ? { lng: userLocation[0], lat: userLocation[1] } : getLastFix();
+    const fix = getLastFix();
     if (!map || !fix) return;
     map.easeTo({ center: [fix.lng, fix.lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), duration: 700 });
-    // userLocation is deliberately not a dependency: this fires on entering
-    // follow mode, not on every position update (the subscription above
-    // handles those).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [followUser, isDemoAccount]);
+  }, [followUser]);
 
   // "My Location" button (rendered by MapTab) bumps this counter. This is
   // the one gesture that explicitly asks to be re-centred, so it also clears
@@ -567,11 +554,9 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // The user dot: this component's job now, rather than GeolocateControl's
   // blue dot, which came bundled with camera behaviour we no longer want.
   //
-  // Demo accounts show it unconditionally, at their simulated position. It
-  // used to appear only during Map Selection Mode's pin drop, which left the
-  // demo map with no "you are here" at all for the rest of the session --
-  // once GeolocateControl was gone there was nothing else drawing one.
-  const showUserDot = isDemoAccount || hasRealFix;
+  // Shown as soon as a real fix exists -- there is no simulated position any
+  // more, for any account.
+  const showUserDot = hasRealFix;
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -928,24 +913,34 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // Orientation button, as a toggle rather than a one-way reset.
   //
   // Pointing north is usually what someone wants -- but not always, and a
-  // driver who has carefully rotated the map to match the street ahead of
-  // them shouldn't lose that orientation permanently to a mistaken tap. So
-  // the first tap remembers the bearing and snaps north; the next tap, if
-  // the map is still north-up, puts the remembered bearing back.
+  // driver who rotated the map to match the street ahead of them shouldn't
+  // lose that orientation permanently to a mistaken tap. So the first tap
+  // remembers the bearing and snaps north; the next tap, if the map is still
+  // north-up, puts the remembered bearing back.
+  //
+  // The reported "does nothing" case is the third one: north-up already,
+  // with nothing remembered because the map has never been rotated. Rotating
+  // needs a two-finger twist that most people never try, so that is the
+  // common state. It now levels the pitch as well, which is a visible change
+  // whenever the 3D driving camera has tilted the map -- and pitch is
+  // exactly what a driver wants flattened when they reach for this button.
   const previousBearingRef = useRef(0);
   const handleResetNorth = () => {
     const map = mapRef.current;
     if (!map) return;
-    const current = map.getBearing();
+    const currentBearing = map.getBearing();
 
     // Not exactly 0: a bearing can settle a hair off after an animation, and
     // "0.4 degrees" should still count as facing north.
-    if (Math.abs(current) > 0.5) {
-      previousBearingRef.current = current;
+    const facingNorth = Math.abs(currentBearing) <= 0.5;
+
+    if (!facingNorth) {
+      previousBearingRef.current = currentBearing;
       map.easeTo({ bearing: 0, pitch: 0, duration: 400 });
       return;
     }
-    map.easeTo({ bearing: previousBearingRef.current, duration: 400 });
+
+    map.easeTo({ bearing: previousBearingRef.current, pitch: 0, duration: 400 });
   };
 
   /**
@@ -953,10 +948,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
    * control column as zoom and the compass, and so it can reach the map
    * directly instead of round-tripping through a request counter.
    *
-   * Demo accounts never touch real GPS -- their position is simulated at the
-   * map centre, and a real fix would put the blue dot at the tester's actual
-   * location while every pin sits in Karystos. For them this recentres on
-   * the simulated position at street zoom.
+   * One path for every account: ask for real GPS, fly to the real fix. The
+   * demo account used to be recentred on a simulated position instead, which
+   * meant the button quietly did nothing useful for the one account most
+   * likely to be demonstrating it.
    */
   const handleLocate = async () => {
     const map = mapRef.current;
@@ -968,11 +963,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
     const flyTo = (lng: number, lat: number) =>
       map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), essential: true, speed: 1.4 });
-
-    if (isDemoAccount) {
-      flyTo(userLocation[0], userLocation[1]);
-      return;
-    }
 
     // Move immediately on the cached fix so the tap always feels like it did
     // something, then correct once a fresh one lands.

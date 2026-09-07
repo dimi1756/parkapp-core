@@ -50,10 +50,6 @@ import {
 import { ConfettiBurst } from './ConfettiBurst';
 import { SpotDetailsCard } from './SpotDetailsCard';
 
-// The mocked GPS accuracy for demo declarations: comfortably inside any
-// server-side accuracy gate so reviewers succeed from a desk anywhere.
-const DEMO_ACCURACY_METERS = 5;
-
 // Once the live GPS position gets this close to a maneuver point, the
 // turn-by-turn banner advances to the next step.
 const STEP_ADVANCE_RADIUS_METERS = 30;
@@ -272,22 +268,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // explicit request, and a map that silently has no position is worse than
   // one that asks for it up front.
   useEffect(() => {
-    if (isDemoAccount) return;
     requestLocation();
     // Deliberately once per mount: repeating it would re-prompt on every
     // render, and after a refusal the browser ignores it anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoAccount]);
-
-  useEffect(() => {
-    if (isDemoAccount) {
-      // Demo reviewers judge from a desk, not a car: skip real geolocation
-      // entirely and pretend the device is at the map center with perfect
-      // accuracy. Real accounts get their position from MapboxMap's own
-      // GeolocateControl instead (see handleUserLocationChange below).
-      setUserAccuracy(DEMO_ACCURACY_METERS);
-    }
-  }, [isDemoAccount]);
+  }, []);
 
   // The demo position used to be rewritten to the map centre on every
   // moveend ("the user follows the map"), which is exactly why the blue dot
@@ -297,17 +282,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // the map moves. Declaring somewhere else is still possible through the
   // manual pin ("I saw a free space"), which is the flow built for it.
 
-  // Real accounts only: MapboxMap's GeolocateControl prompts for permission
-  // on mount and calls this on every live GPS fix, so userLngLat always
-  // reflects the actual device position rather than a one-time snapshot.
-  const handleUserLocationChange = useCallback(
-    (lng: number, lat: number, accuracy: number) => {
-      if (isDemoAccount) return;
-      setUserLngLat([lng, lat]);
-      setUserAccuracy(accuracy);
-    },
-    [isDemoAccount]
-  );
+  // Called on every live GPS fix, so userLngLat always reflects the actual
+  // device position rather than a one-time snapshot. Applies to every
+  // account: there is no simulated position any more.
+  const handleUserLocationChange = useCallback((lng: number, lat: number, accuracy: number) => {
+    setUserLngLat([lng, lat]);
+    setUserAccuracy(accuracy);
+  }, []);
 
   // Live autocomplete: debounce keystrokes, ignore stale responses that
   // resolve out of order.
@@ -406,12 +387,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
    * declaring one all need to know where the driver actually is; without it
    * the app would either guess or produce a nonsense result.
    *
-   * The demo account is exempt: it never touches real GPS by design (its
-   * position is simulated), so a permission prompt is neither needed nor
-   * wanted mid-presentation.
+   * Applies to every account, the demo one included: it reads real GPS now
+   * like any other, so it needs real permission like any other.
    */
   const requireLocation = (): boolean => {
-    if (isDemoAccount || !locationDenied) return true;
+    if (!locationDenied) return true;
     toast({
       title: t('map.locationRequired'),
       description: t('map.locationRequiredDesc'),
@@ -492,18 +472,15 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setShowSpotPrompt(false);
     setIsRouting(false);
 
-    // Route from exactly where the driver is right now, not a fix that
-    // might be stale by however long since GeolocateControl last updated
-    // it -- same guaranteed-fresh capture "Emptying a space" uses. Demo
-    // accounts keep their simulated map-center position.
+    // Route from exactly where the driver is right now, not a fix that might
+    // be stale by however long since the last watch tick -- same
+    // guaranteed-fresh capture "Emptying a space" uses.
     let origin = userLngLat;
-    if (!isDemoAccount) {
-      const fresh = await getFreshPosition();
-      if (fresh) {
-        origin = [fresh.lng, fresh.lat];
-        setUserLngLat(origin);
-        setUserAccuracy(fresh.accuracy);
-      }
+    const fresh = await getFreshPosition();
+    if (fresh) {
+      origin = [fresh.lng, fresh.lat];
+      setUserLngLat(origin);
+      setUserAccuracy(fresh.accuracy);
     }
 
     const closest = findNearestSpotTo(poi, []);
@@ -774,13 +751,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setBusyAction('declare');
 
     // No manual pin drop for this button -- capture exactly where the
-    // driver is standing right now and submit directly at those coordinates.
-    // Demo accounts keep their simulated map-center position; real accounts
-    // get a guaranteed-fresh fix instead of trusting a possibly-stale one
-    // cached from GeolocateControl's last update.
+    // driver is standing right now and submit directly at those coordinates,
+    // with a guaranteed-fresh fix rather than a possibly-stale cached one.
     let [lng, lat] = userLngLat;
     let accuracy = userAccuracy;
-    if (!isDemoAccount) {
+    {
       const fresh = await getFreshPosition();
       if (fresh) {
         lng = fresh.lng;
@@ -790,8 +765,8 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         setUserAccuracy(accuracy);
       } else if (accuracy >= 9999) {
         // 9999 is userAccuracy's initial sentinel (see useState above) --
-        // reaching it here means neither this fresh attempt nor
-        // GeolocateControl has EVER produced a real fix (permission denied,
+        // reaching it here means neither this fresh attempt nor the live watch
+        // has EVER produced a real fix (permission denied,
         // no signal, desktop with no GPS). Previously this silently fell
         // through and submitted at userLngLat's own initial value --
         // MAP_CENTER, the hardcoded map fallback -- which looks like "the
@@ -1082,7 +1057,6 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         <MapboxMap
           center={MAP_CENTER}
           userLocation={userLngLat}
-          isDemoAccount={isDemoAccount}
           onUserLocationChange={handleUserLocationChange}
           flyToTarget={flyToTarget}
           flyToRequestId={flyToRequestId}
@@ -1336,7 +1310,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         {!activeSession && nearestClaimable && (
           <Button
             onClick={handleClaimNearest}
-            disabled={busyAction === 'claim' || (!isDemoAccount && locationDenied)}
+            disabled={busyAction === 'claim' || locationDenied}
             size="sm"
             className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground shrink-0"
           >
@@ -1349,7 +1323,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       {/* Location refused: the map still renders, but the actions that need a
           position are blocked, so say why once, prominently, instead of
           letting each one fail on its own. */}
-      {!isDemoAccount && locationDenied && !selectionMode && (
+      {locationDenied && !selectionMode && (
         <div className="absolute top-40 left-4 right-4 z-30 flex justify-center">
           <div className="glass-card rounded-3xl px-4 py-3 shadow-xl animate-fade-in border-destructive/40 bg-destructive/10 w-full max-w-sm">
             <div className="flex items-start gap-2.5">

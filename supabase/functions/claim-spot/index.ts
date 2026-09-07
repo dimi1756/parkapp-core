@@ -1,15 +1,39 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-// See declare-spot/index.ts for why this is a secret rather than "*".
-const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
-if (!APP_ORIGIN) {
-  console.warn("[claim-spot] APP_ORIGIN is not configured -- CORS is wide open (Access-Control-Allow-Origin: *).");
+// CORS -- see declare-spot/index.ts for the full reasoning. In short: the
+// preflight response must name the method, and the origin is reflected from
+// an allowlist so production, Vercel previews and localhost all work.
+const APP_ORIGINS = (Deno.env.get("APP_ORIGIN") ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (APP_ORIGINS.length === 0) {
+  console.warn("[claim-spot] APP_ORIGIN is not configured -- only preview/localhost origins will be reflected.");
 }
-const corsHeaders = {
-  "Access-Control-Allow-Origin": APP_ORIGIN ?? "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  Vary: "Origin",
-};
+
+function isAllowedOrigin(origin: string): boolean {
+  if (APP_ORIGINS.includes(origin)) return true;
+  try {
+    const { hostname, protocol } = new URL(origin);
+    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+    if (protocol !== "https:" && !isLocal) return false;
+    return isLocal || hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : APP_ORIGINS[0] ?? "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+}
 
 const RULES = {
   CLAIM_RADIUS_M: 30,
@@ -74,15 +98,15 @@ interface ClaimBody {
   accuracy: number;
 }
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const corsHeaders = corsHeadersFor(req);
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 
   const user = await getRequestUser(req);
   if (!user) return json({ error: "Not authenticated." }, 401);
@@ -107,8 +131,14 @@ Deno.serve(async (req) => {
 
   const db = getServiceClient();
   await ensureProfile(db, user);
+  const isDemoAccount = user.email === DEMO_EMAIL;
 
-  if (accuracy > RULES.MAX_GPS_ACCURACY_M) {
+  // The accuracy gate joins the demo account's carve-out. Now that the demo
+  // reads real GPS rather than a simulated position, an indoor presentation
+  // reports 30-100m accuracy and every claim would be rejected here -- the
+  // same "the room is not a street" problem the road-snap bypass solves,
+  // arriving one check earlier.
+  if (!isDemoAccount && accuracy > RULES.MAX_GPS_ACCURACY_M) {
     return json({ error: "GPS signal too weak to verify your location." }, 400);
   }
 
@@ -123,7 +153,7 @@ Deno.serve(async (req) => {
     return json({ error: "You already have an active parking session. Unpark first." }, 409);
   }
 
-  if (user.email !== DEMO_EMAIL) {
+  if (!isDemoAccount) {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
