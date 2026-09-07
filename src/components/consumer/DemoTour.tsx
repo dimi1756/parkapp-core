@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -68,6 +68,12 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
   const steps = TOURS[tourId];
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
+  // The card's real height, measured after it renders. Positioning needs it,
+  // and it varies with the text -- Greek and Turkish bodies wrap to more
+  // lines than English, so a fixed estimate would be wrong in exactly the
+  // languages this is demonstrated in.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [cardHeight, setCardHeight] = useState(190);
 
   const finish = useCallback(() => {
     dismissTour(tourId);
@@ -118,6 +124,19 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 
+  // Measured after paint, so the placement above works from the card's real
+  // height instead of a guess. Runs before the browser draws the frame, so
+  // the correction is never visible as a jump.
+  useLayoutEffect(() => {
+    const measured = cardRef.current?.offsetHeight;
+    // The 1px tolerance stops sub-pixel rounding from bouncing this between
+    // two values forever.
+    if (measured && Math.abs(measured - cardHeight) > 1) setCardHeight(measured);
+    // Re-measures when the step changes (new text, new height) or the target
+    // moves. Including cardHeight converges in one extra render: the next run
+    // finds the heights equal and stops.
+  }, [stepIndex, rect, cardHeight]);
+
   if (!rect) return null;
 
   const step = steps[stepIndex];
@@ -128,17 +147,43 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
   const spotWidth = rect.width + SPOT_PADDING * 2;
   const spotHeight = rect.height + SPOT_PADDING * 2;
 
-  // Place the card below the target when it sits in the top half of the
-  // viewport, above it otherwise; never let it leave the screen edges.
-  const placeBelow = rect.top + rect.height / 2 < window.innerHeight / 2;
+  // visualViewport, not innerHeight: on iOS the latter reports the large
+  // viewport (browser toolbars retracted) even while they are on screen, and
+  // positioning against it puts the card partly under them.
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const GAP = 12;
+
   const cardWidth = Math.min(300, window.innerWidth - 24);
   const cardLeft = Math.min(
-    Math.max(12, rect.left + rect.width / 2 - cardWidth / 2),
-    window.innerWidth - cardWidth - 12
+    Math.max(GAP, rect.left + rect.width / 2 - cardWidth / 2),
+    window.innerWidth - cardWidth - GAP
   );
-  const cardStyle: React.CSSProperties = placeBelow
-    ? { top: spotTop + spotHeight + 12, left: cardLeft, width: cardWidth }
-    : { bottom: window.innerHeight - spotTop + 12, left: cardLeft, width: cardWidth };
+
+  // Prefer whichever side the card actually fits on, rather than guessing
+  // from which half of the screen the target sits in. That guess broke on
+  // the admin dashboard, where the KPI target is taller than the phone
+  // screen: it chose "above", and "above a target that starts near the top"
+  // is off the top of the screen -- which is why only the card's bottom
+  // edge, with the Skip and Next buttons, was visible.
+  const spaceBelow = viewportHeight - (spotTop + spotHeight);
+  const spaceAbove = spotTop;
+
+  let cardTop: number;
+  if (spaceBelow >= cardHeight + GAP) {
+    cardTop = spotTop + spotHeight + GAP;
+  } else if (spaceAbove >= cardHeight + GAP) {
+    cardTop = spotTop - cardHeight - GAP;
+  } else {
+    // Fits on neither side -- the target is bigger than the screen. Pin the
+    // card to the bottom, where it overlaps the target but stays readable.
+    cardTop = viewportHeight - cardHeight - GAP;
+  }
+
+  // The clamp the original comment promised and never applied: whatever the
+  // arithmetic above decides, the card stays on screen.
+  cardTop = Math.min(Math.max(GAP, cardTop), Math.max(GAP, viewportHeight - cardHeight - GAP));
+
+  const cardStyle: React.CSSProperties = { top: cardTop, left: cardLeft, width: cardWidth };
 
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-label={t('tour.aria')}>
@@ -156,6 +201,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
       />
 
       <div
+        ref={cardRef}
         className="absolute glass-card p-4 shadow-2xl animate-fade-in pointer-events-auto"
         style={cardStyle}
         key={stepIndex}
