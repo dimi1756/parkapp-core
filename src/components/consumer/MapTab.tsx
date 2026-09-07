@@ -67,13 +67,6 @@ const SEARCH_FLY_ZOOM = 16.5;
 // of clipping the building it fronts.
 const SELECTION_FLY_ZOOM = 18.5;
 
-// "Claim nearest spot": a snappy, fixed-duration hop straight to the spot
-// that was just claimed, not the distance-scaled speed the other flyTo
-// callers use -- this one should always feel the same regardless of how far
-// the spot happens to be.
-const CLAIM_FLY_ZOOM = 16.5;
-const CLAIM_FLY_DURATION_MS = 1000;
-
 // "Is the spot free?" (the "moment of truth" prompt) triggers once the
 // driver is within this radius of the target spot -- tight enough that
 // they're plausibly standing right next to it, matching claim-spot's own
@@ -747,7 +740,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // active spot to the *original* POI (poiMarker, not wherever the driver
   // is now), and instantly redraws the route to it.
   const handleFindNextSpot = async () => {
-    if (!poiMarker || !targetSpotId) return;
+    if (!targetSpotId) return;
+    // Search around the POI when there is one, and around the driver when
+    // there isn't. The "nearest spot" button routes straight to a spot with
+    // no destination behind it, so requiring a POI here left "No, it's
+    // taken" doing nothing at all on exactly the flow that needs it most --
+    // the driver would be stood next to a taken spot with no way forward.
+    const searchAnchor = poiMarker ?? { lng: userLngLat[0], lat: userLngLat[1] };
     // Release this spot's reservation immediately -- it's taken, so no
     // reason to keep it locked out for other drivers for the rest of its TTL.
     releaseSpotIfReal(targetSpotId);
@@ -755,7 +754,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setExcludedSpotIds(excluded);
     setShowSpotPrompt(false);
 
-    const next = findNearestSpotTo(poiMarker, excluded);
+    const next = findNearestSpotTo(searchAnchor, excluded);
     if (!next) {
       toast({ title: t('map.noMoreSpots'), description: t('map.noMoreSpotsDesc'), variant: 'destructive' });
       setTargetSpotId(null);
@@ -768,7 +767,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     reserveSpotIfReal(next.id);
     setTargetSpotId(next.id);
     setWalkMinutes(walkingMinutes(next.d));
-    setActiveDestination({ name: poiMarker.name, lng: next.lng, lat: next.lat });
+    setActiveDestination({ name: poiMarker?.name ?? t('map.nearestSpot'), lng: next.lng, lat: next.lat });
     setRouteState('searching');
 
     const directions = await getDrivingDirections(userLngLat, [next.lng, next.lat], language === 'gr' ? 'el' : 'en');
@@ -1050,7 +1049,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // just... failed. Requiring status === 'active' is what actually means
   // "available to claim," matching findNearestSpotTo's search-based
   // routing (which already had this right).
-  // Demo pins are claimable candidates too (simulated client-side, see
+  // Demo pins are candidates too (their claim is simulated client-side, see
   // claimTargetSpot) -- otherwise this button never appears at all for the
   // one account whose map is guaranteed to have spots on it.
   const nearestClaimable = nearbySpots
@@ -1058,34 +1057,69 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     .map((s) => ({ ...s, d: distanceMeters(userLngLat[0], userLngLat[1], s.lng, s.lat) }))
     .sort((a, b) => a.d - b.d)[0];
 
-  const handleClaimNearest = async () => {
+  /**
+   * "Nearest spot": routes to the closest reported free spot instead of
+   * claiming it on the spot.
+   *
+   * It used to claim immediately, which is why the spot appeared to vanish:
+   * a claimed spot leaves the active list, so the pin the driver was aiming
+   * for disappeared from the map while they were still several streets away
+   * -- and claiming from a distance is not what the button means anyway.
+   *
+   * It now behaves like the search flow: soft-lock the spot so no other
+   * driver is sent to it, draw the route, follow the driver in. The claim
+   * happens at the end, through the same "is the spot still free?" prompt
+   * that fires on arrival -- which is the only point at which anyone can
+   * honestly answer it.
+   */
+  const handleNavigateToNearest = async () => {
     if (!nearestClaimable) return;
     if (!requireLocation()) return;
     if (!requireInsideOperatingArea(userLngLat[0], userLngLat[1])) return;
+
+    const spot = nearestClaimable;
     setBusyAction('claim');
-    const { ok, error } = await claimTargetSpot(nearestClaimable.id);
-    if (!ok) {
-      if (error) toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
-    } else {
-      toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
-      // Fly straight to the claimed spot at street zoom and open its details
-      // card (distance/time + a "Get Directions" button that reuses
-      // navigateToSpotPin) instead of launching full turn-by-turn
-      // immediately -- claiming and committing to navigate are two
-      // different intents, and the card lets the driver confirm the right
-      // spot lit up before starting a route.
-      flyToLocation(nearestClaimable.lng, nearestClaimable.lat, CLAIM_FLY_ZOOM, CLAIM_FLY_DURATION_MS);
-      setSelectedSpotId(nearestClaimable.id);
-      // From here the driver is heading to the spot, so the camera should
-      // travel with them.
-      setFollowMode(true);
-    }
+
+    // Locked before routing, exactly as the destination search does it --
+    // otherwise two drivers can be sent to the same spot.
+    reserveSpotIfReal(spot.id);
+    setTargetSpotId(spot.id);
+    setExcludedSpotIds([]);
+    // No POI: this spot is the destination, so arriving ends the trip
+    // rather than handing off to a walking leg.
+    setPoiMarker(null);
+    setSelectedSpotId(null);
+    setShowSpotPrompt(false);
+    setActiveDestination({ name: t('map.nearestSpot'), lng: spot.lng, lat: spot.lat });
+    setRouteState('searching');
+
+    const directions = await getDrivingDirections(userLngLat, [spot.lng, spot.lat], language === 'gr' ? 'el' : 'en');
     setBusyAction(null);
+
+    if (!directions) {
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
+      setRouteState('idle');
+      setActiveDestination(null);
+      setTargetSpotId(null);
+      releaseSpotIfReal(spot.id);
+      return;
+    }
+
+    setRouteCoords(directions.coordinates);
+    setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+    setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+    setRouteState('found');
+    setIsRouting(true);
+    setFollowMode(true);
+    toast({
+      title: t('map.navigatingToSpot'),
+      description: t('map.navigatingToSpotDesc', { distance: formatDistance(spot.d) }),
+    });
   };
 
   // Zone the driver is currently standing in, if any -- drives the warning
   // banner. Recomputed per render off the live position, which is cheap:
-  // two rings, a handful of edges each.
+  // a couple of rings, a handful of edges each.
   const currentZone = findZoneAt(userLngLat[0], userLngLat[1], zones);
 
   const isPremium = isPremiumActive(profile);
@@ -1318,21 +1352,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         )}
       </div>
 
-      {/* Top action row: Points pill + Claimable-spot banner grouped
-          side-by-side directly under the search bar, instead of the pill on
-          the left and the banner pushed down the right edge -- that
-          previous layout cleared Mapbox's controls but left the banner
-          stranded awkwardly mid-map. pr-14 (well past the right-4 edge
-          padding) reserves the top-right zoom/compass/geolocate control
-          column's width so this row's content can never reach under it
-          regardless of viewport size; overflow-x-auto is the fallback for
-          narrow phones where the pill + the (long, especially in Greek)
-          button text genuinely don't both fit -- the row scrolls within its
-          own reserved bounds rather than spilling out past that padding.
-          Both elements still fade out together while the search dropdown is
-          open, exactly as before. */}
+      {/* Top action row: points, the car-park toggle, and "nearest spot",
+          directly under the search bar.
+          It used to scroll horizontally inside a reserved right-hand gutter,
+          which meant that on a narrow phone the row simply cut its own
+          contents off at both ends -- the points pill sliced down the middle
+          and the green button running off the right edge. It wraps to a
+          second line now instead: nothing is ever clipped, and the gutter is
+          gone with the map controls that used to sit up here (they moved to
+          the bottom-right corner). Everything still fades out together while
+          the search dropdown is open. */}
       <div
-        className={`absolute top-[calc(6rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-opacity duration-200 ${
+        className={`absolute top-[calc(6rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex flex-wrap items-center gap-2 transition-opacity duration-200 ${
           // The driving screen earns every pixel: points and "claim nearest"
           // are browsing affordances, not things anyone acts on mid-route.
           suggestions.length > 0 || isNavigating ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -1368,7 +1399,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
 
         {!activeSession && nearestClaimable && (
           <Button
-            onClick={handleClaimNearest}
+            onClick={handleNavigateToNearest}
             disabled={busyAction === 'claim' || locationDenied}
             size="sm"
             className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground shrink-0"
@@ -1479,31 +1510,36 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         // they read as stray controls rather than as anything meaningful.
         null
       ) : (
-        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
+        // The two buttons share the row rather than sizing to their own
+        // text. Greek labels are long enough that fixed padding pushed the
+        // pair wider than the screen, so both ended up clipped at the edges.
+        // flex-1 + min-w-0 + truncate keeps them inside the padding at any
+        // label length, in any language.
+        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-stretch justify-center gap-2 px-4" data-tour="actions">
           <Button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
             variant="outline"
-            className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
+            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-1.5"
           >
-            <Eye className="h-4 w-4" />
-            <span className="text-sm">{t('map.sawFreeSpace')}</span>
-            <span className="text-xs text-muted-foreground">+5</span>
+            <Eye className="h-4 w-4 shrink-0" />
+            <span className="text-sm truncate">{t('map.sawFreeSpace')}</span>
+            <span className="text-xs text-muted-foreground shrink-0">+5</span>
           </Button>
 
           <Button
             onClick={handleDeclare}
             disabled={busyAction !== null}
-            className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
+            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-xl gap-1.5 font-semibold bg-primary hover:bg-primary/90"
           >
             {busyAction === 'declare' ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
             ) : activeSession ? (
-              <Check className="h-5 w-5" />
+              <Check className="h-5 w-5 shrink-0" />
             ) : (
-              <Navigation className="h-5 w-5" />
+              <Navigation className="h-5 w-5 shrink-0" />
             )}
-            {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
+            <span className="truncate">{activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}</span>
           </Button>
         </div>
       )}
