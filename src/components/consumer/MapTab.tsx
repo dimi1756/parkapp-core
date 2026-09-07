@@ -7,6 +7,8 @@ import { useNearbySpots } from '@/hooks/useNearbySpots';
 import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation, cancelOwnSpot } from '@/lib/api/parking';
 import { claimMockSpot, isMockSpotId } from '@/lib/demoMockData';
 import { requestFreshFix } from '@/lib/geolocation';
+import { KARYSTOS_ZONES, findZoneAt } from '@/lib/zones';
+import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
   MapPin,
@@ -23,6 +25,7 @@ import {
   CornerUpRight,
   RotateCcw,
   Flag,
+  Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
@@ -372,6 +375,27 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       return best;
     }, null);
   }
+
+  /**
+   * The pilot's zoning rule, enforced at the moment of declaring: a spot
+   * inside a municipality's controlled/resident zone is never published to
+   * the community layer. Returns true (and explains itself) when the
+   * declaration must be refused. Both declare paths go through this -- the
+   * "I'm leaving" button, which uses the driver's own GPS, and the "I saw a
+   * free space" manual pin, which can be dropped anywhere on the map.
+   */
+  const blockedByZone = (lng: number, lat: number): boolean => {
+    const zone = findZoneAt(lng, lat);
+    if (!zone) return false;
+    toast({
+      title: t('map.zoneBlockedTitle'),
+      description: t(zone.kind === 'resident' ? 'map.zoneBlockedResident' : 'map.zoneBlockedControlled', {
+        zone: zone.name,
+      }),
+      variant: 'destructive',
+    });
+    return true;
+  };
 
   // Reservations are a real-database concern (0012_spot_reservations.sql):
   // a demo pin has no row to lock, and sending its id would just log an RPC
@@ -730,6 +754,14 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       }
     }
 
+    // Checked against the final coordinates, after the fresh GPS fix above
+    // has had its say -- the zone rule applies to where the spot actually
+    // is, not to whatever stale position the map happened to be showing.
+    if (blockedByZone(lng, lat)) {
+      setBusyAction(null);
+      return;
+    }
+
     flyToLocation(lng, lat);
 
     // True optimistic UI: paint the pin the instant the request goes out,
@@ -801,6 +833,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
 
   const handleConfirmSelection = async () => {
     if (!selectedSpot) return;
+    // Same zoning rule as "I'm leaving", applied to the manually dropped pin
+    // -- this is the path that can actually reach into a zone the driver
+    // isn't standing in, so it matters more here, not less. The pin stays
+    // on the map so they can drag it somewhere legal instead of starting over.
+    if (blockedByZone(selectedSpot.lng, selectedSpot.lat)) return;
     setBusyAction('spotted');
     const [userLng, userLat] = userLngLat;
     const { data, error } = await declareSpot({
@@ -920,6 +957,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setBusyAction(null);
   };
 
+  // Zone the driver is currently standing in, if any -- drives the warning
+  // banner. Recomputed per render off the live position, which is cheap:
+  // two rings, a handful of edges each.
+  const currentZone = findZoneAt(userLngLat[0], userLngLat[1]);
+
+  const isPremium = isPremiumActive(profile);
+
   const isNavigating = Boolean(activeDestination && routeSteps && routeSteps.length > 0);
   const currentStep = routeSteps?.[currentStepIndex] ?? null;
 
@@ -977,6 +1021,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           onMapClick={handleMapTap}
           onCenterChange={handleCenterChange}
           onConfirmSelection={handleConfirmSelection}
+          zones={KARYSTOS_ZONES}
           routeCoordinates={routeCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
@@ -1181,6 +1226,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         </button>
       )}
 
+      {/* Standing inside a controlled/resident zone: say so before the driver
+          taps a declare button and gets refused. Yields the slot to Map
+          Selection Mode's own banner, which occupies the same position. */}
+      {!selectionMode && currentZone && (
+        <div className="absolute top-40 left-4 right-4 z-20 flex justify-center">
+          <div className="glass-card rounded-2xl px-4 py-2.5 flex items-center gap-2 shadow-lg animate-fade-in border-warning/40 bg-warning/10">
+            <Ban className="h-4 w-4 text-warning shrink-0" />
+            <span className="text-xs font-medium">{t('map.zoneBadge', { zone: currentZone.name })}</span>
+          </div>
+        </div>
+      )}
+
       {/* Map Selection Mode banner */}
       {selectionMode && (
         <div className="absolute top-40 left-4 right-4 z-20 flex justify-center">
@@ -1319,16 +1376,30 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             </button>
             <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-warning" />
             <h3 className="text-lg font-semibold mb-2">{t('map.limitTitle')}</h3>
-            <p className="text-sm text-muted-foreground mb-4">{t('map.limitDesc')}</p>
-            <Button
-              onClick={() => {
-                setShowLimitModal(false);
-                onNavigateToPlans?.();
-              }}
-              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-            >
-              {t('map.upgradeCta')}
-            </Button>
+            {/* Premium is a finite allowance now, so this modal can be shown
+                to someone who has already upgraded. Pushing "Upgrade to
+                Premium" at a Premium subscriber reads as broken -- they get
+                the reset-at-midnight explanation and a plain dismiss instead. */}
+            <p className="text-sm text-muted-foreground mb-4">
+              {isPremium
+                ? t('map.limitDescPremium', { n: PREMIUM_DAILY_SEARCHES })
+                : t('map.limitDesc', { n: FREE_DAILY_SEARCHES })}
+            </p>
+            {isPremium ? (
+              <Button variant="outline" className="w-full" onClick={() => setShowLimitModal(false)}>
+                {t('profile.cancel')}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  setShowLimitModal(false);
+                  onNavigateToPlans?.();
+                }}
+                className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+              >
+                {t('map.upgradeCta')}
+              </Button>
+            )}
           </div>
         </div>
       )}

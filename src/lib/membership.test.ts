@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getMembershipStatus, isPremiumActive } from './membership';
+import {
+  getMembershipStatus,
+  isPremiumActive,
+  getDailySearchLimit,
+  FREE_DAILY_SEARCHES,
+  PREMIUM_DAILY_SEARCHES,
+} from './membership';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -123,5 +129,47 @@ describe('isPremiumActive', () => {
 
   it('is false for a null profile', () => {
     expect(isPremiumActive(null)).toBe(false);
+  });
+});
+
+describe('getDailySearchLimit', () => {
+  it('gives the free allowance to a free account', () => {
+    expect(
+      getDailySearchLimit({ membership_tier: 'free', membership_expires_at: null, resident_verified: false })
+    ).toBe(FREE_DAILY_SEARCHES);
+  });
+
+  it('gives the premium allowance during an active trial', () => {
+    expect(
+      getDailySearchLimit({
+        membership_tier: 'premium',
+        membership_expires_at: new Date(Date.now() + DAY_MS).toISOString(),
+        resident_verified: false,
+      })
+    ).toBe(PREMIUM_DAILY_SEARCHES);
+  });
+
+  it('gives the premium allowance to a verified resident, who has no expiry', () => {
+    expect(
+      getDailySearchLimit({ membership_tier: 'premium', membership_expires_at: null, resident_verified: true })
+    ).toBe(PREMIUM_DAILY_SEARCHES);
+  });
+
+  it('drops an expired trial back to the free allowance', () => {
+    expect(
+      getDailySearchLimit({
+        membership_tier: 'premium',
+        membership_expires_at: new Date(Date.now() - DAY_MS).toISOString(),
+        resident_verified: false,
+      })
+    ).toBe(FREE_DAILY_SEARCHES);
+  });
+
+  it('treats a missing profile as free rather than throwing', () => {
+    expect(getDailySearchLimit(null)).toBe(FREE_DAILY_SEARCHES);
+  });
+
+  it('is worth more than the free tier -- the paywall has to buy something', () => {
+    expect(PREMIUM_DAILY_SEARCHES).toBeGreaterThan(FREE_DAILY_SEARCHES);
   });
 });

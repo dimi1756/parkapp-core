@@ -4,6 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { Plus, Minus, Compass } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getLastFix, requestFreshFix, subscribeToPosition } from '@/lib/geolocation';
+import { zonesToGeoJson, type ParkingZone } from '@/lib/zones';
 
 // Reads the token from an env variable so it's never hardcoded in source.
 // Add VITE_MAPBOX_TOKEN=pk.xxxxx to a .env file at the project root.
@@ -292,6 +293,8 @@ interface MapboxMapProps {
   flyToTarget?: { lng: number; lat: number; zoom?: number; duration?: number } | null;
   /** Increment (with flyToTarget set) to imperatively fly the camera to a location at street-level zoom. */
   flyToRequestId?: number;
+  /** Controlled/resident parking zones, drawn as shaded no-declare areas. Omit to draw none. */
+  zones?: ParkingZone[];
 }
 
 export const MapboxMap: React.FC<MapboxMapProps> = ({
@@ -312,6 +315,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   locateRequestId,
   flyToTarget,
   flyToRequestId,
+  zones,
 }) => {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -652,6 +656,58 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       }
     });
   }, [pins]);
+
+  // Controlled/resident parking zones: shaded areas where the community
+  // layer deliberately doesn't operate. Drawn beneath the route line so a
+  // route crossing a zone stays readable, and beneath every marker (Mapbox
+  // markers are DOM elements, always above canvas layers).
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    const drawZones = () => {
+      const data = zonesToGeoJson(zones ?? []);
+      const source = map.getSource('parking-zones') as mapboxgl.GeoJSONSource | undefined;
+      if (source) {
+        source.setData(data);
+        return;
+      }
+      if (!zones || zones.length === 0) return;
+
+      map.addSource('parking-zones', { type: 'geojson', data });
+      // Amber for controlled/paid, red for residents-only: the second is a
+      // harder "not yours to give away", and the colours match the warning /
+      // destructive roles the rest of the app already uses.
+      const fillColor = ['match', ['get', 'kind'], 'resident', '#dc2626', '#f59e0b'] as unknown as string;
+      // Keep zones under the route line when one is already drawn.
+      const beforeId = map.getLayer('route-casing') ? 'route-casing' : undefined;
+      map.addLayer(
+        {
+          id: 'parking-zones-fill',
+          type: 'fill',
+          source: 'parking-zones',
+          paint: { 'fill-color': fillColor, 'fill-opacity': 0.14 },
+        },
+        beforeId
+      );
+      map.addLayer(
+        {
+          id: 'parking-zones-outline',
+          type: 'line',
+          source: 'parking-zones',
+          layout: { 'line-join': 'round' },
+          paint: { 'line-color': fillColor, 'line-width': 2, 'line-dasharray': [2, 1.5], 'line-opacity': 0.75 },
+        },
+        beforeId
+      );
+    };
+
+    if (map.isStyleLoaded()) {
+      drawZones();
+    } else {
+      map.once('load', drawZones);
+    }
+  }, [zones]);
 
   // Real driving-route polyline from the Directions API. Mapbox's driving
   // profile already returns one continuous geometry across ferry legs when a

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getMembershipStatus } from '@/lib/membership';
+import { getMembershipStatus, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import { Check, X, Crown, Zap, Ban, Radar, Gift, Star, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,16 @@ export const PlansTab = () => {
       });
       return;
     }
+    // redeem_resident_code matches against the caller's OWN municipality's
+    // code, so an account with no municipality can only ever get back
+    // "false" -- indistinguishable from a wrong code, and misleading: there
+    // was nothing to be wrong about. Caught here so the message names the
+    // actual problem.
+    if (!profile?.municipality_id) {
+      toast({ title: t('plans.verifyNoCity'), description: t('plans.verifyNoCityDesc'), variant: 'destructive' });
+      return;
+    }
+
     setVerifying(true);
     // Server-verified against the caller's own municipality's resident
     // code -- previously any non-empty string was accepted and silently
@@ -51,7 +61,9 @@ export const PlansTab = () => {
 
   const monthlyPrice = 3;
   const yearlyPrice = monthlyPrice * 12 * 0.8;
-  const trialDays = 15;
+  // Must match redeem_trial_premium()'s interval -- the server decides the
+  // trial length, this only states it (see 0014_fourteen_day_trial.sql).
+  const trialDays = 14;
 
   return (
     <div className="h-full overflow-y-auto pb-24">
@@ -104,7 +116,7 @@ export const PlansTab = () => {
           <ul className="space-y-3 mb-5">
             <li className="flex items-center gap-2 text-sm">
               <Check className="h-4 w-4 text-success" />
-              <span>{t('plans.searchPerDay')}</span>
+              <span>{t('plans.searchesPerDay', { n: FREE_DAILY_SEARCHES })}</span>
             </li>
             <li className="flex items-center gap-2 text-sm">
               <Check className="h-4 w-4 text-success" />
@@ -169,7 +181,7 @@ export const PlansTab = () => {
           <ul className="space-y-3 mb-5">
             <li className="flex items-center gap-2 text-sm">
               <Zap className="h-4 w-4 text-accent" />
-              <span className="font-medium">{t('plans.unlimited')}</span>
+              <span className="font-medium">{t('plans.searchesPerDay', { n: PREMIUM_DAILY_SEARCHES })}</span>
             </li>
             <li className="flex items-center gap-2 text-sm">
               <Radar className="h-4 w-4 text-accent" />
