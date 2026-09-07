@@ -1,160 +1,240 @@
 import React, { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { KARYSTOS_ZONES, type ZoneKind } from '@/lib/zones';
-import { Ban, Info, MapPin, Save } from 'lucide-react';
+import { useAdminParkingZones } from '@/hooks/useParkingZones';
+import { zoneCenter, type ZoneKind } from '@/lib/zones';
+import { ZoneDrawMap } from './ZoneDrawMap';
+import { Ban, Loader2, MapPin, Save, Trash2, Undo2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 
+interface ZoningConfigProps {
+  municipalityId: string | null;
+  /** Where the drawing map opens. */
+  center: [number, number];
+}
+
 /**
- * Zone management for the municipality dashboard.
+ * Zone management for the municipality dashboard -- the real thing now, not
+ * the mock controls this used to be.
  *
- * PROTOTYPE SURFACE, ON PURPOSE. Nothing here writes anything: the controls
- * edit local React state and "save" reports back that persistence isn't
- * built yet. It exists so a mayor can see the shape of the tool they'd be
- * buying -- pick a street, declare it residents-only, set how wide the
- * protected corridor runs -- while the zones the app actually enforces stay
- * exactly the ones defined in src/lib/zones.ts.
+ * An admin traces a street by clicking along it, names it, picks whether it
+ * is residents-only or controlled, sets how wide the rule reaches, and
+ * saves. The row goes to parking_zones (RLS-scoped to that municipality's
+ * own admins) and the driver map picks it up on next load.
  *
- * Making it real means: a parking_zones table (municipality_id, kind,
- * PostGIS geometry) with is_municipality_admin() RLS to match
- * municipality_settings, replacing the hardcoded array, and moving the
- * declaration-time check server-side into declare-spot so it can't be
- * bypassed by a modified client. The banner below says as much on screen,
- * so nobody in the room mistakes this for a working control.
+ * This exists because hand-tracing zone coordinates in a source file put
+ * them visibly off the actual streets. The people who know where the zone
+ * boundaries really are work at the municipality; this hands them the pen.
  */
-export const ZoningConfig = () => {
+export const ZoningConfig: React.FC<ZoningConfigProps> = ({ municipalityId, center }) => {
   const { t } = useLanguage();
+  const { zones, loading, error, createZone, deleteZone } = useAdminParkingZones(municipalityId);
 
-  const [selectedZoneId, setSelectedZoneId] = useState(KARYSTOS_ZONES[0]?.id ?? '');
-  const [kind, setKind] = useState<ZoneKind>(KARYSTOS_ZONES[0]?.kind ?? 'resident');
-  const [enabled, setEnabled] = useState(true);
-  const [radius, setRadius] = useState([30]);
+  const [draftPoints, setDraftPoints] = useState<[number, number][]>([]);
+  const [name, setName] = useState('');
+  const [kind, setKind] = useState<ZoneKind>('resident');
+  const [width, setWidth] = useState([28]);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const selectedZone = KARYSTOS_ZONES.find((z) => z.id === selectedZoneId);
+  const canSave = draftPoints.length >= 2 && name.trim().length > 0 && !saving;
 
-  const handleSelectZone = (id: string) => {
-    setSelectedZoneId(id);
-    const zone = KARYSTOS_ZONES.find((z) => z.id === id);
-    if (zone) setKind(zone.kind);
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    const { error: saveError } = await createZone({
+      name: name.trim(),
+      kind,
+      centerline: draftPoints,
+      widthMeters: width[0],
+    });
+    setSaving(false);
+
+    if (saveError) {
+      toast({ title: t('zoning.saveFailed'), description: saveError, variant: 'destructive' });
+      return;
+    }
+    toast({ title: t('zoning.saved'), description: t('zoning.savedDesc') });
+    setDraftPoints([]);
+    setName('');
   };
+
+  const handleDelete = async (zoneId: string) => {
+    setDeletingId(zoneId);
+    const { error: deleteError } = await deleteZone(zoneId);
+    setDeletingId(null);
+    if (deleteError) {
+      toast({ title: t('zoning.deleteFailed'), description: deleteError, variant: 'destructive' });
+    }
+  };
+
+  if (!municipalityId) {
+    return (
+      <div className="glass-card rounded-3xl p-6 text-center">
+        <p className="text-sm text-muted-foreground">{t('zoning.noMunicipality')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Stated up front rather than in a footnote: an investor demo that
-          implies a working write path it doesn't have is the kind of thing
-          that surfaces badly in due diligence. */}
-      <div className="glass-card rounded-3xl p-4 flex items-start gap-3 bg-primary/5 border-primary/20">
-        <Info className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-        <p className="text-sm text-muted-foreground">{t('zoning.previewNotice')}</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass-card rounded-3xl p-6 space-y-6">
-          <div>
-            <h3 className="text-lg font-bold">{t('zoning.editorTitle')}</h3>
-            <p className="text-sm text-muted-foreground mt-1">{t('zoning.editorDesc')}</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t('zoning.street')}</Label>
-            <Select value={selectedZoneId} onValueChange={handleSelectZone}>
-              <SelectTrigger className="rounded-2xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {KARYSTOS_ZONES.map((zone) => (
-                  <SelectItem key={zone.id} value={zone.id}>
-                    {zone.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t('zoning.kind')}</Label>
-            <Select value={kind} onValueChange={(v) => setKind(v as ZoneKind)}>
-              <SelectTrigger className="rounded-2xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="resident">{t('zoning.kindResident')}</SelectItem>
-                <SelectItem value="controlled">{t('zoning.kindControlled')}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-2xl bg-secondary/50 p-4">
-            <div className="min-w-0">
-              <p className="font-medium text-sm">{t('zoning.enabled')}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('zoning.enabledDesc')}</p>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* Drawing surface */}
+        <div className="lg:col-span-3 space-y-3">
+          <div className="glass-card rounded-3xl p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="min-w-0">
+                <h3 className="font-bold">{t('zoning.drawTitle')}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{t('zoning.drawDesc')}</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={draftPoints.length === 0}
+                  onClick={() => setDraftPoints((points) => points.slice(0, -1))}
+                >
+                  <Undo2 className="h-3.5 w-3.5" />
+                  {t('zoning.undo')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={draftPoints.length === 0}
+                  onClick={() => setDraftPoints([])}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  {t('zoning.clear')}
+                </Button>
+              </div>
             </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} />
-          </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>{t('zoning.radius')}</Label>
-              <span className="text-sm font-bold text-primary">{radius[0]}m</span>
+            <div className="h-[420px]">
+              <ZoneDrawMap
+                center={center}
+                existingZones={zones}
+                draftPoints={draftPoints}
+                draftKind={kind}
+                onAddPoint={(lng, lat) => setDraftPoints((points) => [...points, [lng, lat]])}
+              />
             </div>
-            <Slider value={radius} onValueChange={setRadius} min={10} max={100} step={5} />
-            <p className="text-xs text-muted-foreground">{t('zoning.radiusDesc')}</p>
-          </div>
 
-          <Button
-            className="w-full gap-2 rounded-2xl"
-            onClick={() => toast({ title: t('zoning.saveUnavailable'), description: t('zoning.saveUnavailableDesc') })}
-          >
-            <Save className="h-4 w-4" />
-            {t('zoning.save')}
-          </Button>
+            <p className="text-xs text-muted-foreground mt-3">
+              {draftPoints.length === 0
+                ? t('zoning.pointsNone')
+                : t('zoning.pointsCount', { n: draftPoints.length })}
+            </p>
+          </div>
         </div>
 
-        <div className="glass-card rounded-3xl p-6 space-y-4">
-          <h3 className="text-lg font-bold">{t('zoning.activeTitle')}</h3>
+        {/* Details for the zone being drawn */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="glass-card rounded-3xl p-6 space-y-5">
+            <h3 className="font-bold">{t('zoning.detailsTitle')}</h3>
 
-          <div className="space-y-3">
-            {KARYSTOS_ZONES.map((zone) => {
-              const isResident = zone.kind === 'resident';
-              return (
-                <div
-                  key={zone.id}
-                  className={`rounded-2xl border p-4 transition-colors ${
-                    zone.id === selectedZoneId ? 'border-primary/50 bg-primary/5' : 'border-border bg-secondary/30'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        isResident ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'
-                      }`}
-                    >
-                      {isResident ? <Ban className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-sm truncate">{zone.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t(isResident ? 'zoning.kindResident' : 'zoning.kindControlled')}
-                      </p>
-                    </div>
-                    <span className="text-[11px] font-bold px-2 py-1 rounded-full bg-success/15 text-success shrink-0">
-                      {t('zoning.statusActive')}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            <div className="space-y-2">
+              <Label htmlFor="zoneName">{t('zoning.name')}</Label>
+              <Input
+                id="zoneName"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('zoning.namePlaceholder')}
+                className="rounded-2xl"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-2xl bg-secondary/50 p-4">
+              <div className="min-w-0">
+                <p className="font-medium text-sm">{t('zoning.kindResident')}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {kind === 'resident' ? t('zoning.kindResidentDesc') : t('zoning.kindControlledDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={kind === 'resident'}
+                onCheckedChange={(on) => setKind(on ? 'resident' : 'controlled')}
+                aria-label={t('zoning.kind')}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>{t('zoning.radius')}</Label>
+                <span className="text-sm font-bold text-primary">{width[0]}m</span>
+              </div>
+              <Slider value={width} onValueChange={setWidth} min={10} max={100} step={2} />
+              <p className="text-xs text-muted-foreground">{t('zoning.radiusDesc')}</p>
+            </div>
+
+            <Button className="w-full gap-2 rounded-2xl" disabled={!canSave} onClick={handleSave}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {t('zoning.save')}
+            </Button>
+            {draftPoints.length < 2 && (
+              <p className="text-xs text-muted-foreground text-center">{t('zoning.needTwoPoints')}</p>
+            )}
           </div>
 
-          <div className="rounded-2xl bg-secondary/50 p-4">
-            <p className="text-sm font-medium">{t('zoning.impactTitle')}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t('zoning.impactDesc', { n: KARYSTOS_ZONES.length, street: selectedZone?.name ?? '' })}
-            </p>
+          {/* Saved zones */}
+          <div className="glass-card rounded-3xl p-6 space-y-4">
+            <h3 className="font-bold">{t('zoning.activeTitle')}</h3>
+
+            {loading ? (
+              <div className="flex justify-center py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              </div>
+            ) : error ? (
+              <p className="text-sm text-destructive">{error}</p>
+            ) : zones.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('zoning.emptyState')}</p>
+            ) : (
+              <div className="space-y-3">
+                {zones.map((zone) => {
+                  const isResident = zone.kind === 'resident';
+                  const [lng, lat] = zoneCenter(zone);
+                  return (
+                    <div key={zone.id} className="rounded-2xl border border-border bg-secondary/30 p-4">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                            isResident ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'
+                          }`}
+                        >
+                          {isResident ? <Ban className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-sm truncate">{zone.name}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {t(isResident ? 'zoning.kindResident' : 'zoning.kindControlled')} · {zone.widthMeters}m ·{' '}
+                            {lat.toFixed(4)}, {lng.toFixed(4)}
+                          </p>
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          aria-label={t('zoning.delete')}
+                          disabled={deletingId === zone.id}
+                          onClick={() => handleDelete(zone.id)}
+                        >
+                          {deletingId === zone.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

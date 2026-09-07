@@ -7,7 +7,9 @@ import { useNearbySpots } from '@/hooks/useNearbySpots';
 import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation, cancelOwnSpot } from '@/lib/api/parking';
 import { claimMockSpot, isMockSpotId } from '@/lib/demoMockData';
 import { requestFreshFix } from '@/lib/geolocation';
-import { KARYSTOS_ZONES, findZoneAt } from '@/lib/zones';
+import { findZoneAt } from '@/lib/zones';
+import { useParkingZones } from '@/hooks/useParkingZones';
+import { useLocationPermission } from '@/hooks/useLocationPermission';
 import { KARYSTOS_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parkingFacilities';
 import { FacilityDetailsCard } from './FacilityDetailsCard';
 import { ZoneInfoCard } from './ZoneInfoCard';
@@ -166,6 +168,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const { t, language } = useLanguage();
   const { activeSession, refetch: refetchSession } = useActiveSession();
   const { spots: nearbySpots, refetch: refetchSpots } = useNearbySpots();
+  // Zones now come from the parking_zones table, drawn by each municipality's
+  // own admins -- the hardcoded array they replaced was traced by eye and
+  // rendered visibly off the real streets.
+  const { zones } = useParkingZones();
+  const { denied: locationDenied, request: requestLocation } = useLocationPermission();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -260,6 +267,17 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   useEffect(() => {
     userLngLatRef.current = userLngLat;
   }, [userLngLat]);
+
+  // Ask on open, once. The browser only shows its prompt in response to an
+  // explicit request, and a map that silently has no position is worse than
+  // one that asks for it up front.
+  useEffect(() => {
+    if (isDemoAccount) return;
+    requestLocation();
+    // Deliberately once per mount: repeating it would re-prompt on every
+    // render, and after a refusal the browser ignores it anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoAccount]);
 
   useEffect(() => {
     if (isDemoAccount) {
@@ -383,6 +401,26 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   }
 
   /**
+   * Location-dependent actions refuse to start without a position rather
+   * than failing halfway through. Claiming a spot, routing to one, or
+   * declaring one all need to know where the driver actually is; without it
+   * the app would either guess or produce a nonsense result.
+   *
+   * The demo account is exempt: it never touches real GPS by design (its
+   * position is simulated), so a permission prompt is neither needed nor
+   * wanted mid-presentation.
+   */
+  const requireLocation = (): boolean => {
+    if (isDemoAccount || !locationDenied) return true;
+    toast({
+      title: t('map.locationRequired'),
+      description: t('map.locationRequiredDesc'),
+      variant: 'destructive',
+    });
+    return false;
+  };
+
+  /**
    * The pilot's zoning rule, enforced at the moment of declaring: a spot
    * inside a municipality's controlled/resident zone is never published to
    * the community layer. Returns true (and explains itself) when the
@@ -391,7 +429,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
    * free space" manual pin, which can be dropped anywhere on the map.
    */
   const blockedByZone = (lng: number, lat: number): boolean => {
-    const zone = findZoneAt(lng, lat);
+    const zone = findZoneAt(lng, lat, zones);
     if (!zone) return false;
     toast({
       title: t('map.zoneBlockedTitle'),
@@ -436,6 +474,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   };
 
   const runDestinationSearch = async (poi: Destination) => {
+    if (!requireLocation()) return;
     const canSearch = incrementSearches();
     if (!canSearch) {
       setShowLimitModal(true);
@@ -727,6 +766,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // GPS/GeolocateControl says the user is standing) and, if the user had an
   // active claimed session, closes it with the honest-checkout bonus too.
   const handleDeclare = async () => {
+    if (!requireLocation()) return;
     if (selectionMode) {
       setSelectionMode(false);
       setSelectedSpot(null);
@@ -904,12 +944,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   };
 
   const selectedFacility = KARYSTOS_FACILITIES.find((f) => f.id === selectedFacilityId) ?? null;
-  const selectedZone = KARYSTOS_ZONES.find((z) => z.id === selectedZoneId) ?? null;
+  const selectedZone = zones.find((z) => z.id === selectedZoneId) ?? null;
 
   // "Drive there": the same turn-by-turn path every other destination uses,
   // pointed at the car park's entrance.
   const handleNavigateToFacility = async () => {
     if (!selectedFacility) return;
+    if (!requireLocation()) return;
     const { lng, lat, name } = selectedFacility;
     setSelectedFacilityId(null);
     setRouteState('searching');
@@ -993,6 +1034,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
 
   const handleClaimNearest = async () => {
     if (!nearestClaimable) return;
+    if (!requireLocation()) return;
     setBusyAction('claim');
     const { ok, error } = await claimTargetSpot(nearestClaimable.id);
     if (!ok) {
@@ -1017,7 +1059,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // Zone the driver is currently standing in, if any -- drives the warning
   // banner. Recomputed per render off the live position, which is cheap:
   // two rings, a handful of edges each.
-  const currentZone = findZoneAt(userLngLat[0], userLngLat[1]);
+  const currentZone = findZoneAt(userLngLat[0], userLngLat[1], zones);
 
   const isPremium = isPremiumActive(profile);
 
@@ -1084,7 +1126,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           ]}
           onMapClick={handleMapTap}
           onConfirmSelection={handleConfirmSelection}
-          zones={KARYSTOS_ZONES}
+          zones={zones}
           onLocateFailed={() => toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' })}
           onZoneClick={(zoneId) => {
             setSelectedSpotId(null);
@@ -1294,7 +1336,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         {!activeSession && nearestClaimable && (
           <Button
             onClick={handleClaimNearest}
-            disabled={busyAction === 'claim'}
+            disabled={busyAction === 'claim' || (!isDemoAccount && locationDenied)}
             size="sm"
             className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground shrink-0"
           >
@@ -1303,6 +1345,29 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           </Button>
         )}
       </div>
+
+      {/* Location refused: the map still renders, but the actions that need a
+          position are blocked, so say why once, prominently, instead of
+          letting each one fail on its own. */}
+      {!isDemoAccount && locationDenied && !selectionMode && (
+        <div className="absolute top-40 left-4 right-4 z-30 flex justify-center">
+          <div className="glass-card rounded-3xl px-4 py-3 shadow-xl animate-fade-in border-destructive/40 bg-destructive/10 w-full max-w-sm">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold">{t('map.locationRequired')}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{t('map.locationRequiredDesc')}</p>
+                <button
+                  onClick={() => requestLocation()}
+                  className="mt-2 text-xs font-semibold text-primary hover:underline"
+                >
+                  {t('map.locationEnable')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Standing inside a controlled/resident zone: say so before the driver
           taps a declare button and gets refused. Yields the slot to Map

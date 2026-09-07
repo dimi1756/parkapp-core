@@ -1,4 +1,4 @@
-// Controlled / resident parking zones.
+// Controlled / resident parking zone geometry.
 //
 // The pilot's core legal promise (Investor Package, Slide 4): the
 // peer-to-peer layer never touches a municipality's controlled parking
@@ -8,16 +8,12 @@
 // is refused at the point of declaring, and the zones are drawn on the map
 // so a driver understands why before they try.
 //
-// ---------------------------------------------------------------------------
-// THE COORDINATES BELOW ARE PLACEHOLDER PILOT DATA, NOT OFFICIAL BOUNDARIES.
-// They are hand-drawn corridors approximating streets near the Karystos town
-// centre -- close enough to read as "this street is protected", but traced by
-// eye, not surveyed. The street names are real; the geometry under them is
-// not authoritative. Before any real deployment both must come from the
-// municipality's own GIS export (the schema already has somewhere to put it:
-// municipalities.boundary is a PostGIS polygon column, unused so far -- see
-// 0001_init_schema.sql).
-// ---------------------------------------------------------------------------
+// This module holds only the GEOMETRY: what a zone is, how to turn a drawn
+// street axis into the corridor the rule actually covers, and how to test a
+// point against it. The zones themselves live in the parking_zones table and
+// are drawn by each municipality's own admins (see 0015_parking_zones.sql).
+// They used to be a hardcoded array traced by eye here, which is precisely
+// why they rendered off the real streets.
 
 export type ZoneKind =
   /** Residents-only parking. Crowdsourcing is excluded outright. */
@@ -31,9 +27,10 @@ export interface ParkingZone {
   name: string;
   kind: ZoneKind;
   /**
-   * The street axis, as [lng, lat] pairs. This is what gets DRAWN: a thick
-   * line following the road reads as "this street is protected", where a
-   * polygon inevitably spilled over the buildings either side of it.
+   * The street axis, as [lng, lat] pairs, exactly as an admin drew it. This
+   * is what gets DRAWN: a thick line following the road reads as "this
+   * street is protected", where a polygon inevitably spilled over the
+   * buildings either side of it.
    */
   centerline: [number, number][];
   /** How far the rule reaches either side of the axis, in metres. */
@@ -46,20 +43,6 @@ export interface ParkingZone {
   polygon: [number, number][];
 }
 
-/**
- * Turns a street centreline into a narrow corridor polygon.
- *
- * Zones follow streets, not city blocks -- what a municipality protects is
- * "Sahtouri street and its parking bays", not an abstract rectangle laid
- * over a neighbourhood. Offsetting each segment perpendicular by half the
- * corridor width and walking back down the other side produces exactly that
- * shape from a handful of points.
- *
- * Longitude degrees shrink with latitude, so the horizontal offset is
- * divided by cos(lat) to keep the corridor the same real-world width along
- * its whole length. Joins are butt-ended rather than mitred: at these widths
- * (25-40m) against gently curving streets the difference is centimetres.
- */
 /** Pushes the first and last vertices outward along their own direction of travel. */
 function extendEnds(centerline: [number, number][], meters: number): [number, number][] {
   if (centerline.length < 2) return centerline;
@@ -127,46 +110,21 @@ function corridorFromCenterline(rawCenterline: [number, number][], widthMeters: 
  * account, whose simulated position sits exactly on the map centre. A test
  * guards that (see zones.test.ts).
  */
-const SAHTOURI_AXIS: [number, number][] = [
-  [24.4128, 38.0152],
-  [24.4133, 38.0159],
-  [24.4138, 38.0167],
-  [24.4143, 38.0176],
-  [24.4148, 38.0184],
-];
-
-const WATERFRONT_AXIS: [number, number][] = [
-  [24.415, 38.0142],
-  [24.4161, 38.0143],
-  [24.4172, 38.0144],
-  [24.4183, 38.0145],
-  [24.4194, 38.0146],
-  [24.4203, 38.0147],
-  [24.4212, 38.0149],
-];
-
-function zone(
-  id: string,
-  name: string,
-  kind: ZoneKind,
-  centerline: [number, number][],
-  widthMeters: number
-): ParkingZone {
+/**
+ * Builds a zone from its stored parts. The corridor polygon is derived here
+ * rather than stored, so a width change is a single column update and can
+ * never drift out of sync with a stale saved ring.
+ */
+export function buildZone(params: {
+  id: string;
+  name: string;
+  kind: ZoneKind;
+  centerline: [number, number][];
+  widthMeters: number;
+}): ParkingZone {
+  const { id, name, kind, centerline, widthMeters } = params;
   return { id, name, kind, centerline, widthMeters, polygon: corridorFromCenterline(centerline, widthMeters) };
 }
-
-/**
- * Karystos pilot zones, as street axes.
- *
- * Deliberately drawn *beside* the town centre rather than over it, so the
- * centre itself stays declarable -- both for real drivers and for the demo
- * account, whose simulated position sits exactly on the map centre. A test
- * guards that (see zones.test.ts).
- */
-export const KARYSTOS_ZONES: ParkingZone[] = [
-  zone('karystos-sahtouri', 'Οδός Σαχτούρη', 'resident', SAHTOURI_AXIS, 28),
-  zone('karystos-waterfront', 'Παραλιακή Λεωφόρος', 'controlled', WATERFRONT_AXIS, 36),
-];
 
 /** Midpoint of a zone's axis -- where its info marker sits. */
 export function zoneCenter(zone: ParkingZone): [number, number] {
@@ -197,7 +155,7 @@ export function pointInPolygon(lng: number, lat: number, polygon: [number, numbe
 }
 
 /** The zone containing this point, or null when it's free to declare in. */
-export function findZoneAt(lng: number, lat: number, zones: ParkingZone[] = KARYSTOS_ZONES): ParkingZone | null {
+export function findZoneAt(lng: number, lat: number, zones: ParkingZone[]): ParkingZone | null {
   return zones.find((zone) => pointInPolygon(lng, lat, zone.polygon)) ?? null;
 }
 
@@ -215,7 +173,7 @@ export function findZoneAt(lng: number, lat: number, zones: ParkingZone[] = KARY
  * mapboxgl's addSource accepts this shape (same approach the route layer in
  * MapboxMap already takes).
  */
-export function zonesToGeoJson(zones: ParkingZone[] = KARYSTOS_ZONES) {
+export function zonesToGeoJson(zones: ParkingZone[]) {
   return {
     type: 'FeatureCollection' as const,
     features: zones.map((zone) => ({

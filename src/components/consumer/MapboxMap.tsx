@@ -925,10 +925,28 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
   const handleZoomIn = () => mapRef.current?.zoomIn({ duration: 300 });
   const handleZoomOut = () => mapRef.current?.zoomOut({ duration: 300 });
-  // Orientation button: back to north-up and flat. Also hands the camera
-  // back to the driver, so it doubles as "undo whatever the 3D chase view
-  // did to my map".
-  const handleResetNorth = () => mapRef.current?.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+  // Orientation button, as a toggle rather than a one-way reset.
+  //
+  // Pointing north is usually what someone wants -- but not always, and a
+  // driver who has carefully rotated the map to match the street ahead of
+  // them shouldn't lose that orientation permanently to a mistaken tap. So
+  // the first tap remembers the bearing and snaps north; the next tap, if
+  // the map is still north-up, puts the remembered bearing back.
+  const previousBearingRef = useRef(0);
+  const handleResetNorth = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const current = map.getBearing();
+
+    // Not exactly 0: a bearing can settle a hair off after an animation, and
+    // "0.4 degrees" should still count as facing north.
+    if (Math.abs(current) > 0.5) {
+      previousBearingRef.current = current;
+      map.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+      return;
+    }
+    map.easeTo({ bearing: previousBearingRef.current, duration: 400 });
+  };
 
   /**
    * Location button. Lives here rather than in MapTab so it sits in the same

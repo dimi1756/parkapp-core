@@ -1,6 +1,33 @@
 import { describe, it, expect } from 'vitest';
-import { KARYSTOS_ZONES, findZoneAt, pointInPolygon, zonesToGeoJson } from './zones';
-import { KARYSTOS_CENTER, getMockKarystosSpots } from './demoMockData';
+import { buildZone, findZoneAt, pointInPolygon, zonesToGeoJson, type ParkingZone } from './zones';
+
+// Stand-ins for what a municipality admin would draw: one diagonal street
+// and one that runs east-west, so the corridor maths is exercised at more
+// than one orientation.
+const ZONES: ParkingZone[] = [
+  buildZone({
+    id: 'zone-diagonal',
+    name: 'Οδός Σαχτούρη',
+    kind: 'resident',
+    centerline: [
+      [24.4128, 38.0152],
+      [24.4138, 38.0167],
+      [24.4148, 38.0184],
+    ],
+    widthMeters: 28,
+  }),
+  buildZone({
+    id: 'zone-straight',
+    name: 'Παραλιακή Λεωφόρος',
+    kind: 'controlled',
+    centerline: [
+      [24.415, 38.0142],
+      [24.4183, 38.0145],
+      [24.4212, 38.0149],
+    ],
+    widthMeters: 36,
+  }),
+];
 
 // A plain unit square, so the expected answers are obvious by inspection.
 const SQUARE: [number, number][] = [
@@ -30,45 +57,33 @@ describe('pointInPolygon', () => {
 
 describe('findZoneAt', () => {
   it('finds the zone a point falls inside, and names it', () => {
-    const resident = KARYSTOS_ZONES.find((z) => z.kind === 'resident')!;
+    const resident = ZONES.find((z) => z.kind === 'resident')!;
     // Centroid of the ring is guaranteed inside for these convex blocks.
     const lng = resident.polygon.reduce((sum, [x]) => sum + x, 0) / resident.polygon.length;
     const lat = resident.polygon.reduce((sum, [, y]) => sum + y, 0) / resident.polygon.length;
 
-    expect(findZoneAt(lng, lat)?.id).toBe(resident.id);
+    expect(findZoneAt(lng, lat, ZONES)?.id).toBe(resident.id);
   });
 
   it('returns null out at sea, well away from every zone', () => {
-    expect(findZoneAt(24.5, 37.9)).toBeNull();
+    expect(findZoneAt(24.5, 37.9, ZONES)).toBeNull();
   });
 
-  /**
-   * A guard on the demo, not on the geometry: the zones are drawn beside the
-   * town centre precisely so the demo account -- whose simulated position is
-   * the map centre -- can still declare a spot. A zone edited to cover the
-   * centre would silently break the pitch's main flow, so fail here instead.
-   */
-  it('leaves the demo centre and every demo pin declarable', () => {
-    expect(findZoneAt(KARYSTOS_CENTER[0], KARYSTOS_CENTER[1])).toBeNull();
-    for (const spot of getMockKarystosSpots()) {
-      expect(findZoneAt(spot.lng, spot.lat)).toBeNull();
-    }
-  });
 });
 
 describe('zonesToGeoJson', () => {
   it('emits the street axis as a LineString for the map layer', () => {
-    const features = zonesToGeoJson().features;
-    expect(features).toHaveLength(KARYSTOS_ZONES.length);
+    const features = zonesToGeoJson(ZONES).features;
+    expect(features).toHaveLength(ZONES.length);
     features.forEach((feature, i) => {
       expect(feature.geometry.type).toBe('LineString');
-      expect(feature.geometry.coordinates).toEqual(KARYSTOS_ZONES[i].centerline);
+      expect(feature.geometry.coordinates).toEqual(ZONES[i].centerline);
     });
   });
 
   it('carries the zone kind through for the map\'s colour matching', () => {
-    const kinds = zonesToGeoJson().features.map((f) => f.properties.kind);
-    expect(kinds).toEqual(KARYSTOS_ZONES.map((z) => z.kind));
+    const kinds = zonesToGeoJson(ZONES).features.map((f) => f.properties.kind);
+    expect(kinds).toEqual(ZONES.map((z) => z.kind));
   });
 
   it('produces an empty collection when there are no zones', () => {
@@ -83,7 +98,7 @@ describe('zone corridors', () => {
     // the longest extent can -- a strip of length L and width W covers
     // roughly L*W, so the ratio lands near W/L (small), while a filled block
     // approaches 1.
-    for (const zone of KARYSTOS_ZONES) {
+    for (const zone of ZONES) {
       const metres = zone.polygon.map(([lng, lat]): [number, number] => [
         lng * 111_320 * Math.cos((38 * Math.PI) / 180),
         lat * 111_320,
@@ -105,15 +120,31 @@ describe('zone corridors', () => {
   });
 
   it('keeps every centreline vertex inside its own zone', () => {
-    for (const zone of KARYSTOS_ZONES) {
+    for (const zone of ZONES) {
       for (const [lng, lat] of zone.centerline) {
-        expect(findZoneAt(lng, lat)?.id).toBe(zone.id);
+        expect(findZoneAt(lng, lat, ZONES)?.id).toBe(zone.id);
       }
     }
   });
 
   it('excludes a point 100m to the side of the street', () => {
-    const [lng, lat] = KARYSTOS_ZONES[0].centerline[2];
-    expect(findZoneAt(lng + 0.00115, lat)).toBeNull();
+    const [lng, lat] = ZONES[0].centerline[2];
+    expect(findZoneAt(lng + 0.00115, lat, ZONES)).toBeNull();
+  });
+});
+
+describe('zone widths', () => {
+  it('makes a wider zone cover more ground than a narrow one on the same street', () => {
+    const centerline: [number, number][] = [
+      [24.415, 38.016],
+      [24.417, 38.016],
+    ];
+    const narrow = buildZone({ id: 'n', name: 'n', kind: 'resident', centerline, widthMeters: 10 });
+    const wide = buildZone({ id: 'w', name: 'w', kind: 'resident', centerline, widthMeters: 60 });
+
+    // ~20m north of the axis: outside the 10m corridor, inside the 60m one.
+    const offsetLat = 38.016 + 20 / 111_320;
+    expect(findZoneAt(24.416, offsetLat, [narrow])).toBeNull();
+    expect(findZoneAt(24.416, offsetLat, [wide])?.id).toBe('w');
   });
 });
