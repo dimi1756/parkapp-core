@@ -295,6 +295,10 @@ interface MapboxMapProps {
   zones?: ParkingZone[];
   /** Fires when the location button can't get a fix (permission refused, no signal) so the caller can explain why. */
   onLocateFailed?: () => void;
+  /** Fires with a zone id when one of the drawn zones is tapped. */
+  onZoneClick?: (zoneId: string) => void;
+  /** While true, each new GPS fix recentres the camera -- until the driver pans away. */
+  followUser?: boolean;
 }
 
 export const MapboxMap: React.FC<MapboxMapProps> = ({
@@ -316,6 +320,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   flyToRequestId,
   zones,
   onLocateFailed,
+  onZoneClick,
+  followUser = false,
 }) => {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -360,6 +366,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onConfirmSelectionRef.current = onConfirmSelection;
   const onLocateFailedRef = useRef(onLocateFailed);
   onLocateFailedRef.current = onLocateFailed;
+  const onZoneClickRef = useRef(onZoneClick);
+  onZoneClickRef.current = onZoneClick;
+  const followUserRef = useRef(followUser);
+  followUserRef.current = followUser;
   const isNavigatingRef = useRef(isNavigating);
   isNavigatingRef.current = isNavigating;
   const routeProfileRef = useRef(routeProfile);
@@ -391,6 +401,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     });
 
     map.on('click', (e) => {
+      // A zone tap calls preventDefault on its own layer handler; honouring
+      // it here stops one tap from both opening the zone card and dropping a
+      // selection pin underneath it.
+      if (e.defaultPrevented) return;
       onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat);
     });
 
@@ -457,6 +471,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         map.easeTo({ bearing: fix.heading, duration: 500 });
       }
 
+      // Follow mode (navigation, or straight after a claim): every fix
+      // recentres, Google-Maps style -- until the driver pans away, at which
+      // point userMovedCameraRef latches and the camera is theirs again
+      // until they ask for it back via the location button.
+      if (followUserRef.current && !userMovedCameraRef.current) {
+        map.easeTo({ center: [fix.lng, fix.lat], duration: 700 });
+        return;
+      }
+
       if (!hasAutoCenteredThisSession && !userMovedCameraRef.current) {
         hasAutoCenteredThisSession = true;
         map.easeTo({
@@ -467,6 +490,22 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       }
     });
   }, [isDemoAccount]);
+
+  // Turning follow mode on recentres straight away rather than waiting for
+  // the next GPS tick, and clears any earlier pan -- starting navigation is
+  // an explicit request to be followed.
+  useEffect(() => {
+    if (!followUser) return;
+    userMovedCameraRef.current = false;
+    const map = mapRef.current;
+    const fix = isDemoAccount ? { lng: userLocation[0], lat: userLocation[1] } : getLastFix();
+    if (!map || !fix) return;
+    map.easeTo({ center: [fix.lng, fix.lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), duration: 700 });
+    // userLocation is deliberately not a dependency: this fires on entering
+    // follow mode, not on every position update (the subscription above
+    // handles those).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followUser, isDemoAccount]);
 
   // "My Location" button (rendered by MapTab) bumps this counter. This is
   // the one gesture that explicitly asks to be re-centred, so it also clears
@@ -690,8 +729,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     });
   }, [pins]);
 
-  // Controlled/resident parking zones: shaded areas where the community
-  // layer deliberately doesn't operate. Drawn beneath the route line so a
+  // Controlled/resident parking zones, drawn as thick lines along the street
+  // axis. A filled corridor polygon (what this used to be) inevitably spilled
+  // over the buildings either side; a wide line hugs the road at every zoom
+  // and reads as "this street is protected". Sits beneath the route line so a
   // route crossing a zone stays readable, and beneath every marker (Mapbox
   // markers are DOM elements, always above canvas layers).
   useEffect(() => {
@@ -708,31 +749,56 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       if (!zones || zones.length === 0) return;
 
       map.addSource('parking-zones', { type: 'geojson', data });
-      // Amber for controlled/paid, red for residents-only: the second is a
-      // harder "not yours to give away", and the colours match the warning /
-      // destructive roles the rest of the app already uses.
-      const fillColor = ['match', ['get', 'kind'], 'resident', '#dc2626', '#f59e0b'] as unknown as string;
-      // Keep zones under the route line when one is already drawn.
+      // Red for residents-only, amber for controlled/paid: the first is a
+      // harder "not yours to give away", and both match the destructive /
+      // warning roles the rest of the app already uses.
+      const zoneColor = ['match', ['get', 'kind'], 'resident', '#dc2626', '#f59e0b'] as unknown as string;
       const beforeId = map.getLayer('route-casing') ? 'route-casing' : undefined;
+
+      // Interpolated width so the band tracks the street's apparent size
+      // instead of staying a fixed pixel thickness while the map zooms.
       map.addLayer(
         {
-          id: 'parking-zones-fill',
-          type: 'fill',
-          source: 'parking-zones',
-          paint: { 'fill-color': fillColor, 'fill-opacity': 0.14 },
-        },
-        beforeId
-      );
-      map.addLayer(
-        {
-          id: 'parking-zones-outline',
+          id: 'parking-zones-line',
           type: 'line',
           source: 'parking-zones',
-          layout: { 'line-join': 'round' },
-          paint: { 'line-color': fillColor, 'line-width': 2, 'line-dasharray': [2, 1.5], 'line-opacity': 0.75 },
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': zoneColor,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 13, 6, 16, 14, 19, 26],
+            'line-opacity': 0.45,
+          },
         },
         beforeId
       );
+      // Solid hairline down the middle: without it the translucent band
+      // reads as a vague smudge rather than a marked street.
+      map.addLayer(
+        {
+          id: 'parking-zones-spine',
+          type: 'line',
+          source: 'parking-zones',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': zoneColor, 'line-width': 2, 'line-opacity': 0.9 },
+        },
+        beforeId
+      );
+
+      map.on('click', 'parking-zones-line', (e) => {
+        const id = e.features?.[0]?.properties?.id;
+        if (typeof id === 'string') {
+          // Stops the map's own click handler from also treating this as a
+          // "tap on empty map" (which drops a pin in selection mode).
+          e.preventDefault();
+          onZoneClickRef.current?.(id);
+        }
+      });
+      map.on('mouseenter', 'parking-zones-line', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'parking-zones-line', () => {
+        map.getCanvas().style.cursor = '';
+      });
     };
 
     if (map.isStyleLoaded()) {
@@ -917,12 +983,13 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     <div className="absolute inset-0 w-full h-full">
       <div ref={containerRef} className="parkapp-map-shell absolute inset-0 w-full h-full" />
 
-      {/* Zoom + orientation stack. Deliberately on the right edge well below
-          the floating search bar and the points/claim row above it (which
-          reserves this column's width) and well above the bottom cards --
-          Mapbox's own controls sat at y=10 underneath the search bar, which
-          is why tapping them did nothing. */}
-      <div className="absolute right-4 bottom-72 z-10 flex flex-col items-center gap-2">
+      {/* Map controls, bottom-right: zoom, orientation, locate, in one
+          vertical column. Mapbox's own sat at y=10 underneath the floating
+          search bar, which is why tapping them did nothing. bottom-64 is as
+          low as this can go without colliding with the full-width bottom
+          cards (destination info, spot/facility/zone sheets), which start
+          around bottom-44 and are the one thing that must never be covered. */}
+      <div className="absolute right-4 bottom-64 z-10 flex flex-col items-center gap-2">
         <div className="flex flex-col rounded-2xl overflow-hidden bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
           <button type="button" onClick={handleZoomIn} aria-label={t('map.zoomIn')} className={controlButton}>
             <Plus className="h-5 w-5" />

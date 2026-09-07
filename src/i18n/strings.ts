@@ -419,6 +419,13 @@ const en = {
   'offers.catEmpty': 'No offers in this category yet.',
 
   'profile.poweredBy': 'Powered by Urban Sync',
+
+  // Zone info card
+  'zoneCard.residentTitle': 'Residents-only zone',
+  'zoneCard.residentDesc': 'Parking here is reserved for residents holding the municipality\'s permit badge.',
+  'zoneCard.controlledTitle': 'Controlled parking',
+  'zoneCard.controlledDesc': 'Visitor zone with a maximum stay of 2 hours.',
+  'zoneCard.noReporting': 'ParkApp does not share or report free spots on this street.',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -819,6 +826,13 @@ const gr: Record<keyof typeof en, string> = {
   'offers.catEmpty': 'Δεν υπάρχουν ακόμα προσφορές σε αυτή την κατηγορία.',
 
   'profile.poweredBy': 'Powered by Urban Sync',
+
+  // Κάρτα πληροφοριών ζώνης
+  'zoneCard.residentTitle': 'Ζώνη Μόνιμων Κατοίκων',
+  'zoneCard.residentDesc': 'Η στάθμευση επιτρέπεται αποκλειστικά σε οχήματα δημοτών με ειδικό σήμα.',
+  'zoneCard.controlledTitle': 'Ελεγχόμενη Στάθμευση',
+  'zoneCard.controlledDesc': 'Ζώνη επισκεπτών με μέγιστη διάρκεια στάθμευσης τις 2 ώρες.',
+  'zoneCard.noReporting': 'Το ParkApp δεν μοιράζεται ούτε αναφέρει ελεύθερες θέσεις σε αυτή την οδό.',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -1219,6 +1233,13 @@ const tr: Record<keyof typeof en, string> = {
   'offers.catEmpty': 'Bu kategoride henüz teklif yok.',
 
   'profile.poweredBy': 'Powered by Urban Sync',
+
+  // Bölge bilgi kartı
+  'zoneCard.residentTitle': 'Sadece Sakinler Bölgesi',
+  'zoneCard.residentDesc': 'Buraya park etme yalnızca belediye izin plaketi olan sakinlere ayrılmıştır.',
+  'zoneCard.controlledTitle': 'Kontrollü Otopark',
+  'zoneCard.controlledDesc': 'En fazla 2 saat kalınabilen ziyaretçi bölgesi.',
+  'zoneCard.noReporting': 'ParkApp bu caddede boş yer paylaşmaz veya bildirmez.',
 };
 
 export type StringKey = keyof typeof en;

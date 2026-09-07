@@ -10,6 +10,7 @@ import { requestFreshFix } from '@/lib/geolocation';
 import { KARYSTOS_ZONES, findZoneAt } from '@/lib/zones';
 import { KARYSTOS_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parkingFacilities';
 import { FacilityDetailsCard } from './FacilityDetailsCard';
+import { ZoneInfoCard } from './ZoneInfoCard';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
@@ -218,6 +219,12 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // Toggleable because on a dense map they compete with the community pins.
   const [showFacilities, setShowFacilities] = useState(true);
   const [selectedFacilityId, setSelectedFacilityId] = useState<string | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+
+  // Follow mode: the camera tracks the driver while a route is running, the
+  // way every turn-by-turn app behaves. MapboxMap drops out of it the moment
+  // the driver pans, and the location button turns it back on.
+  const [followMode, setFollowMode] = useState(false);
 
   // Bumped by both action buttons to imperatively fly/zoom the camera to
   // street level centered on the user, right before a manual tap or an
@@ -264,14 +271,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     }
   }, [isDemoAccount]);
 
-  // Demo only: the "user" follows the map, so wherever the reviewer pans,
-  // that's where their declarations land.
-  const handleCenterChange = useCallback(
-    (lng: number, lat: number) => {
-      if (isDemoAccount) setUserLngLat([lng, lat]);
-    },
-    [isDemoAccount]
-  );
+  // The demo position used to be rewritten to the map centre on every
+  // moveend ("the user follows the map"), which is exactly why the blue dot
+  // looked welded to the middle of the screen: panning moved the map AND the
+  // coordinates the marker was pinned to. The demo position is now fixed at
+  // the city centre like any real fix, so the dot stays on its street when
+  // the map moves. Declaring somewhere else is still possible through the
+  // manual pin ("I saw a free space"), which is the flow built for it.
 
   // Real accounts only: MapboxMap's GeolocateControl prompts for permission
   // on mount and calls this on every live GPS fix, so userLngLat always
@@ -488,6 +494,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
       setIsRouting(true);
+      setFollowMode(true);
     } else {
       toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
@@ -523,6 +530,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
       setRouteState('found');
       setIsRouting(true);
+      setFollowMode(true);
     } else {
       setRouteState('idle');
       setActiveDestination(null);
@@ -613,6 +621,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setSearchQuery('');
     setSuggestions([]);
     setRouteProfile('driving');
+    setFollowMode(false);
   };
 
   // "Yes, I Parked" -- claims the target spot right where the driver is
@@ -827,6 +836,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const handleMapTap = async (lng: number, lat: number) => {
     if (!selectionMode) return;
     setSelectedSpot({ lng, lat });
+    // The demo account skips road snapping, client and server alike: a
+    // presentation happens indoors, and nudging the pin onto the nearest
+    // real street would move it away from wherever the presenter tapped.
+    if (isDemoAccount) return;
     const snapped = await snapToRoad(lng, lat);
     if (snapped) setSelectedSpot(snapped);
   };
@@ -891,6 +904,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   };
 
   const selectedFacility = KARYSTOS_FACILITIES.find((f) => f.id === selectedFacilityId) ?? null;
+  const selectedZone = KARYSTOS_ZONES.find((z) => z.id === selectedZoneId) ?? null;
 
   // "Drive there": the same turn-by-turn path every other destination uses,
   // pointed at the car park's entrance.
@@ -914,6 +928,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
       setRouteState('found');
       setIsRouting(true);
+      setFollowMode(true);
     } else {
       setRouteState('idle');
       setActiveDestination(null);
@@ -992,6 +1007,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       // spot lit up before starting a route.
       flyToLocation(nearestClaimable.lng, nearestClaimable.lat, CLAIM_FLY_ZOOM, CLAIM_FLY_DURATION_MS);
       setSelectedSpotId(nearestClaimable.id);
+      // From here the driver is heading to the spot, so the camera should
+      // travel with them.
+      setFollowMode(true);
     }
     setBusyAction(null);
   };
@@ -1065,10 +1083,15 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               : []),
           ]}
           onMapClick={handleMapTap}
-          onCenterChange={handleCenterChange}
           onConfirmSelection={handleConfirmSelection}
           zones={KARYSTOS_ZONES}
           onLocateFailed={() => toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' })}
+          onZoneClick={(zoneId) => {
+            setSelectedSpotId(null);
+            setSelectedFacilityId(null);
+            setSelectedZoneId(zoneId);
+          }}
+          followUser={followMode}
           routeCoordinates={routeCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
@@ -1235,7 +1258,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           open, exactly as before. */}
       <div
         className={`absolute top-24 left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-opacity duration-200 ${
-          suggestions.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          // The driving screen earns every pixel: points and "claim nearest"
+          // are browsing affordances, not things anyone acts on mid-route.
+          suggestions.length > 0 || isNavigating ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
         <button
@@ -1333,6 +1358,8 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             {t('map.confirmSpot')}
           </Button>
         </div>
+      ) : selectedZone && !isNavigating ? (
+        <ZoneInfoCard zone={selectedZone} onClose={() => setSelectedZoneId(null)} />
       ) : selectedFacility && !isNavigating ? (
         <FacilityDetailsCard
           facility={selectedFacility}
@@ -1348,44 +1375,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           onClose={() => setSelectedSpotId(null)}
         />
       ) : isRouting ? (
-        <div className="absolute top-1/2 left-4 -translate-y-1/2 z-20 flex flex-col gap-3" data-tour="actions">
-          {/* `group` + `group-hover`/`group-focus-within` tooltip: the FAB
-              alone doesn't say what it does, and this app is mostly used
-              one-handed on a phone mount where a hover state won't fire --
-              focus-within covers a tap/keyboard focus too, hover covers desktop. */}
-          <div className="group relative">
-            <button
-              onClick={handleToggleSelectionMode}
-              disabled={busyAction !== null}
-              aria-label={t('map.sawFreeSpace')}
-              className="w-12 h-12 rounded-full shadow-lg bg-background/95 backdrop-blur-sm border border-primary/30 flex items-center justify-center hover:bg-secondary transition-colors disabled:opacity-50"
-            >
-              <Eye className="h-5 w-5 text-primary" />
-            </button>
-            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-              {t('map.sawFreeSpace')}
-            </span>
-          </div>
-          <div className="group relative">
-            <button
-              onClick={handleDeclare}
-              disabled={busyAction !== null}
-              aria-label={activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
-              className="w-12 h-12 rounded-full shadow-xl bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {busyAction === 'declare' ? (
-                <Loader2 className="h-5 w-5 animate-spin text-primary-foreground" />
-              ) : activeSession ? (
-                <Check className="h-5 w-5 text-primary-foreground" />
-              ) : (
-                <Navigation className="h-5 w-5 text-primary-foreground" />
-              )}
-            </button>
-            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-              {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
-            </span>
-          </div>
-        </div>
+        // Nothing here on purpose. This used to be a column of unlabelled
+        // circular FABs floating over the middle-left of the map: reporting a
+        // spot is not something a driver does while following a route, and
+        // they read as stray controls rather than as anything meaningful.
+        null
       ) : (
         <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
           <Button
@@ -1499,27 +1493,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         </div>
       )}
 
-      {/* Turn-by-turn instruction panel -- the current/next maneuver, right
-          below the destination info card, filling the bottom-center space
-          the big action buttons vacated (FABs moved to the side while
-          isRouting). Suppressed while the "Is the spot free?" prompt is up,
-          or while Map Selection Mode's Cancel/Confirm pair is using that
-          same bottom-28 slot -- both would otherwise render on top of it. */}
-      {isNavigating && currentStep && !showSpotPrompt && !selectionMode && (
-        <div className="absolute bottom-28 left-4 right-4 z-20">
-          <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 animate-fade-in">
-            <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
-              <ManeuverIcon type={currentStep.maneuverType} modifier={currentStep.maneuverModifier} className="h-6 w-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-bold text-sm leading-tight">
-                {t('map.inDistance', { distance: formatDistance(currentStep.distanceMeters) })}
-              </p>
-              <p className="text-xs text-primary-foreground/85 truncate">{currentStep.instruction}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The bottom turn-by-turn panel that used to sit here is gone: it
+          repeated, word for word, the maneuver banner already pinned at the
+          top of the screen. Two identical instruction cards on a phone-sized
+          driving view is noise, and it cost the bottom half of the map. */}
 
       {/* "Is the spot free?" -- fires once the live position is within
           SPOT_PROXIMITY_METERS of the target spot. Reclaims the bottom-center

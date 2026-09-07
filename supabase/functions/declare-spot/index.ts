@@ -41,12 +41,16 @@ const RULES = {
   TRUST_SHADOWBAN_THRESHOLD: 0.4,
 };
 
-// The shared YC-reviewer demo account is exempt from rate limiting only
-// (hourly/daily caps + the declare-to-declare cooldown) so a live demo can
-// click through many declarations back-to-back with zero rejections. GPS
-// accuracy, the 30m radius check, road-snap, and trust/shadowban all still
-// run for this account exactly as for any real user -- this is a UX carve-out
-// for spam limits, not a bypass of location or identity verification.
+// The shared reviewer/demo account is exempt from two things, both so a
+// live presentation can't be derailed by a rule aimed at farming or
+// spoofing: rate limiting (hourly/daily caps + the declare-to-declare
+// cooldown), and the road-snap check (a demo happens indoors, where Map
+// Matching correctly says "not a street").
+//
+// The 30m declare radius, the GPS accuracy gate and trust/shadowban still
+// run for this account exactly as for any real user. The exemption keys off
+// one specific known address on the verified JWT -- never a flag from the
+// request body -- so no real user can ask for it.
 const DEMO_EMAIL = "demo@parkapp.tech";
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -278,7 +282,17 @@ Deno.serve(async (req) => {
     return json({ error: "That spot is too far from your current location to declare." }, 400);
   }
 
-  const onRoad = await isNearRoad(spotLat, spotLng);
+  // Road-snap is skipped for the shared demo/reviewer account. A live
+  // presentation happens indoors -- a conference room, an office, a stage --
+  // where Map Matching correctly reports "not a street" and rejects every
+  // declaration, killing the demo. This widens the existing DEMO_EMAIL
+  // carve-out (rate limits, above) to cover the road check too.
+  //
+  // Everything else still runs for this account, deliberately: the 30m
+  // declare radius, the GPS accuracy gate, and the trust/shadowban check
+  // are all untouched. And the carve-out is bound to one specific known
+  // address, not to a client-supplied flag -- a real user cannot ask for it.
+  const onRoad = isDemoAccount || (await isNearRoad(spotLat, spotLng));
   if (!onRoad) {
     return json({ error: "We couldn't verify that location is a real street. Declaration rejected." }, 400);
   }
@@ -290,7 +304,7 @@ Deno.serve(async (req) => {
     .insert({
       declared_by: user.id,
       location: toEwkt(spotLat, spotLng),
-      road_snapped: true,
+      road_snapped: !isDemoAccount,
       municipality_id: profile?.municipality_id ?? null,
       status: "active",
       shadow_hidden: shadowHidden,

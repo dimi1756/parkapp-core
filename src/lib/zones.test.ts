@@ -57,11 +57,13 @@ describe('findZoneAt', () => {
 });
 
 describe('zonesToGeoJson', () => {
-  it('closes each ring, as GeoJSON requires', () => {
-    for (const feature of zonesToGeoJson().features) {
-      const ring = feature.geometry.coordinates[0];
-      expect(ring[0]).toEqual(ring[ring.length - 1]);
-    }
+  it('emits the street axis as a LineString for the map layer', () => {
+    const features = zonesToGeoJson().features;
+    expect(features).toHaveLength(KARYSTOS_ZONES.length);
+    features.forEach((feature, i) => {
+      expect(feature.geometry.type).toBe('LineString');
+      expect(feature.geometry.coordinates).toEqual(KARYSTOS_ZONES[i].centerline);
+    });
   });
 
   it('carries the zone kind through for the map\'s colour matching', () => {
@@ -102,11 +104,16 @@ describe('zone corridors', () => {
     }
   });
 
-  it('keeps a point on the centreline inside, and one 100m to the side outside', () => {
-    const sahtouri = KARYSTOS_ZONES.find((z) => z.id === 'karystos-sahtouri')!;
-    // A point from the middle of the declared centreline.
-    expect(findZoneAt(24.4136, 38.0163)?.id).toBe(sahtouri.id);
-    // Same latitude, ~100m east: off the street, so out of the zone.
-    expect(findZoneAt(24.4136 + 0.00115, 38.0163)).toBeNull();
+  it('keeps every centreline vertex inside its own zone', () => {
+    for (const zone of KARYSTOS_ZONES) {
+      for (const [lng, lat] of zone.centerline) {
+        expect(findZoneAt(lng, lat)?.id).toBe(zone.id);
+      }
+    }
+  });
+
+  it('excludes a point 100m to the side of the street', () => {
+    const [lng, lat] = KARYSTOS_ZONES[0].centerline[2];
+    expect(findZoneAt(lng + 0.00115, lat)).toBeNull();
   });
 });
