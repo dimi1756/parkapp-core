@@ -26,6 +26,13 @@ export const PlansTab = () => {
   // could read it would have free Premium for the asking.
   const [codeConfigured, setCodeConfigured] = useState<boolean | null>(null);
 
+  // The working code, shown only on the shared demo account so a live
+  // presentation can type something that actually verifies. Every other
+  // account gets null from the server (see 0018_resident_code_demo_hint.sql)
+  // and keeps the descriptive placeholder -- printing the real code for
+  // everyone would hand out the free Premium the code exists to gate.
+  const [demoCode, setDemoCode] = useState<string | null>(null);
+
   useEffect(() => {
     if (!profile?.municipality_id) return;
     supabase.rpc('has_resident_code').then(({ data, error }) => {
@@ -34,6 +41,13 @@ export const PlansTab = () => {
         return;
       }
       setCodeConfigured(Boolean(data));
+    });
+    supabase.rpc('resident_code_hint').then(({ data, error }) => {
+      if (error) {
+        console.error('[PlansTab] resident_code_hint failed:', error);
+        return;
+      }
+      if (typeof data === 'string' && data.trim()) setDemoCode(data.trim());
     });
   }, [profile?.municipality_id]);
 
@@ -259,7 +273,7 @@ export const PlansTab = () => {
           ) : (
             <div className="space-y-3">
               <Input
-                placeholder={t('plans.residentIdPlaceholder')}
+                placeholder={demoCode ?? t('plans.residentIdPlaceholder')}
                 value={citizenId}
                 onChange={(e) => setCitizenId(e.target.value)}
                 disabled={verifying}
@@ -267,6 +281,15 @@ export const PlansTab = () => {
               />
               {codeConfigured === false && (
                 <p className="text-xs text-warning">{t('plans.verifyNoCodeDesc')}</p>
+              )}
+              {demoCode && citizenId !== demoCode && (
+                <button
+                  type="button"
+                  onClick={() => setCitizenId(demoCode)}
+                  className="text-xs font-semibold text-primary hover:underline text-left"
+                >
+                  {t('plans.useDemoCode', { code: demoCode })}
+                </button>
               )}
               <Button
                 onClick={handleVerify}

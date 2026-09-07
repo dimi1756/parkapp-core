@@ -1108,6 +1108,7 @@ export type Database = {
         Returns: undefined
       }
       reserve_spot: { Args: { p_spot_id: string }; Returns: boolean }
+      resident_code_hint: { Args: never; Returns: string }
       session_distance_meters: {
         Args: { p_lat: number; p_lng: number; p_session_id: string }
         Returns: number
