@@ -1202,7 +1202,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       {/* Header: turn-by-turn maneuver banner while navigating, search bar otherwise.
           The outer strip is pointer-events-none so its padding never blocks the
           Mapbox controls underneath -- only the actual card/input is clickable. */}
-      <div className="absolute top-0 left-0 right-0 z-20 p-4 pt-6 pointer-events-none">
+      <div className="absolute top-0 left-0 right-0 z-20 p-4 pt-[calc(1.5rem+env(safe-area-inset-top))] pointer-events-none">
         {isNavigating && currentStep ? (
           <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 pointer-events-auto animate-fade-in">
             <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
@@ -1273,7 +1273,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           Both elements still fade out together while the search dropdown is
           open, exactly as before. */}
       <div
-        className={`absolute top-24 left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-opacity duration-200 ${
+        className={`absolute top-[calc(6rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-opacity duration-200 ${
           // The driving screen earns every pixel: points and "claim nearest"
           // are browsing affordances, not things anyone acts on mid-route.
           suggestions.length > 0 || isNavigating ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -1324,7 +1324,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           position are blocked, so say why once, prominently, instead of
           letting each one fail on its own. */}
       {locationDenied && !selectionMode && (
-        <div className="absolute top-40 left-4 right-4 z-30 flex justify-center">
+        <div className="absolute top-[calc(10rem+env(safe-area-inset-top))] left-4 right-4 z-50 flex justify-center">
           <div className="glass-card rounded-3xl px-4 py-3 shadow-xl animate-fade-in border-destructive/40 bg-destructive/10 w-full max-w-sm">
             <div className="flex items-start gap-2.5">
               <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
@@ -1347,7 +1347,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           taps a declare button and gets refused. Yields the slot to Map
           Selection Mode's own banner, which occupies the same position. */}
       {!selectionMode && currentZone && (
-        <div className="absolute top-40 left-4 right-4 z-20 flex justify-center">
+        <div className="absolute top-[calc(10rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex justify-center">
           <div className="glass-card rounded-2xl px-4 py-2.5 flex items-center gap-2 shadow-lg animate-fade-in border-warning/40 bg-warning/10">
             <Ban className="h-4 w-4 text-warning shrink-0" />
             <span className="text-xs font-medium">{t('map.zoneBadge', { zone: currentZone.name })}</span>
@@ -1357,7 +1357,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
 
       {/* Map Selection Mode banner */}
       {selectionMode && (
-        <div className="absolute top-40 left-4 right-4 z-20 flex justify-center">
+        <div className="absolute top-[calc(10rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex justify-center">
           <div className="glass-card px-4 py-2.5 flex items-center gap-3 shadow-lg animate-fade-in">
             <span className="text-xs font-medium">{t('map.selectionBannerText')}</span>
             <button

@@ -101,13 +101,35 @@
     @apply border-border;
   }
 
-  html,
-  body,
-  #root {
-    height: 100dvh;
+  /* The app shell is pinned to the viewport rather than merely sized to it.
+     `overflow: hidden` on body is not honoured reliably by iOS Safari: the
+     page could still be dragged, which scrolled the whole app under the URL
+     bar -- the header and search bar vanished off the top while a strip of
+     blank page showed below the tab bar. `position: fixed` on body is what
+     actually makes the document unscrollable there.
+
+     Height comes from --app-height, published from visualViewport (see
+     main.tsx), because iOS reports 100dvh as the *large* viewport -- toolbars
+     retracted -- even while they are on screen, which makes the shell taller
+     than the visible area. 100dvh stays as the fallback for browsers with no
+     visualViewport. */
+  html {
+    height: 100%;
+  }
+
+  body {
+    position: fixed;
+    inset: 0;
+    height: var(--app-height, 100dvh);
     width: 100%;
     overflow: hidden;
     overscroll-behavior: none;
+  }
+
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
   }
 
   body {
@@ -205,6 +227,7 @@
   .pb-safe {
     padding-bottom: max(env(safe-area-inset-bottom), 0px);
   }
+
 }
 
 /* Mapbox marker styles */

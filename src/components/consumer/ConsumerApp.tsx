@@ -57,7 +57,11 @@ export const ConsumerApp = () => {
   };
 
   return (
-    <div className="h-[100dvh] w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
+    // h-full rather than h-[100dvh]: #root is already pinned to the visible
+    // viewport (see index.css / main.tsx), so inheriting that box is exact,
+    // where re-deriving dvh here would reintroduce the very measurement iOS
+    // gets wrong.
+    <div className="h-full w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
       {/* key remounts the pane per tab so each switch gets the fade-in */}
       <div key={activeTab} className="flex-1 overflow-hidden animate-fade-in">
         {renderTab()}
