@@ -7,7 +7,25 @@ import { getBadgeForPoints } from '@/lib/badges';
 import { LeagueModal } from './LeagueModal';
 import { Trophy, Crown, Loader2, AlertTriangle, Building2, ChevronRight } from 'lucide-react';
 
-const RANK_BADGE_COLOR = ['bg-accent', 'bg-slate-400', 'bg-amber-700'];
+// Podium medals. Literal metal colours rather than theme tokens: gold,
+// silver and bronze are what a leaderboard is expected to look like, and
+// they must read the same in light and dark mode. Index 0/1/2 = 1st/2nd/3rd.
+const MEDAL = [
+  { from: '#FFD700', to: '#E6A700', ring: 'ring-[#FFD700]', text: '#5a4200' },
+  { from: '#C0C0C0', to: '#9A9A9A', ring: 'ring-[#C0C0C0]', text: '#3d3d3d' },
+  { from: '#CD7F32', to: '#A15F22', ring: 'ring-[#CD7F32]', text: '#3b2308' },
+] as const;
+
+/** Inline gradient + readable text colour for a podium place, or null below 3rd. */
+function medalStyle(index: number): React.CSSProperties | null {
+  const medal = MEDAL[index];
+  if (!medal) return null;
+  return {
+    backgroundImage: `linear-gradient(140deg, ${medal.from}, ${medal.to})`,
+    color: medal.text,
+    boxShadow: `0 2px 8px -2px ${medal.from}99`,
+  };
+}
 
 function initialsOf(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -93,18 +111,19 @@ export const LeaderboardTab = () => {
               return (
                 <div
                   key={entry.userId}
-                  className={`glass-card p-4 flex items-center gap-4 animate-fade-in ${i === 0 ? 'ring-2 ring-accent' : ''} ${
-                    entry.isCurrentUser ? 'bg-primary/5 border-primary/30' : ''
-                  }`}
+                  className={`glass-card p-4 flex items-center gap-4 animate-fade-in ${
+                    MEDAL[i] ? `ring-2 ${MEDAL[i].ring}` : ''
+                  } ${entry.isCurrentUser ? 'bg-primary/5 border-primary/30' : ''}`}
                   style={{ animationDelay: `${i * 60}ms` }}
                 >
                   <div className="relative shrink-0">
                     <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
                       {initialsOf(entry.fullName)}
                     </div>
-                    {i < 3 && (
+                    {medalStyle(i) && (
                       <div
-                        className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold text-white ${RANK_BADGE_COLOR[i]}`}
+                        className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-extrabold border-2 border-background"
+                        style={medalStyle(i)!}
                       >
                         {i + 1}
                       </div>
@@ -160,9 +179,10 @@ export const LeaderboardTab = () => {
                   className={`flex items-center gap-3 p-3.5 ${city.isOwnCity ? 'bg-primary/5' : ''}`}
                 >
                   <span
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                      i === 0 ? 'bg-accent text-accent-foreground' : 'bg-secondary text-secondary-foreground'
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold shrink-0 ${
+                      medalStyle(i) ? '' : 'bg-secondary text-secondary-foreground'
                     }`}
+                    style={medalStyle(i) ?? undefined}
                   >
                     {i + 1}
                   </span>

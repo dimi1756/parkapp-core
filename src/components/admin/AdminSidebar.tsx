@@ -7,6 +7,7 @@ import {
   Map,
   BarChart3,
   Settings,
+  LandPlot,
   LogOut,
   ChevronLeft,
   Building2
@@ -31,6 +32,7 @@ export const AdminSidebar = ({ activeSection, onSectionChange, municipalityName,
     { id: 'overview', label: t('admin.overview'), icon: LayoutDashboard },
     { id: 'analytics', label: t('admin.analytics'), icon: BarChart3 },
     { id: 'livemap', label: t('admin.liveMap'), icon: Map },
+    { id: 'zoning', label: t('admin.zoning'), icon: LandPlot },
     { id: 'settings', label: t('admin.settings'), icon: Settings },
   ];
 

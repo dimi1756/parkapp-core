@@ -73,3 +73,40 @@ describe('zonesToGeoJson', () => {
     expect(zonesToGeoJson([]).features).toEqual([]);
   });
 });
+
+describe('zone corridors', () => {
+  it('shapes each zone as a narrow strip, not a block', () => {
+    // Bounding-box proportions can't answer this: a diagonal street's box is
+    // near-square however thin the corridor is. Area against the square of
+    // the longest extent can -- a strip of length L and width W covers
+    // roughly L*W, so the ratio lands near W/L (small), while a filled block
+    // approaches 1.
+    for (const zone of KARYSTOS_ZONES) {
+      const metres = zone.polygon.map(([lng, lat]): [number, number] => [
+        lng * 111_320 * Math.cos((38 * Math.PI) / 180),
+        lat * 111_320,
+      ]);
+
+      // Shoelace formula.
+      let twiceArea = 0;
+      for (let i = 0, j = metres.length - 1; i < metres.length; j = i++) {
+        twiceArea += metres[j][0] * metres[i][1] - metres[i][0] * metres[j][1];
+      }
+      const area = Math.abs(twiceArea) / 2;
+
+      const xs = metres.map(([x]) => x);
+      const ys = metres.map(([, y]) => y);
+      const longest = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+
+      expect(area / (longest * longest)).toBeLessThan(0.25);
+    }
+  });
+
+  it('keeps a point on the centreline inside, and one 100m to the side outside', () => {
+    const sahtouri = KARYSTOS_ZONES.find((z) => z.id === 'karystos-sahtouri')!;
+    // A point from the middle of the declared centreline.
+    expect(findZoneAt(24.4136, 38.0163)?.id).toBe(sahtouri.id);
+    // Same latitude, ~100m east: off the street, so out of the zone.
+    expect(findZoneAt(24.4136 + 0.00115, 38.0163)).toBeNull();
+  });
+});

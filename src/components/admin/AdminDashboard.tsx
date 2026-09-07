@@ -9,6 +9,7 @@ import { KPICards, type CityKpis } from './KPICards';
 import { CityMap, type LiveSpot } from './CityMap';
 import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
 import { AdminSettings } from './AdminSettings';
+import { ZoningConfig } from './ZoningConfig';
 import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
 import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -193,6 +194,8 @@ export const AdminDashboard = () => {
         );
       case 'livemap':
         return <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} tall />;
+      case 'zoning':
+        return <ZoningConfig />;
       case 'settings':
         return <AdminSettings municipalityId={municipalityId} spots={spots} trend={trend} />;
       default:
@@ -204,6 +207,7 @@ export const AdminDashboard = () => {
     overview: t('admin.overview'),
     analytics: t('admin.analytics'),
     livemap: t('admin.liveMap'),
+    zoning: t('admin.zoning'),
     settings: t('admin.settings'),
   };
 

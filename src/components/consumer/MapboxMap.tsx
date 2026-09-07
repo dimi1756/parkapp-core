@@ -250,8 +250,10 @@ export interface MapPin {
   id: string;
   lng: number;
   lat: number;
-  type: 'mine' | 'reported' | 'destination' | 'selection' | 'poi';
+  type: 'mine' | 'reported' | 'destination' | 'selection' | 'poi' | 'garage';
   label?: string;
+  /** 'garage' only: occupancy colour, so the marker matches its details card. */
+  color?: string;
 }
 
 interface MapboxMapProps {
@@ -592,6 +594,27 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           onConfirmSelectionRef.current?.();
         });
         markersRef.current[pin.id] = new mapboxgl.Marker({ element: wrapper, anchor: 'bottom' })
+          .setLngLat([pin.lng, pin.lat])
+          .addTo(map);
+        return;
+      }
+
+      if (pin.type === 'garage') {
+        // A rounded "P" plate rather than a teardrop: this marks a building
+        // with many spaces, and must not be mistaken at a glance for one of
+        // the single community-reported spots around it. Colour comes from
+        // the caller so it always agrees with the occupancy bar on the card.
+        const el = document.createElement('div');
+        el.className = 'mapbox-pin-wrapper';
+        el.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:10px;background:${pin.color ?? '#2563eb'};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);color:white;font-weight:800;font-size:15px;font-family:inherit;line-height:1;">P</div>
+        `;
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          onPinClickRef.current?.(pin.id);
+        });
+        markersRef.current[pin.id] = new mapboxgl.Marker({ element: el })
           .setLngLat([pin.lng, pin.lat])
           .addTo(map);
         return;

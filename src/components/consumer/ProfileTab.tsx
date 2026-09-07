@@ -256,6 +256,20 @@ export const ProfileTab = () => {
         <p className="text-center text-xs text-muted-foreground pt-4">
           ParkApp v1.0.0 • {t('common.tagline')}
         </p>
+
+        {/* Parent-brand footer. The logo is served from /public rather than
+            imported so it stays a plain static asset -- and it carries an
+            empty alt with the wordmark beside it, so a screen reader hears
+            "Powered by Urban Sync" once, not twice. */}
+        <div className="flex flex-col items-center gap-2 pt-2 pb-2 opacity-80">
+          <img
+            src="/urbansync-logo.jpg"
+            alt=""
+            className="h-8 w-8 rounded-xl object-cover shadow-sm"
+            loading="lazy"
+          />
+          <p className="text-center text-xs font-medium text-muted-foreground">{t('profile.poweredBy')}</p>
+        </div>
       </div>
 
       {/* Edit Profile Dialog */}

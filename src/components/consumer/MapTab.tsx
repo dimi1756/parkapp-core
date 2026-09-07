@@ -8,6 +8,8 @@ import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservati
 import { claimMockSpot, isMockSpotId } from '@/lib/demoMockData';
 import { requestFreshFix } from '@/lib/geolocation';
 import { KARYSTOS_ZONES, findZoneAt } from '@/lib/zones';
+import { KARYSTOS_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parkingFacilities';
+import { FacilityDetailsCard } from './FacilityDetailsCard';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
@@ -25,6 +27,7 @@ import {
   RotateCcw,
   Flag,
   Ban,
+  Building2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
@@ -209,6 +212,12 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // holds the id so the card's live distance/ETA can recompute against the
   // driver's current position rather than a snapshot from the moment of the tap.
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
+
+  // Off-street car parks: the layer that has something to show on day one,
+  // before any driver has declared anything (see src/lib/parkingFacilities.ts).
+  // Toggleable because on a dense map they compete with the community pins.
+  const [showFacilities, setShowFacilities] = useState(true);
+  const [selectedFacilityId, setSelectedFacilityId] = useState<string | null>(null);
 
   // Bumped by both action buttons to imperatively fly/zoom the camera to
   // street level centered on the user, right before a manual tap or an
@@ -870,7 +879,46 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // Tapping a live "mine"/"reported" spot pin opens the details bottom card
   // (distance/time-since/ETA + Get Directions) -- see MapboxMap's onPinClick.
   const handlePinClick = (pinId: string) => {
+    // Facility markers share the pin-click channel; route by id so a car
+    // park opens its own card rather than the community-spot one.
+    if (KARYSTOS_FACILITIES.some((f) => f.id === pinId)) {
+      setSelectedSpotId(null);
+      setSelectedFacilityId(pinId);
+      return;
+    }
+    setSelectedFacilityId(null);
     setSelectedSpotId(pinId);
+  };
+
+  const selectedFacility = KARYSTOS_FACILITIES.find((f) => f.id === selectedFacilityId) ?? null;
+
+  // "Drive there": the same turn-by-turn path every other destination uses,
+  // pointed at the car park's entrance.
+  const handleNavigateToFacility = async () => {
+    if (!selectedFacility) return;
+    const { lng, lat, name } = selectedFacility;
+    setSelectedFacilityId(null);
+    setRouteState('searching');
+    setActiveDestination({ name, lng, lat });
+    setRouteTotals(null);
+    setRouteCoords(null);
+    setRouteSteps(null);
+    setCurrentStepIndex(0);
+    setPoiMarker(null);
+    setTargetSpotId(null);
+
+    const directions = await getDrivingDirections(userLngLat, [lng, lat], language === 'gr' ? 'el' : 'en');
+    if (directions) {
+      setRouteCoords(directions.coordinates);
+      setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+      setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+      setRouteState('found');
+      setIsRouting(true);
+    } else {
+      setRouteState('idle');
+      setActiveDestination(null);
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
+    }
   };
 
   // X badge on the driver's own ('mine') pins -- removes a declaration they
@@ -1002,6 +1050,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               : []),
             ...(selectedSpot
               ? [{ id: 'selection', lng: selectedSpot.lng, lat: selectedSpot.lat, type: 'selection' as const }]
+              : []),
+            // Colour carries the occupancy level, so the marker and the card
+            // it opens can never disagree about how full a car park is.
+            ...(showFacilities
+              ? KARYSTOS_FACILITIES.map((f) => ({
+                  id: f.id,
+                  lng: f.lng,
+                  lat: f.lat,
+                  type: 'garage' as const,
+                  label: f.name,
+                  color: OCCUPANCY_COLOR[occupancyLevel(f)],
+                }))
               : []),
           ]}
           onMapClick={handleMapTap}
@@ -1189,6 +1249,23 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           <span>{profile?.points_balance ?? 0} {t('map.points')}</span>
         </button>
 
+        <button
+          type="button"
+          onClick={() => {
+            setShowFacilities((on) => !on);
+            setSelectedFacilityId(null);
+          }}
+          aria-pressed={showFacilities}
+          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold shadow-lg shrink-0 transition-colors ${
+            showFacilities
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-background/95 text-muted-foreground border border-border'
+          }`}
+        >
+          <Building2 className="h-3.5 w-3.5" />
+          P
+        </button>
+
         {!activeSession && nearestClaimable && (
           <Button
             onClick={handleClaimNearest}
@@ -1256,6 +1333,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             {t('map.confirmSpot')}
           </Button>
         </div>
+      ) : selectedFacility && !isNavigating ? (
+        <FacilityDetailsCard
+          facility={selectedFacility}
+          distanceMeters={distanceMeters(userLngLat[0], userLngLat[1], selectedFacility.lng, selectedFacility.lat)}
+          onNavigate={handleNavigateToFacility}
+          onClose={() => setSelectedFacilityId(null)}
+        />
       ) : clickedNearbySpot && !isNavigating ? (
         <SpotDetailsCard
           distanceMeters={distanceMeters(userLngLat[0], userLngLat[1], clickedNearbySpot.lng, clickedNearbySpot.lat)}

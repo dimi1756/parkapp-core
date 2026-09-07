@@ -135,8 +135,22 @@
 }
 
 @layer components {
+  /* The app's card surface. rounded-3xl and a layered, wide-spread shadow
+     are what carry the "Apple-premium" look: one soft ambient layer for
+     depth plus a tighter contact layer so the card reads as lifted off the
+     map rather than drawn on it. Changing it here restyles every card,
+     modal and sheet at once -- which is the point. */
   .glass-card {
-    @apply bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl shadow-lg;
+    @apply bg-card/80 backdrop-blur-md border border-border/50 rounded-3xl;
+    box-shadow:
+      0 12px 32px -12px rgba(15, 23, 42, 0.28),
+      0 2px 8px -2px rgba(15, 23, 42, 0.12);
+  }
+
+  .dark .glass-card {
+    box-shadow:
+      0 12px 32px -12px rgba(0, 0, 0, 0.6),
+      0 2px 8px -2px rgba(0, 0, 0, 0.4);
   }
 
   .premium-border {

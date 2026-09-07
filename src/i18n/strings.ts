@@ -145,6 +145,10 @@ const en = {
   'offers.reward.coupon': '€5 Discount Coupon',
   'offers.reward.popcorn': 'Free Popcorn',
   'offers.reward.fuel': '10% Off Fuel',
+  'offers.reward.delivery': '€4 Off Your Order',
+  'offers.reward.deliveryFee': 'Free Delivery Fee',
+  'offers.reward.fuelCents': '5c/Litre Off Fuel',
+  'offers.reward.parkingHour': '1 Hour Free Parking',
 
   // Plans tab
   'plans.title': 'Plans',
@@ -227,6 +231,7 @@ const en = {
   'admin.analytics': 'Analytics',
   'admin.liveMap': 'Live Map',
   'admin.settings': 'Settings',
+  'admin.zoning': 'Zone Management',
   'admin.backToApp': 'Back to App',
   'admin.logOut': 'Log Out',
   'admin.openMenu': 'Open menu',
@@ -368,6 +373,52 @@ const en = {
   'leaderboard.badge.silver': 'Silver',
   'leaderboard.badge.gold': 'Gold',
   'leaderboard.badge.platinum': 'Platinum',
+
+  // Zone management (municipality dashboard)
+  'zoning.previewNotice': 'Preview: these controls demonstrate the zone editor. Saving to the database is not built yet — the zones the app enforces are the ones already configured.',
+  'zoning.editorTitle': 'Zone editor',
+  'zoning.editorDesc': 'Choose a street, set how it is protected, and how wide the protected corridor runs.',
+  'zoning.street': 'Street',
+  'zoning.kind': 'Zone type',
+  'zoning.kindResident': 'Residents only',
+  'zoning.kindControlled': 'Controlled / paid',
+  'zoning.enabled': 'Zone active',
+  'zoning.enabledDesc': 'While active, drivers cannot report free spots on this street.',
+  'zoning.radius': 'Corridor width',
+  'zoning.radiusDesc': 'How far either side of the centre line the zone reaches.',
+  'zoning.save': 'Save zone',
+  'zoning.saveUnavailable': 'Not saved',
+  'zoning.saveUnavailableDesc': 'Zone editing is a preview. Persisting changes needs the parking_zones table and server-side enforcement.',
+  'zoning.activeTitle': 'Active zones',
+  'zoning.statusActive': 'Active',
+  'zoning.impactTitle': 'What this protects',
+  'zoning.impactDesc': '{n} zones are excluded from community reporting. Selected: {street}.',
+
+  // Off-street parking
+  'facility.public': 'Public car park',
+  'facility.private': 'Private garage',
+  'facility.level.low': 'Spaces available',
+  'facility.level.medium': 'Filling up',
+  'facility.level.full': 'Almost full',
+  'facility.freeOf': '{free} of {total} free',
+  'facility.price': 'Price',
+  'facility.free': 'Free',
+  'facility.perHour': '€{price}/hr',
+  'facility.hours': 'Open',
+  'facility.driveThere': 'Drive there',
+  'facility.toggleOn': 'Car parks shown',
+  'facility.toggleOff': 'Car parks hidden',
+  'facility.occupancyNotice': 'Indicative occupancy',
+
+  // Reward marketplace categories
+  'offers.cat.all': 'All',
+  'offers.cat.food': 'Food & coffee',
+  'offers.cat.delivery': 'Delivery',
+  'offers.cat.fuel': 'Fuel',
+  'offers.cat.parking': 'Parking',
+  'offers.catEmpty': 'No offers in this category yet.',
+
+  'profile.poweredBy': 'Powered by Urban Sync',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -504,6 +555,10 @@ const gr: Record<keyof typeof en, string> = {
   'offers.reward.coupon': 'Κουπόνι Έκπτωσης 5€',
   'offers.reward.popcorn': 'Δωρεάν Ποπκόρν',
   'offers.reward.fuel': '10% Έκπτωση στα Καύσιμα',
+  'offers.reward.delivery': '4€ Έκπτωση στην Παραγγελία',
+  'offers.reward.deliveryFee': 'Δωρεάν Μεταφορικά',
+  'offers.reward.fuelCents': '5 λεπτά/λίτρο Έκπτωση',
+  'offers.reward.parkingHour': '1 Ώρα Δωρεάν Στάθμευση',
 
   'plans.title': 'Πλάνα',
   'plans.subtitle': 'Διάλεξε το πλάνο που σου ταιριάζει',
@@ -583,6 +638,7 @@ const gr: Record<keyof typeof en, string> = {
   'admin.analytics': 'Αναλυτικά',
   'admin.liveMap': 'Ζωντανός Χάρτης',
   'admin.settings': 'Ρυθμίσεις',
+  'admin.zoning': 'Διαχείριση Ζωνών',
   'admin.backToApp': 'Πίσω στην Εφαρμογή',
   'admin.logOut': 'Αποσύνδεση',
   'admin.openMenu': 'Άνοιγμα μενού',
@@ -717,6 +773,52 @@ const gr: Record<keyof typeof en, string> = {
   'leaderboard.badge.silver': 'Ασημένιο',
   'leaderboard.badge.gold': 'Χρυσό',
   'leaderboard.badge.platinum': 'Πλατινένιο',
+
+  // Διαχείριση ζωνών (dashboard δήμου)
+  'zoning.previewNotice': 'Προεπισκόπηση: τα χειριστήρια δείχνουν τον επεξεργαστή ζωνών. Η αποθήκευση στη βάση δεν έχει υλοποιηθεί ακόμα — οι ζώνες που εφαρμόζει η εφαρμογή είναι οι ήδη ρυθμισμένες.',
+  'zoning.editorTitle': 'Επεξεργαστής ζωνών',
+  'zoning.editorDesc': 'Διάλεξε οδό, όρισε πώς προστατεύεται και πόσο πλατιά φτάνει η ζώνη.',
+  'zoning.street': 'Οδός',
+  'zoning.kind': 'Τύπος ζώνης',
+  'zoning.kindResident': 'Μόνο κάτοικοι',
+  'zoning.kindControlled': 'Ελεγχόμενη / με χρέωση',
+  'zoning.enabled': 'Ενεργή ζώνη',
+  'zoning.enabledDesc': 'Όσο είναι ενεργή, οι οδηγοί δεν μπορούν να δηλώσουν ελεύθερες θέσεις σε αυτή την οδό.',
+  'zoning.radius': 'Πλάτος ζώνης',
+  'zoning.radiusDesc': 'Πόσο εκατέρωθεν του άξονα της οδού φτάνει η ζώνη.',
+  'zoning.save': 'Αποθήκευση ζώνης',
+  'zoning.saveUnavailable': 'Δεν αποθηκεύτηκε',
+  'zoning.saveUnavailableDesc': 'Η επεξεργασία ζωνών είναι προεπισκόπηση. Η αποθήκευση χρειάζεται τον πίνακα parking_zones και έλεγχο από τον server.',
+  'zoning.activeTitle': 'Ενεργές ζώνες',
+  'zoning.statusActive': 'Ενεργή',
+  'zoning.impactTitle': 'Τι προστατεύεται',
+  'zoning.impactDesc': '{n} ζώνες εξαιρούνται από τις αναφορές της κοινότητας. Επιλεγμένη: {street}.',
+
+  // Κλειστοί χώροι στάθμευσης
+  'facility.public': 'Δημόσιο πάρκινγκ',
+  'facility.private': 'Ιδιωτικό πάρκινγκ',
+  'facility.level.low': 'Υπάρχουν θέσεις',
+  'facility.level.medium': 'Γεμίζει',
+  'facility.level.full': 'Σχεδόν γεμάτο',
+  'facility.freeOf': '{free} από {total} ελεύθερες',
+  'facility.price': 'Τιμή',
+  'facility.free': 'Δωρεάν',
+  'facility.perHour': '€{price}/ώρα',
+  'facility.hours': 'Ώρες',
+  'facility.driveThere': 'Οδήγηση εκεί',
+  'facility.toggleOn': 'Τα πάρκινγκ εμφανίζονται',
+  'facility.toggleOff': 'Τα πάρκινγκ κρύφτηκαν',
+  'facility.occupancyNotice': 'Ενδεικτική πληρότητα',
+
+  // Κατηγορίες marketplace
+  'offers.cat.all': 'Όλα',
+  'offers.cat.food': 'Φαγητό & καφές',
+  'offers.cat.delivery': 'Delivery',
+  'offers.cat.fuel': 'Καύσιμα',
+  'offers.cat.parking': 'Πάρκινγκ',
+  'offers.catEmpty': 'Δεν υπάρχουν ακόμα προσφορές σε αυτή την κατηγορία.',
+
+  'profile.poweredBy': 'Powered by Urban Sync',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -853,6 +955,10 @@ const tr: Record<keyof typeof en, string> = {
   'offers.reward.coupon': '5€ İndirim Kuponu',
   'offers.reward.popcorn': 'Ücretsiz Patlamış Mısır',
   'offers.reward.fuel': 'Yakıtta %10 İndirim',
+  'offers.reward.delivery': 'Siparişinde 4€ İndirim',
+  'offers.reward.deliveryFee': 'Ücretsiz Teslimat',
+  'offers.reward.fuelCents': 'Litre Başına 5 Kuruş İndirim',
+  'offers.reward.parkingHour': '1 Saat Ücretsiz Otopark',
 
   'plans.title': 'Planlar',
   'plans.subtitle': 'Sana uygun planı seç',
@@ -932,6 +1038,7 @@ const tr: Record<keyof typeof en, string> = {
   'admin.analytics': 'Analitik',
   'admin.liveMap': 'Canlı Harita',
   'admin.settings': 'Ayarlar',
+  'admin.zoning': 'Bölge Yönetimi',
   'admin.backToApp': 'Uygulamaya Dön',
   'admin.logOut': 'Çıkış Yap',
   'admin.openMenu': 'Menüyü aç',
@@ -1066,6 +1173,52 @@ const tr: Record<keyof typeof en, string> = {
   'leaderboard.badge.silver': 'Gümüş',
   'leaderboard.badge.gold': 'Altın',
   'leaderboard.badge.platinum': 'Platin',
+
+  // Bölge yönetimi (belediye paneli)
+  'zoning.previewNotice': 'Önizleme: bu kontroller bölge düzenleyiciyi gösterir. Veritabanına kaydetme henüz yok — uygulamanın uyguladığı bölgeler halihazırda tanımlı olanlardır.',
+  'zoning.editorTitle': 'Bölge düzenleyici',
+  'zoning.editorDesc': 'Bir cadde seç, nasıl korunacağını ve koridorun ne kadar geniş olacağını belirle.',
+  'zoning.street': 'Cadde',
+  'zoning.kind': 'Bölge türü',
+  'zoning.kindResident': 'Sadece sakinler',
+  'zoning.kindControlled': 'Kontrollü / ücretli',
+  'zoning.enabled': 'Bölge etkin',
+  'zoning.enabledDesc': 'Etkinken sürücüler bu caddede boş yer bildiremez.',
+  'zoning.radius': 'Koridor genişliği',
+  'zoning.radiusDesc': 'Bölgenin cadde ekseninin iki yanına ne kadar uzandığı.',
+  'zoning.save': 'Bölgeyi kaydet',
+  'zoning.saveUnavailable': 'Kaydedilmedi',
+  'zoning.saveUnavailableDesc': 'Bölge düzenleme bir önizlemedir. Kaydetmek için parking_zones tablosu ve sunucu tarafı denetim gerekir.',
+  'zoning.activeTitle': 'Etkin bölgeler',
+  'zoning.statusActive': 'Etkin',
+  'zoning.impactTitle': 'Neyi koruyor',
+  'zoning.impactDesc': '{n} bölge topluluk bildirimlerinin dışında. Seçili: {street}.',
+
+  // Kapalı otoparklar
+  'facility.public': 'Halka açık otopark',
+  'facility.private': 'Özel otopark',
+  'facility.level.low': 'Yer var',
+  'facility.level.medium': 'Doluyor',
+  'facility.level.full': 'Neredeyse dolu',
+  'facility.freeOf': '{total} yerin {free} tanesi boş',
+  'facility.price': 'Fiyat',
+  'facility.free': 'Ücretsiz',
+  'facility.perHour': '€{price}/saat',
+  'facility.hours': 'Açılış',
+  'facility.driveThere': 'Oraya sür',
+  'facility.toggleOn': 'Otoparklar gösteriliyor',
+  'facility.toggleOff': 'Otoparklar gizlendi',
+  'facility.occupancyNotice': 'Tahmini doluluk',
+
+  // Ödül pazarı kategorileri
+  'offers.cat.all': 'Tümü',
+  'offers.cat.food': 'Yemek & kahve',
+  'offers.cat.delivery': 'Teslimat',
+  'offers.cat.fuel': 'Yakıt',
+  'offers.cat.parking': 'Otopark',
+  'offers.catEmpty': 'Bu kategoride henüz teklif yok.',
+
+  'profile.poweredBy': 'Powered by Urban Sync',
 };
 
 export type StringKey = keyof typeof en;
