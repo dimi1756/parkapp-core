@@ -164,7 +164,7 @@ interface MapTabProps {
 }
 
 export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) => {
-  const { incrementSearches } = useApp();
+  const { canSearch, incrementSearches } = useApp();
   const { profile, isDemoAccount } = useAuth();
   const { t, language } = useLanguage();
   const { activeSession, refetch: refetchSession } = useActiveSession();
@@ -509,8 +509,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
 
   const runDestinationSearch = async (poi: Destination) => {
     if (!requireLocation()) return;
-    const canSearch = incrementSearches();
-    if (!canSearch) {
+    // Checked here, spent below once the search has actually produced
+    // something. Spending it up front meant a failed lookup still cost the
+    // driver a search -- and on the free tier that is the whole day's
+    // allowance gone to a Mapbox hiccup.
+    if (!canSearch()) {
       setShowLimitModal(true);
       return;
     }
@@ -565,6 +568,8 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
       setIsRouting(true);
       setFollowMode(true);
+      // The search delivered a route -- only now does it cost an allowance.
+      incrementSearches();
     } else {
       toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
@@ -994,6 +999,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
 
   const handleConfirmSelection = async () => {
     if (!selectedSpot) return;
+    // Both geofence checks below run before busyAction is set, so a second
+    // tap during the in-flight declare used to start a whole second one --
+    // two spots at the same coordinates, and on a real account a wasted
+    // declaration against the hourly cap.
+    if (busyAction) return;
     // Same zoning rule as "I'm leaving", applied to the manually dropped pin
     // -- this is the path that can actually reach into a zone the driver
     // isn't standing in, so it matters more here, not less. The pin stays

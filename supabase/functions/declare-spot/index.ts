@@ -64,18 +64,19 @@ const RULES = {
   TRUST_SHADOWBAN_THRESHOLD: 0.4,
 };
 
-// The shared reviewer/demo account is exempt from three things, all so a
+// The shared reviewer/demo account is exempt from four things, all so a
 // live presentation can't be derailed by a rule aimed at farming or
 // spoofing: rate limiting (hourly/daily caps + the declare-to-declare
-// cooldown), the road-snap check, and the GPS accuracy gate. The last two
-// are the same problem in different clothes -- a demo happens indoors,
-// where Map Matching correctly says "not a street" and the phone reports
-// 30-100m accuracy.
+// cooldown), the road-snap check, the GPS accuracy gate, and the 30m
+// declare radius. They are the same problem in different clothes -- a demo
+// happens indoors, in a different town from the pilot, where Map Matching
+// correctly says "not a street", the phone reports 30-100m accuracy, and
+// the pin the presenter drops on the pilot's streets is kilometres from
+// where they are standing.
 //
-// The 30m declare radius and trust/shadowban still run for this account
-// exactly as for any real user. The exemption keys off one specific known
-// address on the verified JWT -- never a flag from the request body -- so no
-// real user can ask for it.
+// Trust/shadowban still runs for this account exactly as for any real user.
+// The exemption keys off one specific known address on the verified JWT --
+// never a flag from the request body -- so no real user can ask for it.
 const DEMO_EMAIL = "demo@parkapp.tech";
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -309,13 +310,20 @@ Deno.serve(async (req) => {
     }
   }
 
+  // The declare radius joins the demo account's carve-out, for the same
+  // reason the accuracy gate did: the presenter drops a pin on the pilot
+  // town's streets from wherever the meeting happens to be, which is by
+  // definition further than 30m away. Leaving this one rule in place was
+  // enough on its own to reject every declaration in a live demo -- the
+  // road-snap and accuracy bypasses just moved the rejection one check
+  // later. Every real account is still held to the full 30m.
   const distanceFromUser = haversineMeters(userLat, userLng, spotLat, spotLng);
-  if (distanceFromUser > RULES.DECLARE_RADIUS_M) {
+  if (!isDemoAccount && distanceFromUser > RULES.DECLARE_RADIUS_M) {
     return json({ error: "That spot is too far from your current location to declare." }, 400);
   }
 
   // Road-snap is skipped for the shared demo/reviewer account -- see the
-  // DEMO_EMAIL note above. The declare radius and trust/shadowban still run.
+  // DEMO_EMAIL note above. Trust/shadowban still runs.
   const onRoad = isDemoAccount || (await isNearRoad(spotLat, spotLng));
   if (!onRoad) {
     return json({ error: "We couldn't verify that location is a real street. Declaration rejected." }, 400);

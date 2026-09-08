@@ -24,10 +24,15 @@ export const AuthGate = ({ children }: { children: ReactNode }) => {
 
     const assign = async () => {
       // Referral link takes priority over geolocation: /?ref=<municipality_id>
+      // -- but only when it actually works. A stale or hand-edited id fails
+      // its foreign key, and returning here regardless left the account
+      // permanently unassigned: this effect runs once per session, so the
+      // geolocation fallback below never got its turn.
       const referralId = new URLSearchParams(window.location.search).get('ref');
       if (referralId) {
-        await assignMunicipality(referralId);
-        return;
+        const { error } = await assignMunicipality(referralId);
+        if (!error) return;
+        console.warn('[AuthGate] referral municipality rejected, falling back to geolocation:', error);
       }
       try {
         const { lat, lng } = await getCurrentPosition();

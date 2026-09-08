@@ -39,8 +39,13 @@ export const AdminDashboard = () => {
   const [showTour, setShowTour] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const loadData = useCallback(async () => {
-    if (!municipalityId) return;
+  // Returns the error as well as storing it. handleRefresh used to read the
+  // `dataError` state straight after awaiting this, which is the value from
+  // the render that created the closure -- the toast reported the PREVIOUS
+  // load's outcome, so a failed refresh said "refreshed" and the next
+  // successful one raised an error toast.
+  const loadData = useCallback(async (): Promise<string | null> => {
+    if (!municipalityId) return null;
     setDataError(null);
 
     // Investor-pitch mock stats for the shared demo account only -- a fresh
@@ -54,7 +59,7 @@ export const AdminDashboard = () => {
       setTrend(getMockWeeklyTrend());
       setDataLoading(false);
       setLastUpdated(new Date());
-      return;
+      return null;
     }
 
     const [kpiRes, spotsRes, trendRes] = await Promise.all([
@@ -85,6 +90,7 @@ export const AdminDashboard = () => {
     setTrend(trendRes.data ?? []);
     setDataLoading(false);
     setLastUpdated(new Date());
+    return firstError?.message ?? null;
   }, [municipalityId, isDemoAccount]);
 
   useEffect(() => {
@@ -102,10 +108,10 @@ export const AdminDashboard = () => {
   const handleRefresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    await loadData();
+    const error = await loadData();
     setIsRefreshing(false);
-    if (dataError) {
-      toast({ title: t('admin.dataLoadError'), description: dataError, variant: 'destructive' });
+    if (error) {
+      toast({ title: t('admin.dataLoadError'), description: error, variant: 'destructive' });
     } else {
       toast({ title: t('admin.refreshed'), description: t('admin.refreshedDesc') });
     }

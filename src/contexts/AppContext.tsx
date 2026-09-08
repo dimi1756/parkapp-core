@@ -10,6 +10,9 @@ interface AppState {
 
 interface AppContextType extends AppState {
   toggleDarkMode: () => void;
+  /** Is there allowance left today? Read-only -- spends nothing. */
+  canSearch: () => boolean;
+  /** Spends one search. Call only once the search has actually delivered a result. */
   incrementSearches: () => boolean;
   setAdminMode: (isAdmin: boolean) => void;
   resetSearches: () => void;
@@ -86,6 +89,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setState(prev => ({ ...prev, darkMode: !prev.darkMode }));
   };
 
+  // Split from incrementSearches so a search that never produced anything
+  // (no route back from Mapbox, a network drop mid-request) doesn't cost the
+  // driver their allowance -- on the free tier that is one search a day, so
+  // a single failure used to lock them out until midnight.
+  const canSearch = (): boolean => {
+    if (isDemoAccount) return true;
+    return state.searchesToday < getDailySearchLimit(profile);
+  };
+
   const incrementSearches = (): boolean => {
     // The shared demo/reviewer account is never rate-limited on searches.
     // The daily cap is a real product rule, but on the demo account it means
@@ -123,6 +135,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     <AppContext.Provider value={{
       ...state,
       toggleDarkMode,
+      canSearch,
       incrementSearches,
       setAdminMode,
       resetSearches,

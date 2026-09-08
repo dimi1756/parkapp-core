@@ -88,10 +88,15 @@ export const PlansTab = () => {
     // Server-verified against the caller's own municipality's resident
     // code -- previously any non-empty string was accepted and silently
     // granted the same trial as the "Start Trial" button.
-    const success = await redeemResidentCode(citizenId.trim());
+    const result = await redeemResidentCode(citizenId.trim());
     setVerifying(false);
-    if (success) {
+    if (result === 'ok') {
       toast({ title: t('plans.verifySuccess'), description: t('plans.verifySuccessDesc') });
+    } else if (result === 'locked') {
+      // Five wrong guesses buys a 15-minute lockout server-side. Telling
+      // someone to double-check their code while nothing they type can work
+      // is the one message guaranteed to waste their time.
+      toast({ title: t('plans.verifyLocked'), description: t('plans.verifyLockedDesc'), variant: 'destructive' });
     } else {
       toast({ title: t('plans.verifyInvalid'), description: t('plans.verifyInvalidDesc'), variant: 'destructive' });
     }

@@ -42,7 +42,8 @@ function isValidLatLng(lat: number, lng: number): boolean {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
-// See declare-spot/index.ts -- same demo-account rate-limit carve-out.
+// See declare-spot/index.ts -- same demo-account carve-out, covering the
+// rate limits, the accuracy gate and the claim radius.
 const DEMO_EMAIL = "demo@parkapp.tech";
 
 function toEwkt(lat: number, lng: number): string {
@@ -188,7 +189,11 @@ Deno.serve(async (req) => {
     p_lng: userLng,
   });
 
-  if (typeof distance !== "number" || distance > RULES.CLAIM_RADIUS_M) {
+  // Same demo carve-out as declare-spot's declare radius: a presentation
+  // claims a spot on the pilot town's map from another town entirely, and
+  // this check would reject it exactly the way the declare radius did.
+  // A missing distance (null spot geometry) still fails for everyone.
+  if (typeof distance !== "number" || (!isDemoAccount && distance > RULES.CLAIM_RADIUS_M)) {
     return json({ error: "You need to be near the spot to claim it." }, 400);
   }
 

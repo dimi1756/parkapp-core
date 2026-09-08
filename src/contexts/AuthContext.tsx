@@ -19,6 +19,13 @@ interface VehicleDetails {
   plate: string;
 }
 
+/**
+ * Outcome of a resident-code attempt. A plain boolean could not distinguish
+ * "wrong code" from "you are locked out for fifteen minutes", and the UI has
+ * genuinely different advice for each.
+ */
+export type ResidentCodeResult = 'ok' | 'invalid' | 'locked' | 'error';
+
 interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
@@ -37,9 +44,9 @@ interface AuthContextType {
   saveVehicleDetails: (details: VehicleDetails) => Promise<{ error: string | null }>;
   updateProfileDetails: (details: { fullName: string } & VehicleDetails) => Promise<{ error: string | null }>;
   upgradeToPremium: () => Promise<void>;
-  /** Resolves true if the code matched the caller's municipality and Premium was granted. */
-  redeemResidentCode: (code: string) => Promise<boolean>;
-  assignMunicipality: (municipalityId: string) => Promise<void>;
+  redeemResidentCode: (code: string) => Promise<ResidentCodeResult>;
+  /** Resolves { error } rather than throwing -- a failed assignment must be recoverable, not silent. */
+  assignMunicipality: (municipalityId: string) => Promise<{ error: string | null }>;
   refreshProfile: () => Promise<void>;
 }
 
@@ -198,24 +205,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await fetchProfile(session.user.id);
   };
 
-  const redeemResidentCode = async (code: string): Promise<boolean> => {
-    if (!session?.user) return false;
+  const redeemResidentCode = async (code: string): Promise<ResidentCodeResult> => {
+    if (!session?.user) return 'error';
     // Server-verified against the caller's own municipality's resident_code
     // (0009_resident_verification.sql) -- previously this accepted any
     // non-empty string with no check against anything real.
     const { data, error } = await supabase.rpc('redeem_resident_code', { p_code: code });
     if (error) {
       console.error('[AuthContext] redeemResidentCode failed:', error);
-      return false;
+      // The RPC raises TOO_MANY_ATTEMPTS after five wrong guesses (15-minute
+      // lockout). Collapsing that into the same `false` as a wrong code told
+      // a locked-out resident to check a code that could not be accepted for
+      // the next quarter of an hour, no matter what they typed.
+      return error.message.includes('TOO_MANY_ATTEMPTS') ? 'locked' : 'error';
     }
-    if (data) await fetchProfile(session.user.id);
-    return Boolean(data);
+    if (data) {
+      await fetchProfile(session.user.id);
+      return 'ok';
+    }
+    return 'invalid';
   };
 
-  const assignMunicipality = async (municipalityId: string) => {
-    if (!session?.user) return;
-    await supabase.from('profiles').update({ municipality_id: municipalityId }).eq('id', session.user.id);
+  // Reports failure instead of swallowing it. AuthGate only ever attempts
+  // this once per session, so a referral link carrying a stale or malformed
+  // municipality id used to fail its foreign key silently and leave the
+  // account with no municipality at all -- no leaderboard scope, no resident
+  // code, and spots written with a null municipality that the B2G dashboard
+  // then can't count. The caller now falls back to geolocation instead.
+  const assignMunicipality = async (municipalityId: string): Promise<{ error: string | null }> => {
+    if (!session?.user) return { error: 'Not authenticated.' };
+    const { error } = await supabase
+      .from('profiles')
+      .update({ municipality_id: municipalityId })
+      .eq('id', session.user.id);
+    if (error) {
+      console.error('[AuthContext] assignMunicipality failed:', error);
+      return { error: error.message };
+    }
     await fetchProfile(session.user.id);
+    return { error: null };
   };
 
   const refreshProfile = async () => {
