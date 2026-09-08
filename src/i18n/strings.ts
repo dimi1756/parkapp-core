@@ -111,9 +111,10 @@ const en = {
   'map.offlineMapAlt': 'Offline map of Karystos',
   'map.offlineMapBadge': 'Offline demo map',
   'map.zoneBadge': "You're in {zone} — a controlled parking zone",
-  'map.zoneBlockedTitle': 'Controlled parking zone',
-  'map.zoneBlockedResident': '{zone} is reserved for residents. ParkApp deliberately stays out of resident zones, so spots here can\'t be shared.',
-  'map.zoneBlockedControlled': '{zone} is a controlled municipal parking zone and is excluded from community reports.',
+  'map.zoneBlockedTitle': 'Resident zone — excluded from the pilot',
+  'map.zoneBlockedTitleControlled': 'Controlled zone — excluded from the pilot',
+  'map.zoneBlockedResident': '{zone} is reserved for residents, so ParkApp stays out of it by design — spots here can\'t be reported.',
+  'map.zoneBlockedControlled': '{zone} is controlled municipal parking, so it is excluded from the pilot — spots here can\'t be reported.',
   'map.exitNavigation': 'Exit Navigation',
   'map.arrivedTitle': "You've arrived!",
   'map.isSpotFreeTitle': 'Is the spot still available?',
@@ -497,6 +498,15 @@ const en = {
   'reports.loadError': "Couldn't load your reports.",
   'reports.unknownStreet': 'Unnamed street',
   'reports.showAll': 'Show {n} more',
+
+  'plans.trialConfirmTitle': 'Start your {n}-day free trial?',
+  'plans.trialConfirmDesc': 'Premium free for {n} days — nothing is charged now, and no card is needed. After that it is €{price}/month, and the trial can only be started once.',
+  'plans.trialConfirmCta': 'Start trial',
+  'plans.trialStarted': 'Trial started',
+  'plans.trialStartedDesc': 'Premium is yours for the next {n} days.',
+  'plans.trialFailed': "Couldn't start the trial",
+  'leaderboard.noCity': 'No city yet',
+  'leaderboard.noCityDesc': "You haven't been assigned to a city, so there's no local ranking to show. Turn on location and reopen the app to join one.",
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -601,9 +611,10 @@ const gr: Record<keyof typeof en, string> = {
   'map.offlineMapAlt': 'Χάρτης Καρύστου εκτός σύνδεσης',
   'map.offlineMapBadge': 'Χάρτης demo εκτός σύνδεσης',
   'map.zoneBadge': 'Βρίσκεσαι στη ζώνη {zone} — ελεγχόμενη στάθμευση',
-  'map.zoneBlockedTitle': 'Ζώνη ελεγχόμενης στάθμευσης',
-  'map.zoneBlockedResident': 'Η ζώνη {zone} ανήκει στους δημότες. Το ParkApp μένει σκόπιμα εκτός ζωνών κατοίκων, οπότε δεν μοιραζόμαστε θέσεις εδώ.',
-  'map.zoneBlockedControlled': 'Η ζώνη {zone} είναι δημοτική ελεγχόμενη στάθμευση και εξαιρείται από τις αναφορές της κοινότητας.',
+  'map.zoneBlockedTitle': 'Ζώνη κατοίκων — εξαιρείται από το pilot',
+  'map.zoneBlockedTitleControlled': 'Ελεγχόμενη ζώνη — εξαιρείται από το pilot',
+  'map.zoneBlockedResident': 'Η {zone} ανήκει στους κατοίκους, γι\' αυτό το ParkApp μένει σκόπιμα εκτός — δεν δηλώνονται θέσεις εδώ.',
+  'map.zoneBlockedControlled': 'Η {zone} είναι δημοτική ελεγχόμενη στάθμευση και εξαιρείται από το pilot — δεν δηλώνονται θέσεις εδώ.',
   'map.exitNavigation': 'Έξοδος από την πλοήγηση',
   'map.arrivedTitle': 'Φτάσατε στον προορισμό!',
   'map.isSpotFreeTitle': 'Η θέση είναι ακόμα διαθέσιμη;',
@@ -973,6 +984,15 @@ const gr: Record<keyof typeof en, string> = {
   'reports.loadError': 'Δεν ήταν δυνατή η φόρτωση του ιστορικού.',
   'reports.unknownStreet': 'Οδός χωρίς όνομα',
   'reports.showAll': 'Εμφάνιση {n} ακόμα',
+
+  'plans.trialConfirmTitle': 'Να ξεκινήσει η δωρεάν δοκιμή {n} ημερών;',
+  'plans.trialConfirmDesc': 'Premium δωρεάν για {n} ημέρες — δεν χρεώνεσαι τώρα και δεν χρειάζεται κάρτα. Μετά κοστίζει {price}€/μήνα, και η δοκιμή ξεκινά μόνο μία φορά.',
+  'plans.trialConfirmCta': 'Έναρξη δοκιμής',
+  'plans.trialStarted': 'Η δοκιμή ξεκίνησε',
+  'plans.trialStartedDesc': 'Το Premium είναι δικό σου για τις επόμενες {n} ημέρες.',
+  'plans.trialFailed': 'Δεν ήταν δυνατή η έναρξη της δοκιμής',
+  'leaderboard.noCity': 'Καμία πόλη ακόμα',
+  'leaderboard.noCityDesc': 'Δεν έχεις εκχωρηθεί σε πόλη ακόμα, οπότε δεν υπάρχει τοπική κατάταξη. Ενεργοποίησε την τοποθεσία και άνοιξε ξανά την εφαρμογή.',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -1077,9 +1097,10 @@ const tr: Record<keyof typeof en, string> = {
   'map.offlineMapAlt': 'Karystos çevrimdışı haritası',
   'map.offlineMapBadge': 'Çevrimdışı demo haritası',
   'map.zoneBadge': '{zone} bölgesindesin — kontrollü otopark alanı',
-  'map.zoneBlockedTitle': 'Kontrollü otopark bölgesi',
-  'map.zoneBlockedResident': '{zone} bölgesi sakinlere ayrılmıştır. ParkApp sakin bölgelerinin dışında kalır, bu yüzden burada yer paylaşılamaz.',
-  'map.zoneBlockedControlled': '{zone} belediyeye ait kontrollü bir otopark bölgesidir ve topluluk bildirimlerinin dışındadır.',
+  'map.zoneBlockedTitle': 'Sakin bölgesi — pilot kapsamı dışında',
+  'map.zoneBlockedTitleControlled': 'Kontrollü bölge — pilot kapsamı dışında',
+  'map.zoneBlockedResident': '{zone} sakinlere ayrılmıştır, ParkApp bilerek dışında kalır — burada yer bildirilemez.',
+  'map.zoneBlockedControlled': '{zone} belediyeye ait kontrollü otoparktır ve pilot kapsamı dışındadır — burada yer bildirilemez.',
   'map.exitNavigation': 'Navigasyondan Çık',
   'map.arrivedTitle': 'Vardınız!',
   'map.isSpotFreeTitle': 'Yer hala boş mu?',
@@ -1449,6 +1470,15 @@ const tr: Record<keyof typeof en, string> = {
   'reports.loadError': 'Bildirimlerin yüklenemedi.',
   'reports.unknownStreet': 'İsimsiz sokak',
   'reports.showAll': '{n} tane daha göster',
+
+  'plans.trialConfirmTitle': '{n} günlük ücretsiz deneme başlasın mı?',
+  'plans.trialConfirmDesc': '{n} gün boyunca Premium ücretsiz — şimdi ödeme alınmaz, kart gerekmez. Sonrasında ayda {price}€, ve deneme yalnızca bir kez başlatılabilir.',
+  'plans.trialConfirmCta': 'Denemeyi başlat',
+  'plans.trialStarted': 'Deneme başladı',
+  'plans.trialStartedDesc': 'Önümüzdeki {n} gün Premium senin.',
+  'plans.trialFailed': 'Deneme başlatılamadı',
+  'leaderboard.noCity': 'Henüz şehir yok',
+  'leaderboard.noCityDesc': 'Henüz bir şehre atanmadın, bu yüzden yerel sıralama yok. Konumu aç ve uygulamayı yeniden aç.',
 };
 
 export type StringKey = keyof typeof en;

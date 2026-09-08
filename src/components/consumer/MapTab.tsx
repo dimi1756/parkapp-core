@@ -478,9 +478,14 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const blockedByZone = (lng: number, lat: number): boolean => {
     const zone = findZoneAt(lng, lat, zones);
     if (!zone) return false;
+    const isResident = zone.kind === 'resident';
     toast({
-      title: t('map.zoneBlockedTitle'),
-      description: t(zone.kind === 'resident' ? 'map.zoneBlockedResident' : 'map.zoneBlockedControlled', {
+      // Title and body both follow the zone's kind: a controlled municipal
+      // zone announcing itself as a resident one would misstate the rule the
+      // driver just ran into, and these are the two the pilot treats
+      // differently.
+      title: t(isResident ? 'map.zoneBlockedTitle' : 'map.zoneBlockedTitleControlled'),
+      description: t(isResident ? 'map.zoneBlockedResident' : 'map.zoneBlockedControlled', {
         zone: zone.name,
       }),
       variant: 'destructive',

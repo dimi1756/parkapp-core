@@ -43,7 +43,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   saveVehicleDetails: (details: VehicleDetails) => Promise<{ error: string | null }>;
   updateProfileDetails: (details: { fullName: string } & VehicleDetails) => Promise<{ error: string | null }>;
-  upgradeToPremium: () => Promise<void>;
+  /** Grants the 14-day trial. Resolves { error } so the UI can confirm or explain, not just hope. */
+  upgradeToPremium: () => Promise<{ error: string | null }>;
   redeemResidentCode: (code: string) => Promise<ResidentCodeResult>;
   /** Resolves { error } rather than throwing -- a failed assignment must be recoverable, not silent. */
   assignMunicipality: (municipalityId: string) => Promise<{ error: string | null }>;
@@ -193,16 +194,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return { error: error?.message ?? null };
   };
 
-  const upgradeToPremium = async () => {
-    if (!session?.user) return;
+  const upgradeToPremium = async (): Promise<{ error: string | null }> => {
+    if (!session?.user) return { error: 'Not authenticated.' };
     // Server-verified RPC (0008_lockdown_profile_columns.sql), not a raw
     // table update -- membership_tier/membership_expires_at are no longer
     // client-writable columns, so this is the only path to Premium. Real
     // payment verification is separate tracked work (PARKAPP_MASTER_PLAN.md,
     // Chunk 3); this RPC only grants the existing 15-day trial and is a
     // no-op if the account isn't currently on the free tier.
-    await supabase.rpc('redeem_trial_premium');
+    const { error } = await supabase.rpc('redeem_trial_premium');
+    if (error) {
+      console.error('[AuthContext] redeem_trial_premium failed:', error);
+      return { error: error.message };
+    }
     await fetchProfile(session.user.id);
+    return { error: null };
   };
 
   const redeemResidentCode = async (code: string): Promise<ResidentCodeResult> => {

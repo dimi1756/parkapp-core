@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export const PlansTab = () => {
   const { profile, upgradeToPremium, redeemResidentCode } = useAuth();
@@ -21,6 +29,9 @@ export const PlansTab = () => {
   const [citizenId, setCitizenId] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [startingTrial, setStartingTrial] = useState(false);
+  // Starting a trial begins a clock that cannot be restarted (redeem_trial_premium
+  // only fires from 'free'), so it asks first rather than spending it on a stray tap.
+  const [trialConfirmOpen, setTrialConfirmOpen] = useState(false);
   // Whether this user's municipality has set a code at all. Only ever a
   // yes/no -- the code itself stays admin-only under RLS, since anyone who
   // could read it would have free Premium for the asking.
@@ -52,9 +63,17 @@ export const PlansTab = () => {
   }, [profile?.municipality_id]);
 
   const handleStartTrial = async () => {
+    setTrialConfirmOpen(false);
     setStartingTrial(true);
-    await upgradeToPremium();
+    const { error } = await upgradeToPremium();
     setStartingTrial(false);
+    if (error) {
+      toast({ title: t('plans.trialFailed'), description: error, variant: 'destructive' });
+      return;
+    }
+    // The card behind this re-renders to "Active" off the refreshed profile,
+    // but a state change nobody announced reads as a button that did nothing.
+    toast({ title: t('plans.trialStarted'), description: t('plans.trialStartedDesc', { n: trialDays }) });
   };
 
   const handleVerify = async () => {
@@ -243,7 +262,7 @@ export const PlansTab = () => {
           <Button
             className="w-full bg-accent text-accent-foreground hover:bg-accent/90 gap-2"
             disabled={plan === 'premium' || startingTrial}
-            onClick={handleStartTrial}
+            onClick={() => setTrialConfirmOpen(true)}
           >
             {startingTrial && <Loader2 className="h-4 w-4 animate-spin" />}
             {plan === 'premium' ? t('plans.active') : t('plans.startTrial', { n: trialDays })}
@@ -308,6 +327,29 @@ export const PlansTab = () => {
           )}
         </div>
       </div>
+
+      {/* Trial confirmation. redeem_trial_premium only fires from the free
+          tier (0014_fourteen_day_trial.sql), so the 14 days start once and
+          cannot be restarted -- worth one tap to be sure, and it is where
+          the app states plainly that nothing is being charged. */}
+      <Dialog open={trialConfirmOpen} onOpenChange={setTrialConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('plans.trialConfirmTitle', { n: trialDays })}</DialogTitle>
+            <DialogDescription>
+              {t('plans.trialConfirmDesc', { n: trialDays, price: monthlyPrice })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="ghost" onClick={() => setTrialConfirmOpen(false)}>
+              {t('profile.cancel')}
+            </Button>
+            <Button className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={handleStartTrial}>
+              {t('plans.trialConfirmCta')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

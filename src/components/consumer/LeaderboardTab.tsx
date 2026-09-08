@@ -5,7 +5,7 @@ import { useLeaderboard, type LeaderboardPeriod } from '@/hooks/useLeaderboard';
 import { useCityLeaderboard } from '@/hooks/useCityLeaderboard';
 import { getBadgeForPoints } from '@/lib/badges';
 import { LeagueModal } from './LeagueModal';
-import { Trophy, Crown, Loader2, AlertTriangle, Building2, ChevronRight } from 'lucide-react';
+import { Trophy, Crown, Loader2, AlertTriangle, Building2, ChevronRight, MapPinOff } from 'lucide-react';
 
 // Podium medals. Literal metal colours rather than theme tokens: gold,
 // silver and bronze are what a leaderboard is expected to look like, and
@@ -97,6 +97,17 @@ export const LeaderboardTab = () => {
           <div className="glass-card p-6 text-center animate-fade-in">
             <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-destructive" />
             <p className="font-semibold text-sm">{t('leaderboard.loadError')}</p>
+          </div>
+        ) : entries.length === 0 && !profile?.municipality_id ? (
+          // "Be the first to earn points" is the wrong message for someone
+          // who has no city: the board is not empty, it does not exist for
+          // them yet, and no amount of points would populate it. Most real
+          // accounts are in exactly this state until the app manages to
+          // match their location to a municipality.
+          <div className="glass-card p-6 text-center animate-fade-in">
+            <MapPinOff className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+            <p className="font-semibold text-sm">{t('leaderboard.noCity')}</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{t('leaderboard.noCityDesc')}</p>
           </div>
         ) : entries.length === 0 ? (
           <div className="glass-card p-6 text-center animate-fade-in">

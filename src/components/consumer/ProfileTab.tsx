@@ -279,7 +279,7 @@ export const ProfileTab = () => {
 
       {/* Edit Profile Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-sm rounded-2xl">
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{t('profile.editProfile')}</DialogTitle>
             <DialogDescription>{t('profile.editDesc')}</DialogDescription>
@@ -323,7 +323,7 @@ export const ProfileTab = () => {
 
       {/* Privacy & Security Dialog */}
       <Dialog open={privacyOpen} onOpenChange={setPrivacyOpen}>
-        <DialogContent className="max-w-sm rounded-2xl">
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{t('profile.privacy')}</DialogTitle>
             <DialogDescription>{t('profile.privacyDesc')}</DialogDescription>
