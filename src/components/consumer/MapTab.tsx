@@ -19,6 +19,7 @@ import { LocationHelpCard } from './LocationHelpCard';
 import { AlternativeSpotsCard } from './AlternativeSpotsCard';
 import { SearchResultsList } from './SearchResultsList';
 import { buildPredictions, candidatePoints, type PredictedStreet } from '@/lib/prediction';
+import { SPOT_VISIBLE_TTL_MS } from '@/lib/spotLifecycle';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
@@ -363,6 +364,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     );
     if (arrived) setOptimisticSpot(null);
   }, [nearbySpots, optimisticSpot, profile?.id]);
+
+  // Backstop for the same pin. Handing it off to the real row is the normal
+  // exit, but that depends on a realtime event arriving; if one never does
+  // (dropped socket, a refetch that misses it) the optimistic pin has no
+  // other way off the map and simply stays there, which is precisely the
+  // clutter the expiry sweep exists to prevent. It is a declaration like any
+  // other, so it gets a declaration's lifetime.
+  useEffect(() => {
+    if (!optimisticSpot) return;
+    const timer = setTimeout(() => setOptimisticSpot(null), SPOT_VISIBLE_TTL_MS);
+    return () => clearTimeout(timer);
+  }, [optimisticSpot]);
 
   // Turn-by-turn step advancement: once the live position gets close enough
   // to the current maneuver point, move on to the next instruction.
@@ -1249,6 +1262,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               lat: s.lat,
               type: (s.declared_by === profile?.id ? 'mine' : 'reported') as 'mine' | 'reported',
               label: s.declared_by === profile?.id ? 'Your declared spot' : 'Reported free space',
+              // Set by useNearbySpots' expiry sweep for a spot in its last
+              // seconds -- see src/lib/spotLifecycle.ts.
+              fading: s.fading,
             })),
             ...(optimisticSpot
               ? [{ id: 'optimistic-mine', lng: optimisticSpot.lng, lat: optimisticSpot.lat, type: 'mine' as const, label: 'Your declared spot' }]

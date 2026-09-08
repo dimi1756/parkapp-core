@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { getMockDemoSpots } from '@/lib/demoMockData';
+import { SPOT_SWEEP_INTERVAL_MS, isSpotOnMap, spotPhase } from '@/lib/spotLifecycle';
+// Shared with the activity history, which reads the same location column.
+import { parseEwkbPoint } from '@/lib/ewkb';
 
 // Upper bound on how old a spot can be and still show on the driver map --
 // RLS's expires_at TTL (0007_five_minute_spot_ttl.sql) already caps this at
@@ -29,22 +32,44 @@ export interface NearbySpot {
   isMock?: boolean;
   /** True when this driver (not someone else) currently holds the spot's reservation. */
   reservedByMe?: boolean;
+  /**
+   * True for the last few seconds of the spot's life -- the map animates
+   * these out instead of letting them vanish between one frame and the next.
+   * See src/lib/spotLifecycle.ts.
+   */
+  fading?: boolean;
 }
 
-// PostGIS returns `location` as WKB hex over PostgREST; parsing the small,
-// fixed "SRID=4326;POINT" subset we ever write is simpler than pulling in a
-// WKB parser for one field.
-function parseEwkbPoint(hex: string): { lat: number; lng: number } | null {
-  try {
-    const buf = new Uint8Array(hex.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)));
-    const view = new DataView(buf.buffer);
-    const littleEndian = buf[0] === 1;
-    const lng = view.getFloat64(9, littleEndian);
-    const lat = view.getFloat64(17, littleEndian);
-    return { lat, lng };
-  } catch {
-    return null;
-  }
+/**
+ * Identity of the rendered list: which spots, and which of them are fading.
+ * The sweep below compares this rather than the objects, so a tick that
+ * changes nothing hands back the exact same array and the map's pin effect
+ * has nothing to do.
+ */
+function listSignature(spots: NearbySpot[]): string {
+  return spots.map((s) => `${s.id}${s.fading ? '~' : ''}`).join(',');
+}
+
+/**
+ * Stamps the current phase onto each spot and drops the ones that are done.
+ *
+ * The demo account's mock pins are deliberately exempt. They are minted
+ * relative to the moment they are generated (see buildMockSpots) with
+ * expiries 40 to 240 seconds out, so sweeping them would wipe the
+ * presentation's scenery off the map within the first few minutes and only
+ * bring it back on the next unrelated refetch. They are props, not
+ * declarations -- nobody is being routed to a spot that has gone stale,
+ * because there is no spot. Anything real, including the demo account's own
+ * declarations (which are genuine rows with a genuine server TTL), expires
+ * normally, so the fade is still demonstrable on the account it matters for.
+ */
+function pruneToNow(spots: NearbySpot[], now: number): NearbySpot[] {
+  return spots
+    .filter((spot) => spot.isMock || isSpotOnMap(spot, now))
+    .map((spot) => {
+      const fading = !spot.isMock && spotPhase(spot, now) === 'fading';
+      return fading === Boolean(spot.fading) ? spot : { ...spot, fading };
+    });
 }
 
 /**
@@ -133,12 +158,33 @@ export function useNearbySpots() {
         // Investor-pitch mock pins for the shared demo account only, layered
         // on top of whatever's genuinely in the database -- see
         // src/lib/demoMockData.ts. Never touches a real user's session.
-        setSpots(isDemoAccount ? [...real, ...getMockDemoSpots()] : real);
+        const all = isDemoAccount ? [...real, ...getMockDemoSpots()] : real;
+        // Pruned on arrival as well as on the tick: a spot can expire while
+        // the request is in flight, and the query's own recency floor is 30
+        // minutes, far looser than the 5-minute TTL the map honours.
+        setSpots(pruneToNow(all, Date.now()));
       }
     };
 
     loadRef.current = load;
     load();
+
+    // Expiry is a clock, not an event. Nothing in Postgres fires when a spot
+    // simply gets old, so without this sweep a pin stayed on an open map
+    // until some unrelated write happened to trigger a refetch -- which is
+    // how the driver's own declarations ended up cluttering the map long
+    // after they were no good to anyone.
+    //
+    // Pure client-side arithmetic over rows already in memory: no query, no
+    // network. setSpots is called only when the rendered list actually
+    // changes, so a tick where nothing expired returns the identical array
+    // and costs the map nothing.
+    const sweep = setInterval(() => {
+      setSpots((current) => {
+        const next = pruneToNow(current, Date.now());
+        return listSignature(next) === listSignature(current) ? current : next;
+      });
+    }, SPOT_SWEEP_INTERVAL_MS);
 
     // Realtime can only target real tables, not views -- but any change to
     // parking_spots (new declaration, claim, expiry) still means this view's
@@ -150,6 +196,7 @@ export function useNearbySpots() {
 
     return () => {
       cancelled = true;
+      clearInterval(sweep);
       supabase.removeChannel(channel);
     };
   }, [session?.user, isDemoAccount]);

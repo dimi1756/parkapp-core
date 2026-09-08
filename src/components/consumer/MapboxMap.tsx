@@ -202,7 +202,10 @@ export async function retrievePlace(mapboxId: string, sessionToken: string): Pro
 export async function reverseGeocodeStreet(
   lng: number,
   lat: number,
-  language: 'en' | 'el' = 'en'
+  // Mapbox serves all three of the app's languages. 'tr' was missing only
+  // because the predictive suggestions, the first caller, passed en/el --
+  // the declaration history is read in Turkish too.
+  language: 'en' | 'el' | 'tr' = 'en'
 ): Promise<string | null> {
   if (!MAPBOX_TOKEN) return null;
   const url =
@@ -341,6 +344,13 @@ export interface MapPin {
   label?: string;
   /** 'garage' only: occupancy colour, so the marker matches its details card. */
   color?: string;
+  /**
+   * The spot is in the last seconds before it expires -- the marker animates
+   * to transparent instead of vanishing between frames. Toggled on the
+   * existing DOM element, never by recreating the marker, so a pin fading
+   * out cannot cause the map to rebuild anything around it.
+   */
+  fading?: boolean;
 }
 
 interface MapboxMapProps {
@@ -685,8 +695,9 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
     // Add or update markers
     pins.forEach((pin) => {
-      if (markersRef.current[pin.id]) {
-        markersRef.current[pin.id].setLngLat([pin.lng, pin.lat]);
+      const existing = markersRef.current[pin.id];
+      if (existing) {
+        existing.setLngLat([pin.lng, pin.lat]);
         return;
       }
 
@@ -804,6 +815,20 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           .setLngLat([pin.lng, pin.lat])
           .addTo(map);
       }
+    });
+
+    // Fade state, applied to whatever element is now on the map -- one pass
+    // covering markers just created and markers that were already there.
+    //
+    // It is a class toggle on the existing DOM node, never a rebuild. A pin
+    // entering its last seconds must not be torn down and recreated: that
+    // would restart the CSS animation on every sweep tick, so the marker
+    // would strobe instead of fading, and it would drop and re-add a Mapbox
+    // marker several times a second on a map the driver is trying to read.
+    pins.forEach((pin) => {
+      markersRef.current[pin.id]
+        ?.getElement()
+        .classList.toggle('mapbox-pin-fading', Boolean(pin.fading));
     });
   }, [pins]);
 

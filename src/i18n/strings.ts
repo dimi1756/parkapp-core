@@ -489,6 +489,14 @@ const en = {
   'predict.walk': '{n} min walk',
   'predict.driveThere': 'Drive there',
   'predict.disclaimer': 'Estimated from distance, recent reports nearby and time of day. An indication, not a guarantee.',
+
+  'reports.title': 'My Reports',
+  'reports.subtitle': 'Spots you have shared with other drivers',
+  'reports.empty': 'No reports yet',
+  'reports.emptyDesc': 'Report a free space and it will show up here.',
+  'reports.loadError': "Couldn't load your reports.",
+  'reports.unknownStreet': 'Unnamed street',
+  'reports.showAll': 'Show {n} more',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -957,6 +965,14 @@ const gr: Record<keyof typeof en, string> = {
   'predict.walk': '{n} λεπτά με τα πόδια',
   'predict.driveThere': 'Οδήγηση εκεί',
   'predict.disclaimer': 'Εκτίμηση βάσει απόστασης, πρόσφατων αναφορών στην περιοχή και ώρας. Ένδειξη, όχι εγγύηση.',
+
+  'reports.title': 'Ιστορικό δηλώσεων',
+  'reports.subtitle': 'Θέσεις που μοιράστηκες με άλλους οδηγούς',
+  'reports.empty': 'Καμία δήλωση ακόμα',
+  'reports.emptyDesc': 'Δήλωσε μια ελεύθερη θέση και θα εμφανιστεί εδώ.',
+  'reports.loadError': 'Δεν ήταν δυνατή η φόρτωση του ιστορικού.',
+  'reports.unknownStreet': 'Οδός χωρίς όνομα',
+  'reports.showAll': 'Εμφάνιση {n} ακόμα',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -1425,6 +1441,14 @@ const tr: Record<keyof typeof en, string> = {
   'predict.walk': '{n} dk yürüyüş',
   'predict.driveThere': 'Oraya sür',
   'predict.disclaimer': 'Mesafe, çevredeki son bildirimler ve saate göre tahmin. Bir gösterge, garanti değil.',
+
+  'reports.title': 'Bildirimlerim',
+  'reports.subtitle': 'Diğer sürücülerle paylaştığın yerler',
+  'reports.empty': 'Henüz bildirim yok',
+  'reports.emptyDesc': 'Boş bir yer bildir, burada görünsün.',
+  'reports.loadError': 'Bildirimlerin yüklenemedi.',
+  'reports.unknownStreet': 'İsimsiz sokak',
+  'reports.showAll': '{n} tane daha göster',
 };
 
 export type StringKey = keyof typeof en;

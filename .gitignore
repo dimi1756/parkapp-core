@@ -25,3 +25,6 @@ dist-ssr
 # Environment variables (never commit real tokens/keys)
 .env
 .env.local
+
+# tsc -b incremental build state (see the "typecheck" script)
+*.tsbuildinfo

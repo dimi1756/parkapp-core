@@ -294,6 +294,43 @@
   transform: scale(1.1);
 }
 
+/* The last seconds of a declared spot's life. The pin shrinks slightly and
+   fades to nothing over the fade window in src/lib/spotLifecycle.ts, so it
+   leaves the map as a deliberate exit rather than disappearing between two
+   frames -- which reads as a glitch, and on a crowded map is easy to miss
+   entirely.
+
+   `forwards` holds the end state: the sweep removes the pin a tick or two
+   after the animation lands, and without it the marker would snap back to
+   full opacity for those last frames. */
+.mapbox-pin-fading {
+  animation: parkapp-pin-fade-out 5s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes parkapp-pin-fade-out {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+}
+
+/* A driver who has asked for less motion gets the removal without the
+   animation: the pin simply stops being interactive and dims. */
+@media (prefers-reduced-motion: reduce) {
+  .mapbox-pin-fading {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
 /* Zoom/compass/geolocate are now app-rendered controls (see MapboxMap.tsx),
    so nothing of Mapbox's own is left in the top-right corner. What remains
    is the attribution and logo along the bottom edge, which the tab bar

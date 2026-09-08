@@ -10,6 +10,7 @@ import type { NearbySpot } from '@/hooks/useNearbySpots';
 import type { CityKpis } from '@/components/admin/KPICards';
 import type { LiveSpot } from '@/components/admin/CityMap';
 import type { TrendDay } from '@/components/admin/WeeklyTrafficChart';
+import type { MyReport } from '@/hooks/useMyReports';
 
 // Karystos, southern Euboea -- the live demo takes place here. Scattered a
 // few hundred meters apart around the waterfront/town center so they read
@@ -171,5 +172,39 @@ export function getMockAdminSpots(): LiveSpot[] {
     status: (['active', 'active', 'claimed', 'reported'] as const)[i % 4],
     declared_at: s.declared_at,
     expires_at: s.expires_at,
+  }));
+}
+
+// Karystos streets the demo pins sit on, paired with what each declaration
+// earned: +10 for vacating a space you were in, +5 for reporting one you
+// saw, matching declare-spot's own award. Street names are written out
+// rather than reverse-geocoded so the demo history renders instantly and
+// identically every time, with no Mapbox round trip to go wrong on stage.
+const MOCK_REPORT_STREETS: [string, number, number, number][] = [
+  ['Ακτή Καρύστου', 24.4171, 38.0159, 10],
+  ['Οδός Σαχτούρη', 24.4198, 38.0182, 5],
+  ['Πλατεία Αμαλίας', 24.4155, 38.0174, 10],
+  ['Οδός Κριεζώτου', 24.4142, 38.0191, 10],
+  ['Οδός Αιόλου', 24.4211, 38.0166, 5],
+];
+
+/**
+ * Seeded declaration history for the demo account, newest first.
+ *
+ * Spread over the last few days rather than the last few minutes: the
+ * section is meant to read as an ongoing contribution record, and five
+ * entries all timestamped within one hour would read as a script that had
+ * just been run. Times are derived from `now` so the list never goes stale.
+ */
+export function getMockMyReports(): MyReport[] {
+  const now = Date.now();
+  const HOURS_AGO = [3, 27, 30, 51, 76];
+  return MOCK_REPORT_STREETS.map(([street, lng, lat, points], i) => ({
+    id: `demo-report-${i}`,
+    declaredAt: new Date(now - HOURS_AGO[i] * 60 * 60 * 1000).toISOString(),
+    lng,
+    lat,
+    street,
+    points,
   }));
 }
