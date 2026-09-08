@@ -18,6 +18,7 @@ import { ZoneInfoCard } from './ZoneInfoCard';
 import { LocationHelpCard } from './LocationHelpCard';
 import { AlternativeSpotsCard } from './AlternativeSpotsCard';
 import { SearchResultsList } from './SearchResultsList';
+import { SmartSearchLoader } from './SmartSearchLoader';
 import { buildPredictions, candidatePoints, type PredictedStreet } from '@/lib/prediction';
 import { SPOT_VISIBLE_TTL_MS } from '@/lib/spotLifecycle';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
@@ -1445,7 +1446,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           </div>
         ) : (
           <div className="relative pointer-events-auto">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+            {/* One magnifier, not two. The decorative one on the left said
+                nothing the placeholder and the button on the right weren't
+                already saying, and the padding it reserved is now text room --
+                which a long Greek or Turkish destination needs. */}
             <input
               ref={inputRef}
               value={searchQuery}
@@ -1454,7 +1458,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               onBlur={() => setTimeout(() => setSuggestions([]), 150)}
               disabled={routeState === 'searching'}
               placeholder={t('map.searchPlaceholder')}
-              className="w-full h-14 pl-12 pr-16 text-base rounded-2xl shadow-xl bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full h-14 pl-5 pr-16 text-base rounded-3xl shadow-xl bg-background/70 backdrop-blur-xl border border-white/40 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
             <Button
               onClick={handleSearch}
@@ -1678,11 +1682,14 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         </div>
       )}
 
-      {/* Searching Modal */}
+      {/* Searching Modal. The scrim stays light and blurred rather than
+          near-opaque -- the map showing through is what makes this read as a
+          panel floating over the app instead of a page that has been
+          replaced by a loading screen. */}
       {routeState === 'searching' && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-background/40 backdrop-blur-md z-50 flex items-center justify-center">
           <div className="glass-card p-8 mx-4 text-center animate-fade-in">
-            <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
+            <SmartSearchLoader />
             <h3 className="text-lg font-semibold mb-2">{t('map.smartSearch')}</h3>
             <p className="text-sm text-muted-foreground">{t('map.checkingSpots')}</p>
           </div>

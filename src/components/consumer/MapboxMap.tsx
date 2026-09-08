@@ -1176,7 +1176,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           cards (destination info, spot/facility/zone sheets), which start
           around bottom-44 and are the one thing that must never be covered. */}
       <div className="absolute right-4 bottom-64 z-10 flex flex-col items-center gap-2">
-        <div className="flex flex-col rounded-2xl overflow-hidden bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
+        <div className="flex flex-col rounded-2xl overflow-hidden bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
           <button type="button" onClick={handleZoomIn} aria-label={t('map.zoomIn')} className={controlButton}>
             <Plus className="h-5 w-5" />
           </button>
@@ -1198,7 +1198,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
             type="button"
             onClick={handleResetNorth}
             aria-label={t('map.resetNorth')}
-            className={`${controlButton} rounded-2xl bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] animate-fade-in`}
+            className={`${controlButton} rounded-2xl bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] animate-fade-in`}
           >
             <Compass
               className="h-5 w-5 text-primary transition-transform duration-200"
@@ -1212,7 +1212,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           onClick={handleLocate}
           disabled={locating}
           aria-label={t('map.myLocation')}
-          className={`${controlButton} rounded-full bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] disabled:opacity-70`}
+          className={`${controlButton} rounded-full bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] disabled:opacity-70`}
         >
           {locating ? (
             <Loader2 className="h-5 w-5 text-primary animate-spin" />

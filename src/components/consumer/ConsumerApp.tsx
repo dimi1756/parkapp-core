@@ -68,7 +68,7 @@ export const ConsumerApp = () => {
       </div>
 
       <nav
-        className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border px-2 pb-safe"
+        className="absolute bottom-0 left-0 right-0 bg-background/70 backdrop-blur-xl backdrop-saturate-150 border-t border-white/40 dark:border-white/10 px-2 pb-safe"
         data-tour="nav"
       >
         <div className="flex items-center justify-around py-2">
