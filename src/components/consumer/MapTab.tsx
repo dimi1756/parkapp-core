@@ -254,6 +254,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // spot near the destination. See src/lib/prediction.ts -- heuristic, not a
   // trained model.
   const [alternatives, setAlternatives] = useState<PredictedStreet[] | null>(null);
+  // True while the candidate streets are being named. Reverse geocoding a
+  // ring of points is half a dozen round trips, and "no spots found"
+  // followed by several seconds of nothing is exactly where this feature
+  // looks broken instead of clever.
+  const [alternativesLoading, setAlternativesLoading] = useState(false);
 
   // Follow mode: the camera tracks the driver while a route is running, the
   // way every turn-by-turn app behaves. MapboxMap drops out of it the moment
@@ -546,6 +551,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setExcludedSpotIds([]);
     setShowSpotPrompt(false);
     setIsRouting(false);
+    // Clear any alternatives left over from a previous search. Without this a
+    // successful search still showed the last failed one's card, because
+    // only loadAlternatives reset it and that runs on the not-found path.
+    setAlternatives(null);
+    setAlternativesLoading(false);
 
     // Route from exactly where the driver is right now, not a fix that might
     // be stale by however long since the last watch tick -- same
@@ -615,26 +625,37 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
    */
   const loadAlternatives = async (poi: { lng: number; lat: number }) => {
     setAlternatives(null);
+    setAlternativesLoading(true);
     const points = candidatePoints(poi);
 
     const named = await Promise.all(
       points.map(async (point) => {
         if (findZoneAt(point.lng, point.lat, zones)) return null;
-        const name = await reverseGeocodeStreet(point.lng, point.lat, language === 'gr' ? 'el' : 'en');
+        const name = await reverseGeocodeStreet(
+          point.lng,
+          point.lat,
+          language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en'
+        );
         return name ? { name, lng: point.lng, lat: point.lat } : null;
       })
     );
 
     const streets = named.filter((entry): entry is { name: string; lng: number; lat: number } => entry !== null);
-    if (streets.length === 0) return;
-
+    // An empty array, not null. Every candidate can legitimately come back
+    // unusable -- all six inside a protected zone, or the geocoder down --
+    // and returning early left `alternatives` null, so the card never
+    // rendered and the driver was back to the blank screen this whole
+    // feature exists to replace. The card handles the empty case itself.
     setAlternatives(
-      buildPredictions(streets, {
-        destination: poi,
-        reportedSpots: nearbySpots.map((spot) => ({ lng: spot.lng, lat: spot.lat })),
-        hour: new Date().getHours(),
-      })
+      streets.length === 0
+        ? []
+        : buildPredictions(streets, {
+            destination: poi,
+            reportedSpots: nearbySpots.map((spot) => ({ lng: spot.lng, lat: spot.lat })),
+            hour: new Date().getHours(),
+          })
     );
+    setAlternativesLoading(false);
   };
 
   /** "Drive there" on a predicted street: a normal route to that road. */
@@ -783,6 +804,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setRouteProfile('driving');
     setFollowMode(false);
     setAlternatives(null);
+    setAlternativesLoading(false);
   };
 
   // "Yes, I Parked" -- claims the target spot right where the driver is
@@ -1589,11 +1611,15 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             {t('map.confirmSpot')}
           </Button>
         </div>
-      ) : alternatives && alternatives.length > 0 && !isNavigating ? (
+      ) : (alternativesLoading || alternatives) && !isNavigating ? (
         <AlternativeSpotsCard
-          streets={alternatives}
+          streets={alternatives ?? []}
+          loading={alternativesLoading}
           onNavigate={handleNavigateToStreet}
-          onClose={() => setAlternatives(null)}
+          onClose={() => {
+            setAlternatives(null);
+            setAlternativesLoading(false);
+          }}
         />
       ) : selectedZone && !isNavigating ? (
         <ZoneInfoCard zone={selectedZone} onClose={() => setSelectedZoneId(null)} />

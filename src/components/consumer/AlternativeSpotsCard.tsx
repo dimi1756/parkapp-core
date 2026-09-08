@@ -1,11 +1,13 @@
 import React from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { PredictedStreet } from '@/lib/prediction';
-import { Navigation, Sparkles, Footprints, X } from 'lucide-react';
+import { Navigation, Sparkles, Footprints, X, Loader2, SearchX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface AlternativeSpotsCardProps {
   streets: PredictedStreet[];
+  /** Candidate streets are still being named. Shown instead of an empty card. */
+  loading?: boolean;
   onNavigate: (street: PredictedStreet) => void;
   onClose: () => void;
 }
@@ -28,7 +30,12 @@ function probabilityColor(probability: number): string {
  * see src/lib/prediction.ts. The street names, distances and walk times are
  * real.
  */
-export const AlternativeSpotsCard: React.FC<AlternativeSpotsCardProps> = ({ streets, onNavigate, onClose }) => {
+export const AlternativeSpotsCard: React.FC<AlternativeSpotsCardProps> = ({
+  streets,
+  loading = false,
+  onNavigate,
+  onClose,
+}) => {
   const { t } = useLanguage();
 
   return (
@@ -52,50 +59,72 @@ export const AlternativeSpotsCard: React.FC<AlternativeSpotsCardProps> = ({ stre
           </div>
         </div>
 
-        <div className="mt-4 space-y-2.5">
-          {streets.map((street) => {
-            const color = probabilityColor(street.probability);
-            return (
-              <div key={street.id} className="rounded-2xl bg-secondary/50 p-3">
-                <div className="flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm truncate">{street.name}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs font-bold" style={{ color }}>
-                        {t('predict.chance', { n: street.probability })}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        <Footprints className="h-3 w-3" />
-                        {t('predict.walk', { n: street.walkMinutes })}
-                      </span>
+        {loading ? (
+          // Naming the candidates takes a handful of geocoder round trips.
+          // The header above already says what is being worked out, so this
+          // only has to show that it is in progress.
+          <div className="flex items-center justify-center gap-2 py-7 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-xs">{t('predict.searching')}</span>
+          </div>
+        ) : streets.length === 0 ? (
+          // Every candidate came back unusable -- all inside protected zones,
+          // or the geocoder gave nothing back. Saying so is the point of this
+          // card; falling back to a blank map is what it exists to prevent.
+          <div className="flex flex-col items-center text-center gap-1.5 py-6">
+            <SearchX className="h-6 w-6 text-muted-foreground" />
+            <p className="text-sm font-medium">{t('predict.noneTitle')}</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">{t('predict.noneDesc')}</p>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-2.5">
+            {streets.map((street) => {
+              const color = probabilityColor(street.probability);
+              return (
+                <div key={street.id} className="rounded-2xl bg-secondary/50 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-sm truncate">{street.name}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs font-bold" style={{ color }}>
+                          {t('predict.chance', { n: street.probability })}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <Footprints className="h-3 w-3" />
+                          {t('predict.walk', { n: street.walkMinutes })}
+                        </span>
+                      </div>
                     </div>
+                    <Button
+                      size="sm"
+                      className="rounded-full gap-1.5 shrink-0"
+                      onClick={() => onNavigate(street)}
+                    >
+                      <Navigation className="h-3.5 w-3.5" />
+                      {t('predict.driveThere')}
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    className="rounded-full gap-1.5 shrink-0"
-                    onClick={() => onNavigate(street)}
-                  >
-                    <Navigation className="h-3.5 w-3.5" />
-                    {t('predict.driveThere')}
-                  </Button>
-                </div>
 
-                {/* The bar restates the number for anyone scanning rather than
-                    reading, and makes the ranking obvious at a glance. */}
-                <div className="h-1.5 rounded-full bg-background/70 overflow-hidden mt-2.5">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${street.probability}%`, backgroundColor: color }}
-                  />
+                  {/* The bar restates the number for anyone scanning rather than
+                      reading, and makes the ranking obvious at a glance. */}
+                  <div className="h-1.5 rounded-full bg-background/70 overflow-hidden mt-2.5">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${street.probability}%`, backgroundColor: color }}
+                    />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Stated on screen, not just in the source: these percentages are a
-            heuristic, and a room being pitched to deserves to know that. */}
-        <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">{t('predict.disclaimer')}</p>
+            heuristic, and a room being pitched to deserves to know that.
+            Hidden while loading and when there is nothing to qualify. */}
+        {streets.length > 0 && !loading && (
+          <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">{t('predict.disclaimer')}</p>
+        )}
       </div>
     </div>
   );
