@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppProvider } from "@/contexts/AppContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { UiPreferencesProvider } from "@/contexts/UiPreferencesContext";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
@@ -16,6 +17,10 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <LanguageProvider>
+    {/* Outermost of the app's own providers: it writes CSS variables to the
+        document root on first render, so the stored accent is in place
+        before anything paints rather than flashing the default blue. */}
+    <UiPreferencesProvider>
     {/* Inside LanguageProvider so the fallback UI can be translated; outside
         AuthProvider/AppProvider so a crash in either of those is caught too. */}
     <ErrorBoundary>
@@ -37,6 +42,7 @@ const App = () => (
       </AppProvider>
     </AuthProvider>
     </ErrorBoundary>
+    </UiPreferencesProvider>
     </LanguageProvider>
   </QueryClientProvider>
 );

@@ -516,6 +516,19 @@ const en = {
   'plans.trialFailed': "Couldn't start the trial",
   'leaderboard.noCity': 'No city yet',
   'leaderboard.noCityDesc': "You haven't been assigned to a city, so there's no local ranking to show. Turn on location and reopen the app to join one.",
+
+  'customize.title': 'Appearance',
+  'customize.subtitle': 'Make the app look the way you like',
+  'customize.reset': 'Reset',
+  'customize.accentLabel': 'Accent colour',
+  'customize.accent.ocean': 'Ocean',
+  'customize.accent.sunset': 'Sunset',
+  'customize.accent.midnight': 'Midnight',
+  'customize.accent.forest': 'Forest',
+  'customize.glassLabel': 'Glass transparency',
+  'customize.preview': 'Preview',
+  'customize.moreGlass': 'More glass',
+  'customize.moreSolid': 'More solid',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -1011,6 +1024,19 @@ const gr: Record<keyof typeof en, string> = {
   'plans.trialFailed': 'Δεν ήταν δυνατή η έναρξη της δοκιμής',
   'leaderboard.noCity': 'Καμία πόλη ακόμα',
   'leaderboard.noCityDesc': 'Δεν έχεις εκχωρηθεί σε πόλη ακόμα, οπότε δεν υπάρχει τοπική κατάταξη. Ενεργοποίησε την τοποθεσία και άνοιξε ξανά την εφαρμογή.',
+
+  'customize.title': 'Εμφάνιση',
+  'customize.subtitle': 'Δώσε στην εφαρμογή τη δική σου όψη',
+  'customize.reset': 'Επαναφορά',
+  'customize.accentLabel': 'Χρώμα εφαρμογής',
+  'customize.accent.ocean': 'Ωκεανός',
+  'customize.accent.sunset': 'Ηλιοβασίλεμα',
+  'customize.accent.midnight': 'Μεσάνυχτα',
+  'customize.accent.forest': 'Δάσος',
+  'customize.glassLabel': 'Διαφάνεια γυαλιού',
+  'customize.preview': 'Προεπισκόπηση',
+  'customize.moreGlass': 'Πιο διάφανο',
+  'customize.moreSolid': 'Πιο συμπαγές',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -1506,6 +1532,19 @@ const tr: Record<keyof typeof en, string> = {
   'plans.trialFailed': 'Deneme başlatılamadı',
   'leaderboard.noCity': 'Henüz şehir yok',
   'leaderboard.noCityDesc': 'Henüz bir şehre atanmadın, bu yüzden yerel sıralama yok. Konumu aç ve uygulamayı yeniden aç.',
+
+  'customize.title': 'Görünüm',
+  'customize.subtitle': 'Uygulamayı istediğin gibi göster',
+  'customize.reset': 'Sıfırla',
+  'customize.accentLabel': 'Vurgu rengi',
+  'customize.accent.ocean': 'Okyanus',
+  'customize.accent.sunset': 'Gün batımı',
+  'customize.accent.midnight': 'Gece yarısı',
+  'customize.accent.forest': 'Orman',
+  'customize.glassLabel': 'Cam saydamlığı',
+  'customize.preview': 'Önizleme',
+  'customize.moreGlass': 'Daha saydam',
+  'customize.moreSolid': 'Daha opak',
 };
 
 export type StringKey = keyof typeof en;

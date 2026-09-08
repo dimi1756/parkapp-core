@@ -40,6 +40,12 @@
 
     --radius: 0.75rem;
 
+    /* Driven by the Customization screen (src/lib/uiPreferences.ts). Declared
+       here so the app is fully styled before any JavaScript runs -- the
+       provider overwrites them on the root element at startup. */
+    --glass-opacity: 0.75;
+    --primary-deep: 210 100% 26%;
+
     --sidebar-background: 210 20% 98%;
     --sidebar-foreground: 220 20% 10%;
     --sidebar-primary: 210 100% 35%;
@@ -186,7 +192,12 @@
      is a white hairline rather than a grey one, which is what reads as a lit
      glass edge instead of a drawn outline. */
   .glass-card {
-    @apply bg-card/75 backdrop-blur-xl backdrop-saturate-150 border border-white/40 rounded-3xl;
+    @apply backdrop-blur-xl backdrop-saturate-150 border border-white/40 rounded-3xl;
+    /* The one place the user's opacity setting lands. Everything else that
+       looks like glass composes this class, so the slider reaches the whole
+       app through a single declaration -- and reaches it as a style
+       recalculation, with no React involved. */
+    background-color: hsl(var(--card) / var(--glass-opacity));
     box-shadow:
       0 12px 32px -12px rgba(15, 23, 42, 0.28),
       0 2px 8px -2px rgba(15, 23, 42, 0.12),
@@ -194,11 +205,33 @@
   }
 
   .dark .glass-card {
-    @apply bg-card/70 border-white/10;
+    @apply border-white/10;
     box-shadow:
       0 12px 32px -12px rgba(0, 0, 0, 0.6),
       0 2px 8px -2px rgba(0, 0, 0, 0.4),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* The canvas the glass sits on in the tabs that have no map behind them.
+     Frosted glass over a flat colour reads as a plain grey panel: the blur
+     needs something with variation in it to be visibly doing anything. Two
+     wide, very soft radial washes in the accent colour give it that without
+     ever competing with the content -- they sit at a few percent alpha and
+     re-tint themselves when the accent changes, since both are expressed in
+     terms of --primary. */
+  .app-canvas {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(105% 70% at 12% -8%, hsl(var(--primary) / 0.3), transparent 62%),
+      radial-gradient(85% 58% at 96% 8%, hsl(var(--accent) / 0.26), transparent 58%),
+      radial-gradient(120% 72% at 50% 108%, hsl(var(--primary-deep) / 0.24), transparent 66%);
+  }
+
+  .dark .app-canvas {
+    background-image:
+      radial-gradient(105% 70% at 12% -8%, hsl(var(--primary) / 0.3), transparent 62%),
+      radial-gradient(85% 58% at 96% 8%, hsl(var(--accent) / 0.16), transparent 58%),
+      radial-gradient(120% 72% at 50% 108%, hsl(var(--primary-deep) / 0.28), transparent 66%);
   }
 
   .premium-border {

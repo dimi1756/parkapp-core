@@ -11,9 +11,34 @@ import { Trophy, Crown, Loader2, AlertTriangle, Building2, ChevronRight, MapPinO
 // silver and bronze are what a leaderboard is expected to look like, and
 // they must read the same in light and dark mode. Index 0/1/2 = 1st/2nd/3rd.
 const MEDAL = [
-  { from: '#FFD700', to: '#E6A700', ring: 'ring-[#FFD700]', text: '#5a4200' },
-  { from: '#C0C0C0', to: '#9A9A9A', ring: 'ring-[#C0C0C0]', text: '#3d3d3d' },
-  { from: '#CD7F32', to: '#A15F22', ring: 'ring-[#CD7F32]', text: '#3b2308' },
+  {
+    from: '#FFD700',
+    to: '#E6A700',
+    text: '#5a4200',
+    // The whole card is tinted rather than ringed. A 2px metal ring reads as
+    // a highlighter around a list item; a wash across the surface reads as
+    // the row itself being worth more, which is what a podium is.
+    //
+    // It is a gradient, not a background colour, on purpose: a `bg-*` utility
+    // would replace glass-card's own background and with it the user's glass
+    // opacity setting, leaving the three most important rows *more*
+    // transparent than the ordinary ones below them -- exactly backwards. A
+    // gradient sets background-image, so the tint composites over the glass
+    // and the setting still applies underneath.
+    tint: 'bg-gradient-to-br from-yellow-500/20 to-yellow-500/5 border-yellow-500/30',
+  },
+  {
+    from: '#C0C0C0',
+    to: '#9A9A9A',
+    text: '#3d3d3d',
+    tint: 'bg-gradient-to-br from-slate-400/20 to-slate-400/5 border-slate-400/35',
+  },
+  {
+    from: '#CD7F32',
+    to: '#A15F22',
+    text: '#3b2308',
+    tint: 'bg-gradient-to-br from-orange-700/18 to-orange-700/5 border-orange-700/30',
+  },
 ] as const;
 
 /** Inline gradient + readable text colour for a podium place, or null below 3rd. */
@@ -123,8 +148,8 @@ export const LeaderboardTab = () => {
                 <div
                   key={entry.userId}
                   className={`glass-card p-4 flex items-center gap-4 animate-fade-in ${
-                    MEDAL[i] ? `ring-2 ${MEDAL[i].ring}` : ''
-                  } ${entry.isCurrentUser ? 'bg-primary/5 border-primary/30' : ''}`}
+                    MEDAL[i]?.tint ?? ''
+                  } ${entry.isCurrentUser ? 'ring-1 ring-primary/40' : ''}`}
                   style={{ animationDelay: `${i * 60}ms` }}
                 >
                   <div className="relative shrink-0">
@@ -187,7 +212,9 @@ export const LeaderboardTab = () => {
               {cityEntries.map((city, i) => (
                 <div
                   key={city.municipalityId}
-                  className={`flex items-center gap-3 p-3.5 ${city.isOwnCity ? 'bg-primary/5' : ''}`}
+                  className={`flex items-center gap-3 p-3.5 ${MEDAL[i]?.tint ?? ''} ${
+                    city.isOwnCity ? 'ring-1 ring-inset ring-primary/40' : ''
+                  }`}
                 >
                   <span
                     className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold shrink-0 ${

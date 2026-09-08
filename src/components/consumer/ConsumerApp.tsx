@@ -62,8 +62,14 @@ export const ConsumerApp = () => {
     // where re-deriving dvh here would reintroduce the very measurement iOS
     // gets wrong.
     <div className="h-full w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
-      {/* key remounts the pane per tab so each switch gets the fade-in */}
-      <div key={activeTab} className="flex-1 overflow-hidden animate-fade-in">
+      {/* key remounts the pane per tab so each switch gets the fade-in.
+          Every tab but the map gets the accent-tinted canvas behind it: the
+          map is its own background, and laying a wash over it would only
+          mute the thing the driver is reading. */}
+      <div
+        key={activeTab}
+        className={`flex-1 overflow-hidden animate-fade-in ${activeTab === 'map' ? '' : 'app-canvas'}`}
+      >
         {renderTab()}
       </div>
 

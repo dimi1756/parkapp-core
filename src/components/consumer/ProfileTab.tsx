@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { MyReportsCard } from './MyReportsCard';
+import { CustomizationCard } from './CustomizationCard';
 
 const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR' };
@@ -198,6 +199,11 @@ export const ProfileTab = () => {
         {/* Declaration history. Sits directly under the trust/points card,
             which is what it explains: those numbers came from these rows. */}
         <MyReportsCard />
+
+        {/* Appearance. Below the settings rows it belongs with, and above
+            the account actions, which is where iOS puts Display & Brightness
+            relative to the rest of Settings. */}
+        <CustomizationCard />
 
         {/* Account Settings */}
         <div className="glass-card divide-y divide-border">

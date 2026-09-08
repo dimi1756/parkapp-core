@@ -147,7 +147,7 @@ export const OffersTab = () => {
   return (
     <div className="h-full overflow-y-auto pb-24">
       {/* Header */}
-      <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 p-4 border-b border-border" data-tour="offers-balance">
+      <div className="sticky top-0 bg-background/60 backdrop-blur-xl backdrop-saturate-150 z-10 p-4 border-b border-white/30 dark:border-white/10" data-tour="offers-balance">
         <h1 className="text-2xl font-bold">{t('offers.title')}</h1>
         <p className="text-muted-foreground text-sm mt-1">
           {t('offers.available')} <span className="font-semibold text-primary">{points}</span>
@@ -155,7 +155,7 @@ export const OffersTab = () => {
       </div>
 
       {/* Category filter -- horizontally scrollable so it never wraps on a phone. */}
-      <div className="sticky top-[89px] z-10 bg-background/95 backdrop-blur-sm px-4 py-3 border-b border-border">
+      <div className="sticky top-[89px] z-10 bg-background/60 backdrop-blur-xl backdrop-saturate-150 px-4 py-3 border-b border-white/30 dark:border-white/10">
         <div className="flex gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {CATEGORIES.map((cat) => {
             const Icon = cat.icon;

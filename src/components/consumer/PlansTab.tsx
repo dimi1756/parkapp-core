@@ -130,7 +130,7 @@ export const PlansTab = () => {
   return (
     <div className="h-full overflow-y-auto overscroll-none pb-24">
       {/* Header */}
-      <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 p-4 border-b border-border">
+      <div className="sticky top-0 bg-background/60 backdrop-blur-xl backdrop-saturate-150 z-10 p-4 border-b border-white/30 dark:border-white/10">
         <h1 className="text-2xl font-bold">{t('plans.title')}</h1>
         <p className="text-muted-foreground text-sm mt-1">
           {t('plans.subtitle')}
