@@ -25,3 +25,4 @@ dist-ssr
 # Environment variables (never commit real tokens/keys)
 .env
 .env.local
+*.tsbuildinfo
