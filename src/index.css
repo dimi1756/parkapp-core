@@ -38,7 +38,7 @@
     --input: 210 20% 90%;
     --ring: 210 100% 35%;
 
-    --radius: 0.75rem;
+    --radius: 0.875rem;
 
     --sidebar-background: 210 20% 98%;
     --sidebar-foreground: 220 20% 10%;
@@ -114,6 +114,20 @@
     @apply bg-background text-foreground antialiased;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  /* Native iOS spring press: all interactive chrome scales down on tap.
+     transition-all in the base keeps color + transform in one declaration
+     so no Tailwind utility can accidentally remove the transform transition. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    transition: transform 200ms ease-out, opacity 200ms ease-out;
+  }
+
+  button:not(:disabled):active,
+  [role="button"]:not(:disabled):active {
+    transform: scale(0.97);
   }
 
   /* Native-app feel: interactive chrome shouldn't be text-selectable or show
@@ -136,7 +150,26 @@
 
 @layer components {
   .glass-card {
-    @apply bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl shadow-lg;
+    /* Ultra-thin material (light mode): semi-transparent white + heavy blur */
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(24px) saturate(1.8);
+    -webkit-backdrop-filter: blur(24px) saturate(1.8);
+    /* Hairline border + subtle top-edge inner highlight */
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 20px;
+    /* Multi-layer elevation: soft outer drop + inset highlight */
+    box-shadow:
+      0 8px 32px 0 rgba(0, 0, 0, 0.08),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.25);
+    color: hsl(var(--foreground));
+  }
+
+  .dark .glass-card {
+    background: rgba(18, 18, 20, 0.72);
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow:
+      0 8px 32px 0 rgba(0, 0, 0, 0.30),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
   }
 
   .premium-border {
@@ -187,9 +220,10 @@
 
   /* Clears the iOS home-indicator / Android gesture bar for chrome pinned to
      the bottom edge. Needs viewport-fit=cover on the <meta viewport> tag in
-     index.html, or env(safe-area-inset-*) always resolves to 0. */
+     index.html, or env(safe-area-inset-*) always resolves to 0.
+     The 20px floor ensures a comfortable buffer on non-notched devices too. */
   .pb-safe {
-    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+    padding-bottom: max(env(safe-area-inset-bottom), 20px);
   }
 }
 

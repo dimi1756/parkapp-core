@@ -70,8 +70,8 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
-        "2xl": "1rem",
-        "3xl": "1.5rem",
+        "2xl": "1.25rem",  // 20px — cards / floating overlays
+        "3xl": "1.75rem",  // 28px — sheets / modals
       },
       keyframes: {
         "accordion-down": {
@@ -114,7 +114,7 @@ export default {
         "confetti-fall": "confetti-fall 2s ease-in both",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', 'system-ui', 'sans-serif'],
       },
     },
   },

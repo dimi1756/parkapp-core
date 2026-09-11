@@ -1093,13 +1093,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               onBlur={() => setTimeout(() => setSuggestions([]), 150)}
               disabled={routeState === 'searching'}
               placeholder={t('map.searchPlaceholder')}
-              className="w-full h-14 pl-12 pr-16 text-base rounded-2xl shadow-xl bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full h-14 pl-12 pr-16 text-base rounded-[20px] shadow-[0_8px_32px_0_rgba(0,0,0,0.08)] bg-background/95 backdrop-blur-xl border border-white/20 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
             <Button
               onClick={handleSearch}
               disabled={routeState === 'searching'}
               size="icon"
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl bg-primary hover:bg-primary/90"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-[14px] bg-primary hover:bg-primary/90"
             >
               {routeState === 'searching' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
             </Button>
@@ -1150,7 +1150,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           type="button"
           onClick={() => onNavigateToOffers?.()}
           aria-label={`${profile?.points_balance ?? 0} ${t('map.points')} — ${t('nav.offers')}`}
-          className="points-pill flex items-center gap-2 cursor-pointer transition-transform active:scale-95 hover:brightness-110 shrink-0"
+          className="points-pill flex items-center gap-2 cursor-pointer transition-all duration-200 ease-out active:scale-[0.97] hover:brightness-110 shrink-0"
           data-tour="points"
         >
           <span>💎</span>
