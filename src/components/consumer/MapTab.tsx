@@ -1597,7 +1597,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           bottom bar, so turn-by-turn navigation isn't fighting the map for
           screen space -- reporting is still one tap away, just decluttered. */}
       {selectionMode ? (
-        <div className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-0 right-0 z-20 flex items-center justify-center gap-4 px-4" data-tour="actions">
+        <div className="absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom))] left-0 right-0 z-20 flex items-center justify-center gap-4 px-4" data-tour="actions">
           <button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
@@ -1653,7 +1653,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         // pair wider than the screen, so both ended up clipped at the edges.
         // flex-1 + min-w-0 + truncate keeps them inside the padding at any
         // label length, in any language.
-        <div className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-0 right-0 z-20 flex items-stretch justify-center gap-2 px-4" data-tour="actions">
+        <div className="absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom))] left-0 right-0 z-20 flex items-stretch justify-center gap-2 px-4" data-tour="actions">
           <Button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
