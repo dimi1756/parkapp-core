@@ -60,7 +60,7 @@ const doneKey = (id: TourId) => `parkapp_demo_tour_${id}_done_v1`;
  * shouldShowTour() -- so flipping it back to true restores all of them,
  * with their steps, targets and translations untouched.
  */
-export const TOURS_ENABLED = false;
+export const TOURS_ENABLED = true;
 
 export const shouldShowTour = (id: TourId) =>
   TOURS_ENABLED && localStorage.getItem(doneKey(id)) !== '1';
@@ -172,10 +172,11 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
   const visibleBottom = visibleTop + viewportHeight;
   const GAP = 12;
 
-  const cardWidth = Math.min(300, window.innerWidth - 24);
-  const cardLeft = Math.min(
-    Math.max(GAP, rect.left + rect.width / 2 - cardWidth / 2),
-    window.innerWidth - cardWidth - GAP
+  const HGAP = 16;
+  const cardWidth = Math.min(300, window.innerWidth - HGAP * 2);
+  const cardLeft = Math.max(
+    HGAP,
+    Math.min(rect.left + rect.width / 2 - cardWidth / 2, window.innerWidth - cardWidth - HGAP)
   );
 
   // Prefer whichever side the card actually fits on, rather than guessing
@@ -207,9 +208,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
     top: cardTop,
     left: cardLeft,
     width: cardWidth,
-    // Belt and braces for a step whose text is longer than the screen: the
-    // card scrolls internally instead of growing past the viewport and
-    // taking its own Skip/Next buttons with it.
+    maxWidth: `calc(100vw - 2rem)`,
     maxHeight: Math.max(160, viewportHeight - GAP * 2),
     overflowY: 'auto',
   };
@@ -231,7 +230,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
 
       <div
         ref={cardRef}
-        className="absolute bg-white dark:bg-neutral-900 rounded-2xl p-4 shadow-2xl animate-fade-in pointer-events-auto z-10"
+        className="absolute bg-background/80 backdrop-blur-xl border border-white/20 dark:border-white/10 rounded-2xl p-4 shadow-2xl animate-fade-in pointer-events-auto z-10"
         style={cardStyle}
         key={stepIndex}
       >
@@ -247,7 +246,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
           <Sparkles className="h-4 w-4 text-accent shrink-0" />
           <h3 className="font-semibold text-sm text-neutral-900 dark:text-neutral-50">{t(step.titleKey)}</h3>
         </div>
-        <p className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">{t(step.bodyKey)}</p>
+        <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200 leading-relaxed mb-3">{t(step.bodyKey)}</p>
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
