@@ -155,14 +155,16 @@ export async function searchPlaces(
   proximity: [number, number],
   sessionToken: string,
   limit = 5,
-  language = 'el'
+  language = 'el',
+  types?: string
 ): Promise<PlaceSuggestion[]> {
   if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
 
   const base =
     `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}` +
     `&session_token=${sessionToken}&limit=${limit}&country=gr&language=${language}` +
-    `&proximity=${proximity[0]},${proximity[1]}`;
+    `&proximity=${proximity[0]},${proximity[1]}` +
+    (types ? `&types=${encodeURIComponent(types)}` : '');
 
   // Local first. If nothing in the box matches, fall back to the unbounded
   // search so someone deliberately looking up another city still gets it --

@@ -352,8 +352,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         searchQuery,
         userLngLatRef.current,
         sessionTokenRef.current,
-        5,
-        language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en'
+        10,
+        language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en',
+        'poi'
       );
       if (searchRequestIdRef.current === requestId) setSuggestions(results);
     }, 350);
@@ -767,7 +768,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     }
 
     if (suggestions.length > 0) {
-      await handleSelectSuggestion(suggestions[0]);
+      // Dropdown is already visible; let the user pick a result instead of
+      // auto-selecting the first one (e.g. for generic category queries like
+      // "καφετέρια" that return many relevant options).
       return;
     }
 
@@ -1318,7 +1321,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               ? [{ id: 'optimistic-mine', lng: optimisticSpot.lng, lat: optimisticSpot.lat, type: 'mine' as const, label: 'Your declared spot' }]
               : []),
             ...(activeDestination
-              ? [{ id: 'destination', lng: activeDestination.lng, lat: activeDestination.lat, type: 'destination' as const, label: activeDestination.name }]
+              ? [{ id: 'destination', lng: activeDestination.lng, lat: activeDestination.lat, type: 'destination' as const, label: poiMarker ? `Πλησιέστερη θέση • ${walkMinutes}' περπάτημα` : activeDestination.name }]
               : []),
             // Smaller secondary pin: the actual searched POI, once the main
             // "destination" pin above has been swapped to point at the
