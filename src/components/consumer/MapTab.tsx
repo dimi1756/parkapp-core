@@ -225,6 +225,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // 'walking' once "Yes, I'm parking" hands off to a final POI leg -- swaps
   // the route line to dashed and levels the 3D driving camera back out.
   const [routeProfile, setRouteProfile] = useState<'driving' | 'walking'>('driving');
+  // Dashed walking preview: parking spot → final POI, shown alongside the
+  // driving route so the driver can see the full journey at once.
+  const [walkingRouteCoords, setWalkingRouteCoords] = useState<[number, number][] | null>(null);
 
   // "I saw a free space" (white button) enters this mode: the next map tap
   // drops a temporary yellow pin instead of declaring immediately, so the
@@ -552,6 +555,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setExcludedSpotIds([]);
     setShowSpotPrompt(false);
     setIsRouting(false);
+    setWalkingRouteCoords(null);
     // Clear any alternatives left over from a previous search. Without this a
     // successful search still showed the last failed one's card, because
     // only loadAlternatives reset it and that runs on the not-found path.
@@ -599,6 +603,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setFollowMode(true);
       // The search delivered a route -- only now does it cost an allowance.
       incrementSearches();
+
+      // Walking preview: fetch in the background so the map can show the full
+      // journey (drive → park → walk) without blocking the route display.
+      if (closest) {
+        getWalkingDirections(
+          [closest.lng, closest.lat],
+          [poi.lng, poi.lat],
+          language === 'gr' ? 'el' : 'en'
+        ).then((walking) => {
+          if (walking) setWalkingRouteCoords(walking.coordinates);
+        });
+      }
     } else {
       toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
@@ -803,6 +819,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setSearchQuery('');
     setSuggestions([]);
     setRouteProfile('driving');
+    setWalkingRouteCoords(null);
     setFollowMode(false);
     setAlternatives(null);
     setAlternativesLoading(false);
@@ -838,7 +855,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     // Had a final POI (shop/restaurant/etc): hand off to a walking leg from
     // the spot just claimed to that POI instead of ending navigation --
     // reuses the same active-nav UI, just with a dashed line and a level
-    // (non-tilted) camera.
+    // (non-tilted) camera. The walking preview layer is no longer needed once
+    // the main route itself becomes the walking leg.
+    setWalkingRouteCoords(null);
     setShowSpotPrompt(false);
     setTargetSpotId(null);
     setExcludedSpotIds([]);
@@ -883,6 +902,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     const excluded = [...excludedSpotIds, targetSpotId];
     setExcludedSpotIds(excluded);
     setShowSpotPrompt(false);
+    setWalkingRouteCoords(null);
 
     const next = findNearestSpotTo(searchAnchor, excluded);
     if (!next) {
@@ -1340,6 +1360,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           followUser={followMode}
           operatingArea={operatingArea}
           routeCoordinates={routeCoords}
+          walkingRouteCoordinates={walkingRouteCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
         />

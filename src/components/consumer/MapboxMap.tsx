@@ -101,7 +101,7 @@ export interface PlaceSuggestion {
  * 30km is wide enough to cover a town and everything a driver might plausibly
  * drive to from it, and narrow enough to keep another city's results out.
  */
-const LOCAL_SEARCH_RADIUS_KM = 30;
+const LOCAL_SEARCH_RADIUS_KM = 8;
 
 function localBbox([lng, lat]: [number, number]): string {
   const dLat = LOCAL_SEARCH_RADIUS_KM / 111.32;
@@ -369,6 +369,8 @@ interface MapboxMapProps {
   onCenterChange?: (lng: number, lat: number) => void;
   /** Full driving-route geometry from the Directions API; null clears the line. */
   routeCoordinates?: [number, number][] | null;
+  /** Walking-leg geometry (parking spot → final POI), rendered as a dashed line alongside the driving route. Null clears it. */
+  walkingRouteCoordinates?: [number, number][] | null;
   /** 'walking' renders the route as a dashed line (post-claim leg to a final POI); default 'driving' is solid. */
   routeProfile?: 'driving' | 'walking';
   /** True while turn-by-turn driving navigation is actively running -- tilts the camera to a 3D chase view and follows the driver's heading, Google-Maps-style. Left level for the walking leg (nobody wants a tilted phone for a 2-minute walk). */
@@ -403,6 +405,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onDeleteOwnPin,
   onCenterChange,
   routeCoordinates,
+  walkingRouteCoordinates,
   routeProfile = 'driving',
   isNavigating = false,
   onConfirmSelection,
@@ -1055,6 +1058,56 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       map.once('load', drawRoute);
     }
   }, [routeCoordinates, routeProfile]);
+
+  // Dashed walking-leg preview: parking spot → final POI destination,
+  // rendered simultaneously alongside the solid driving route so the driver
+  // can see the full journey at a glance before they even leave.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    const drawWalkingRoute = () => {
+      const data = {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: walkingRouteCoordinates ?? [],
+        },
+      };
+
+      if (map.getSource('walking-route')) {
+        (map.getSource('walking-route') as mapboxgl.GeoJSONSource).setData(data);
+        return;
+      }
+      if (!walkingRouteCoordinates || walkingRouteCoordinates.length < 2) return;
+
+      map.addSource('walking-route', { type: 'geojson', data });
+      // Casing + dashed core, same composite technique as the driving route.
+      // Emerald green family is distinct from the blue driving route at a
+      // glance; the dash pattern ([3, 2]) reads as "on foot, not in a car".
+      map.addLayer({
+        id: 'walking-route-casing',
+        type: 'line',
+        source: 'walking-route',
+        layout: { 'line-join': 'round', 'line-cap': 'butt' },
+        paint: { 'line-color': '#064E3B', 'line-width': 7 },
+      });
+      map.addLayer({
+        id: 'walking-route-line',
+        type: 'line',
+        source: 'walking-route',
+        layout: { 'line-join': 'round', 'line-cap': 'butt' },
+        paint: { 'line-color': '#34D399', 'line-width': 4, 'line-dasharray': [3, 2] },
+      });
+    };
+
+    if (map.isStyleLoaded()) {
+      drawWalkingRoute();
+    } else {
+      map.once('load', drawWalkingRoute);
+    }
+  }, [walkingRouteCoordinates]);
 
   // Google-Maps-style 3D chase camera while actively driving: pitched for
   // depth, bearing rotated to the driver's live heading so the route always
