@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { StringKey } from '@/i18n/strings';
-import { supabase } from '@/integrations/supabase/client';
 import { Gift, Coffee, ShoppingBag, Popcorn, Check, Bike, Fuel, SquareParking, UtensilsCrossed } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/hooks/use-toast';
+import { SlideToRedeem, type RedeemableOffer } from './SlideToRedeem';
 
 // The UniStudents-style marketplace: points buy real, everyday discounts,
 // grouped the way a driver thinks about them. Categories are what turn a
@@ -105,46 +104,25 @@ const offers: Offer[] = [
   },
 ];
 export const OffersTab = () => {
-  const { session, profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const { t } = useLanguage();
   const points = profile?.points_balance ?? 0;
   const [category, setCategory] = useState<OfferCategory | 'all'>('all');
+  const [pendingOffer, setPendingOffer] = useState<RedeemableOffer | null>(null);
 
   const visibleOffers = category === 'all' ? offers : offers.filter((o) => o.category === category);
 
-  const handleRedeem = async (offer: Offer) => {
-    if (!session?.user) return;
-
-    if (points < offer.cost) {
-      toast({
-        title: t('offers.insufficient'),
-        description: t('offers.insufficientDesc', { n: offer.cost - points }),
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Spending is the one ledger write a client may make directly -- RLS
-    // only allows negative deltas, so this can never award points, only
-    // deduct the user's own (see supabase/migrations/0004_anti_spam_support.sql).
-    const { error } = await supabase.from('points_transactions').insert({
-      user_id: session.user.id,
-      delta: -offer.cost,
-      reason: `redeemed_${offer.business.toLowerCase().replace(/\s+/g, '_')}`,
-    });
-
-    if (error) {
-      toast({ title: t('offers.redeemFailed'), description: error.message, variant: 'destructive' });
-      return;
-    }
-
-    toast({
-      title: t('offers.successTitle'),
-      description: t('offers.successDesc', { reward: t(offer.rewardKey), business: offer.business }),
+  const openSlider = (offer: Offer) => {
+    setPendingOffer({
+      id: offer.id,
+      business: offer.business,
+      rewardLabel: t(offer.rewardKey),
+      pointsCost: offer.cost,
     });
   };
 
   return (
+    <>
     <div className="h-full overflow-y-auto pb-24">
       {/* Header */}
       <div className="sticky top-0 bg-background/60 backdrop-blur-xl backdrop-saturate-150 z-10 p-4 border-b border-white/30 dark:border-white/10" data-tour="offers-balance">
@@ -211,7 +189,7 @@ export const OffersTab = () => {
               </div>
 
               <Button
-                onClick={() => handleRedeem(offer)}
+                onClick={() => openSlider(offer)}
                 disabled={points < offer.cost}
                 size="sm"
                 className={points >= offer.cost
@@ -239,5 +217,17 @@ export const OffersTab = () => {
         </div>
       </div>
     </div>
+
+    {pendingOffer && (
+      <SlideToRedeem
+        offer={pendingOffer}
+        onDone={async () => {
+          setPendingOffer(null);
+          await refreshProfile();
+        }}
+        onCancel={() => setPendingOffer(null)}
+      />
+    )}
+  </>
   );
 };
