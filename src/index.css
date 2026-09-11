@@ -40,6 +40,12 @@
 
     --radius: 0.875rem;
 
+    /* Driven by the Customization screen (src/lib/uiPreferences.ts). Declared
+       here so the app is fully styled before any JavaScript runs -- the
+       provider overwrites them on the root element at startup. */
+    --glass-opacity: 0.75;
+    --primary-deep: 210 100% 26%;
+
     --sidebar-background: 210 20% 98%;
     --sidebar-foreground: 220 20% 10%;
     --sidebar-primary: 210 100% 35%;
@@ -101,13 +107,35 @@
     @apply border-border;
   }
 
-  html,
-  body,
-  #root {
-    height: 100dvh;
+  /* The app shell is pinned to the viewport rather than merely sized to it.
+     `overflow: hidden` on body is not honoured reliably by iOS Safari: the
+     page could still be dragged, which scrolled the whole app under the URL
+     bar -- the header and search bar vanished off the top while a strip of
+     blank page showed below the tab bar. `position: fixed` on body is what
+     actually makes the document unscrollable there.
+
+     Height comes from --app-height, published from visualViewport (see
+     main.tsx), because iOS reports 100dvh as the *large* viewport -- toolbars
+     retracted -- even while they are on screen, which makes the shell taller
+     than the visible area. 100dvh stays as the fallback for browsers with no
+     visualViewport. */
+  html {
+    height: 100%;
+  }
+
+  body {
+    position: fixed;
+    inset: 0;
+    height: var(--app-height, 100dvh);
     width: 100%;
     overflow: hidden;
     overscroll-behavior: none;
+  }
+
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
   }
 
   body {
@@ -146,30 +174,78 @@
     -webkit-user-select: text;
     user-select: text;
   }
+
+  /* No visible scrollbars anywhere. A native app has none, and a grey gutter
+     down the side of the profile or the offers list is the single clearest
+     tell that this is a web page in a browser.
+     
+     Only the bar is hidden -- scrolling itself, including keyboard, wheel,
+     touch and momentum, is untouched, and overflow containers still clip and
+     scroll exactly as before. */
+  * {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+
+  *::-webkit-scrollbar {
+    display: none; /* WebKit: Safari, Chrome, and every iOS browser */
+  }
 }
 
 @layer components {
+  /* The app's card surface. rounded-3xl and a layered, wide-spread shadow
+     are what carry the "Apple-premium" look: one soft ambient layer for
+     depth plus a tighter contact layer so the card reads as lifted off the
+     map rather than drawn on it. Changing it here restyles every card,
+     modal and sheet at once -- which is the point. */
+  /* Frosted glass, iOS-style: the map reads through every floating surface.
+     Two details do most of the work. The blur is heavy enough (24px) that
+     what shows through is colour and depth rather than legible detail, so
+     text on top stays readable over a busy map -- a light blur at the same
+     opacity turns street labels into noise behind the copy. And the border
+     is a white hairline rather than a grey one, which is what reads as a lit
+     glass edge instead of a drawn outline. */
   .glass-card {
-    /* Ultra-thin material (light mode): semi-transparent white + heavy blur */
-    background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(24px) saturate(1.8);
-    -webkit-backdrop-filter: blur(24px) saturate(1.8);
-    /* Hairline border + subtle top-edge inner highlight */
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    border-radius: 20px;
-    /* Multi-layer elevation: soft outer drop + inset highlight */
+    @apply backdrop-blur-xl backdrop-saturate-150 border border-white/40 rounded-3xl;
+    /* The one place the user's opacity setting lands. Everything else that
+       looks like glass composes this class, so the slider reaches the whole
+       app through a single declaration -- and reaches it as a style
+       recalculation, with no React involved. */
+    background-color: hsl(var(--card) / var(--glass-opacity));
     box-shadow:
-      0 8px 32px 0 rgba(0, 0, 0, 0.08),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.25);
-    color: hsl(var(--foreground));
+      0 12px 32px -12px rgba(15, 23, 42, 0.28),
+      0 2px 8px -2px rgba(15, 23, 42, 0.12),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
   }
 
   .dark .glass-card {
-    background: rgba(18, 18, 20, 0.72);
-    border-color: rgba(255, 255, 255, 0.10);
+    @apply border-white/10;
     box-shadow:
-      0 8px 32px 0 rgba(0, 0, 0, 0.30),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+      0 12px 32px -12px rgba(0, 0, 0, 0.6),
+      0 2px 8px -2px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* The canvas the glass sits on in the tabs that have no map behind them.
+     Frosted glass over a flat colour reads as a plain grey panel: the blur
+     needs something with variation in it to be visibly doing anything. Two
+     wide, very soft radial washes in the accent colour give it that without
+     ever competing with the content -- they sit at a few percent alpha and
+     re-tint themselves when the accent changes, since both are expressed in
+     terms of --primary. */
+  .app-canvas {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(105% 70% at 12% -8%, hsl(var(--primary) / 0.3), transparent 62%),
+      radial-gradient(85% 58% at 96% 8%, hsl(var(--accent) / 0.26), transparent 58%),
+      radial-gradient(120% 72% at 50% 108%, hsl(var(--primary-deep) / 0.24), transparent 66%);
+  }
+
+  .dark .app-canvas {
+    background-image:
+      radial-gradient(105% 70% at 12% -8%, hsl(var(--primary) / 0.3), transparent 62%),
+      radial-gradient(85% 58% at 96% 8%, hsl(var(--accent) / 0.16), transparent 58%),
+      radial-gradient(120% 72% at 50% 108%, hsl(var(--primary-deep) / 0.28), transparent 66%);
   }
 
   .premium-border {
@@ -225,6 +301,7 @@
   .pb-safe {
     padding-bottom: max(env(safe-area-inset-bottom), 20px);
   }
+
 }
 
 /* Mapbox marker styles */
@@ -241,14 +318,190 @@
   transition: transform 0.3s linear;
 }
 
+/* Expanding halo, drawn on a pseudo-element so the pulse animation never
+   touches the dot's own transform -- Mapbox owns that property for
+   positioning, and animating it here would fight every position update and
+   drag the dot off its coordinate. */
+.mapbox-user-dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  opacity: 0.35;
+  pointer-events: none;
+  animation: parkapp-user-pulse 2s ease-out infinite;
+}
+
+@keyframes parkapp-user-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* Respect a reduced-motion preference: the dot still reads as "you are
+   here" from its halo, just without the repeating animation. */
+@media (prefers-reduced-motion: reduce) {
+  .mapbox-user-dot::after {
+    animation: none;
+    transform: scale(2);
+    opacity: 0.2;
+  }
+}
+
 .mapbox-pin-wrapper {
   cursor: pointer;
   filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.4));
   transition: transform 0.15s ease;
 }
 
+/* --- Smart Search loading scene (see SmartSearchLoader.tsx) --- */
+
+.smart-search-scene {
+  position: relative;
+  width: 168px;
+  height: 52px;
+  margin: 0 auto 1.25rem;
+}
+
+.smart-search-road {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6px;
+  height: 4px;
+  border-radius: 9999px;
+  background: hsl(var(--muted));
+  overflow: hidden;
+}
+
+/* Two markings repeated across a wider-than-parent strip, translated by
+   exactly one tile so the loop is seamless. */
+/* One tile wider than the road on the right. The scroll translates by
+   exactly one tile, and without the overhang that translation would drag a
+   28px bare patch into view at the right-hand end on every loop. */
+.smart-search-lane {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: -28px;
+  background-image: linear-gradient(
+    to right,
+    hsl(var(--muted-foreground) / 0.45) 0 14px,
+    transparent 14px 28px
+  );
+  background-size: 28px 100%;
+  animation: smart-search-road-scroll 0.5s linear infinite;
+}
+
+/* The wheels, not the icon's bounding box, are what has to meet the road.
+   Lucide's car glyph leaves about five pixels of empty space below the
+   wheels, so anchoring the box to the road's top edge left the car visibly
+   hovering above it. */
+.smart-search-car {
+  position: absolute;
+  bottom: 5px;
+  left: 0;
+  animation:
+    smart-search-drive 2.1s cubic-bezier(0.45, 0, 0.55, 1) infinite,
+    smart-search-bob 0.42s ease-in-out infinite;
+}
+
+@keyframes smart-search-road-scroll {
+  to {
+    transform: translateX(-28px);
+  }
+}
+
+/* Drives in from the left, eases across, and slips out to the right before
+   restarting -- the fade at each end hides the jump back. */
+@keyframes smart-search-drive {
+  0% {
+    transform: translateX(-14px);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(146px);
+    opacity: 0;
+  }
+}
+
+@keyframes smart-search-bob {
+  0%,
+  100% {
+    margin-bottom: 0;
+  }
+  50% {
+    margin-bottom: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smart-search-lane,
+  .smart-search-car {
+    animation: none;
+  }
+  .smart-search-car {
+    left: 50%;
+    margin-left: -14px;
+  }
+}
+
 .mapbox-pin-wrapper:hover {
   transform: scale(1.1);
+}
+
+/* The last seconds of a declared spot's life. The pin shrinks slightly and
+   fades to nothing over the fade window in src/lib/spotLifecycle.ts, so it
+   leaves the map as a deliberate exit rather than disappearing between two
+   frames -- which reads as a glitch, and on a crowded map is easy to miss
+   entirely.
+
+   `forwards` holds the end state: the sweep removes the pin a tick or two
+   after the animation lands, and without it the marker would snap back to
+   full opacity for those last frames. */
+.mapbox-pin-fading {
+  animation: parkapp-pin-fade-out 5s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes parkapp-pin-fade-out {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+}
+
+/* A driver who has asked for less motion gets the removal without the
+   animation: the pin simply stops being interactive and dims. */
+@media (prefers-reduced-motion: reduce) {
+  .mapbox-pin-fading {
+    animation: none;
+    opacity: 0.4;
+  }
 }
 
 /* Zoom/compass/geolocate are now app-rendered controls (see MapboxMap.tsx),
@@ -258,5 +511,8 @@
    require, without colliding with the action row at bottom-28. */
 .parkapp-map-shell .mapboxgl-ctrl-bottom-right,
 .parkapp-map-shell .mapboxgl-ctrl-bottom-left {
-  margin-bottom: 4.25rem;
+  /* Just clear of the tab bar, and no further: every pixel above this is
+     map. The action row above it sits at bottom-20 (5rem), which leaves the
+     attribution its own band rather than overlapping it. */
+  margin-bottom: 3.25rem;
 }

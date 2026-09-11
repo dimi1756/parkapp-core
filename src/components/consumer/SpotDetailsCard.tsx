@@ -45,8 +45,8 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({ distanceMeters
   }, []);
 
   return (
-    <div className="absolute bottom-28 left-4 right-4 z-30 flex justify-center animate-fade-in">
-      <div className="glass-card w-full max-w-sm relative">
+    <div className="absolute bottom-20 left-4 right-4 z-30 flex justify-center animate-fade-in">
+      <div className="glass-card shadow-2xl w-full max-w-sm relative">
         {/* iOS grab handle */}
         <div className="h-1.5 w-9 rounded-full bg-neutral-300 dark:bg-neutral-600 mx-auto mt-2.5 mb-1" />
         <div className="p-4 pt-2">

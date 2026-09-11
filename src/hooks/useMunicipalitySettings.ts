@@ -5,12 +5,19 @@ export interface MunicipalitySettings {
   notify_high_occupancy: boolean;
   moderate_spot_threshold: number;
   full_spot_threshold: number;
+  /**
+   * The code residents type to unlock free Premium. Null until the
+   * municipality sets one -- and while it is null no code can ever match,
+   * which is why this needs to be editable here rather than in SQL.
+   */
+  resident_code: string | null;
 }
 
 const DEFAULTS: MunicipalitySettings = {
   notify_high_occupancy: true,
   moderate_spot_threshold: 5,
   full_spot_threshold: 15,
+  resident_code: null,
 };
 
 /**
@@ -35,7 +42,7 @@ export function useMunicipalitySettings(municipalityId: string | null) {
     setLoadError(null);
     supabase
       .from('municipality_settings')
-      .select('notify_high_occupancy, moderate_spot_threshold, full_spot_threshold')
+      .select('notify_high_occupancy, moderate_spot_threshold, full_spot_threshold, resident_code')
       .eq('municipality_id', municipalityId)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -64,15 +71,20 @@ export function useMunicipalitySettings(municipalityId: string | null) {
         data: { user },
       } = await supabase.auth.getUser();
 
+      // An empty field means "no code", not a code that happens to be the
+      // empty string -- which would otherwise match any all-whitespace input.
+      const residentCode = next.resident_code?.trim() ? next.resident_code.trim() : null;
+
       const { error } = await supabase.from('municipality_settings').upsert({
         municipality_id: municipalityId,
         ...next,
+        resident_code: residentCode,
         updated_at: new Date().toISOString(),
         updated_by: user?.id ?? null,
       });
 
       setSaving(false);
-      if (!error) setSettings(next);
+      if (!error) setSettings({ ...next, resident_code: residentCode });
       return { error: error?.message ?? null };
     },
     [municipalityId]

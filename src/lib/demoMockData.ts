@@ -10,11 +10,12 @@ import type { NearbySpot } from '@/hooks/useNearbySpots';
 import type { CityKpis } from '@/components/admin/KPICards';
 import type { LiveSpot } from '@/components/admin/CityMap';
 import type { TrendDay } from '@/components/admin/WeeklyTrafficChart';
+import type { MyReport } from '@/hooks/useMyReports';
 
 // Karystos, southern Euboea -- the live demo takes place here. Scattered a
 // few hundred meters apart around the waterfront/town center so they read
 // as distinct real streets, not one pin duplicated four times.
-export const KARYSTOS_CENTER: [number, number] = [24.4167, 38.0167];
+export const DEMO_CENTER: [number, number] = [24.4167, 38.0167];
 
 const MOCK_DRIVER_NAMES = [
   'Nikos Papadopoulos',
@@ -87,7 +88,7 @@ export const MOCK_ADMIN_KPIS: CityKpis = {
 
 // Offsets in degrees (~40-120m at this latitude) so each pin lands on a
 // visibly different nearby street rather than stacking on one point.
-const KARYSTOS_OFFSETS: [number, number][] = [
+const DEMO_SPOT_OFFSETS: [number, number][] = [
   [0.0009, 0.0006],
   [-0.0012, 0.0004],
   [0.0004, -0.0011],
@@ -98,7 +99,7 @@ const KARYSTOS_OFFSETS: [number, number][] = [
 const MOCK_SPOT_ID_PREFIX = 'demo-spot-';
 
 /**
- * True for the demo pins minted by getMockKarystosSpots(). They render like
+ * True for the demo pins minted by getMockDemoSpots(). They render like
  * any real spot but have no parking_spots row behind them, so every code
  * path that would hit the server with a spot id (claim-spot, reserve_spot,
  * release_spot_reservation) must check this first and simulate instead.
@@ -127,11 +128,11 @@ export function __resetClaimedMockSpots(): void {
 
 function buildMockSpots(): NearbySpot[] {
   const now = Date.now();
-  return KARYSTOS_OFFSETS.map(([dLng, dLat], i) => ({
+  return DEMO_SPOT_OFFSETS.map(([dLng, dLat], i) => ({
     id: `${MOCK_SPOT_ID_PREFIX}${i}`,
     declared_by: `demo-driver-${i}`,
-    lng: KARYSTOS_CENTER[0] + dLng,
-    lat: KARYSTOS_CENTER[1] + dLat,
+    lng: DEMO_CENTER[0] + dLng,
+    lat: DEMO_CENTER[1] + dLat,
     status: 'active' as const,
     // Staggered 1-6 minutes ago -- fresh enough to be real, varied enough
     // that "time since declared" on each pin's detail card isn't identical.
@@ -146,7 +147,7 @@ function buildMockSpots(): NearbySpot[] {
 }
 
 /** Demo pins still on the map: everything except what's been claimed this session. */
-export function getMockKarystosSpots(): NearbySpot[] {
+export function getMockDemoSpots(): NearbySpot[] {
   return buildMockSpots().filter((spot) => !claimedMockSpotIds.has(spot.id));
 }
 
@@ -171,5 +172,39 @@ export function getMockAdminSpots(): LiveSpot[] {
     status: (['active', 'active', 'claimed', 'reported'] as const)[i % 4],
     declared_at: s.declared_at,
     expires_at: s.expires_at,
+  }));
+}
+
+// Karystos streets the demo pins sit on, paired with what each declaration
+// earned: +10 for vacating a space you were in, +5 for reporting one you
+// saw, matching declare-spot's own award. Street names are written out
+// rather than reverse-geocoded so the demo history renders instantly and
+// identically every time, with no Mapbox round trip to go wrong on stage.
+const MOCK_REPORT_STREETS: [string, number, number, number][] = [
+  ['Ακτή Καρύστου', 24.4171, 38.0159, 10],
+  ['Οδός Σαχτούρη', 24.4198, 38.0182, 5],
+  ['Πλατεία Αμαλίας', 24.4155, 38.0174, 10],
+  ['Οδός Κριεζώτου', 24.4142, 38.0191, 10],
+  ['Οδός Αιόλου', 24.4211, 38.0166, 5],
+];
+
+/**
+ * Seeded declaration history for the demo account, newest first.
+ *
+ * Spread over the last few days rather than the last few minutes: the
+ * section is meant to read as an ongoing contribution record, and five
+ * entries all timestamped within one hour would read as a script that had
+ * just been run. Times are derived from `now` so the list never goes stale.
+ */
+export function getMockMyReports(): MyReport[] {
+  const now = Date.now();
+  const HOURS_AGO = [3, 27, 30, 51, 76];
+  return MOCK_REPORT_STREETS.map(([street, lng, lat, points], i) => ({
+    id: `demo-report-${i}`,
+    declaredAt: new Date(now - HOURS_AGO[i] * 60 * 60 * 1000).toISOString(),
+    lng,
+    lat,
+    street,
+    points,
   }));
 }

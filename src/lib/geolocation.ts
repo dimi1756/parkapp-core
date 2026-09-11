@@ -32,13 +32,87 @@ const WATCH_OPTIONS: PositionOptions = {
   timeout: 15000,
 };
 
+/**
+ * What we know about location access right now.
+ * - 'unknown': not asked yet this session, and the browser won't say
+ * - 'prompt': the browser will ask on the next request
+ * - 'granted' / 'denied': settled
+ * - 'unavailable': no geolocation API at all
+ */
+export type LocationPermission = 'unknown' | 'prompt' | 'granted' | 'denied' | 'unavailable';
+
+type PermissionListener = (status: LocationPermission) => void;
+
 let watchId: number | null = null;
 let lastFix: GeoFix | null = null;
-let denied = false;
+let permission: LocationPermission = 'unknown';
 const listeners = new Set<PositionListener>();
+const permissionListeners = new Set<PermissionListener>();
+
+function setPermission(next: LocationPermission): void {
+  if (permission === next) return;
+  permission = next;
+  permissionListeners.forEach((listener) => listener(next));
+}
 
 function isSupported(): boolean {
   return typeof navigator !== 'undefined' && Boolean(navigator.geolocation);
+}
+
+/**
+ * Reads the browser's own permission record, where available. This is the
+ * only way to know an answer was already given -- "denied" in particular --
+ * WITHOUT firing a request that silently does nothing. Also subscribes to
+ * changes, so revoking access in site settings updates the UI without a
+ * reload. Permissions API is unavailable on some Safari versions, where this
+ * simply no-ops and the state stays 'unknown' until the first real request.
+ */
+function syncPermissionFromBrowser(): void {
+  if (!isSupported()) {
+    setPermission('unavailable');
+    return;
+  }
+  if (typeof navigator.permissions?.query !== 'function') return;
+  navigator.permissions
+    .query({ name: 'geolocation' as PermissionName })
+    .then((status) => {
+      setPermission(status.state as LocationPermission);
+      status.onchange = () => setPermission(status.state as LocationPermission);
+    })
+    .catch(() => {
+      // Some browsers reject the query for geolocation specifically -- the
+      // first real request will settle it instead.
+    });
+}
+
+syncPermissionFromBrowser();
+
+/** Current location-permission state, as best the browser will tell us. */
+export function getLocationPermission(): LocationPermission {
+  return permission;
+}
+
+/** Subscribe to permission changes (including revocation from site settings). */
+export function subscribeToPermission(listener: PermissionListener): () => void {
+  permissionListeners.add(listener);
+  listener(permission);
+  return () => {
+    permissionListeners.delete(listener);
+  };
+}
+
+/**
+ * Explicitly asks for location access, which is what actually shows the
+ * browser's permission prompt. Resolves the settled state so a caller can
+ * react immediately rather than waiting on a subscription.
+ */
+export async function requestLocationPermission(): Promise<LocationPermission> {
+  if (!isSupported()) {
+    setPermission('unavailable');
+    return 'unavailable';
+  }
+  const fix = await requestFreshFix();
+  return fix ? 'granted' : permission === 'denied' ? 'denied' : 'prompt';
 }
 
 function toFix(position: GeolocationPosition): GeoFix {
@@ -51,12 +125,12 @@ function ensureWatching(): void {
   if (watchId !== null || !isSupported()) return;
   watchId = navigator.geolocation.watchPosition(
     (position) => {
-      denied = false;
+      setPermission('granted');
       lastFix = toFix(position);
       listeners.forEach((listener) => listener(lastFix!));
     },
     (error) => {
-      if (error.code === error.PERMISSION_DENIED) denied = true;
+      if (error.code === error.PERMISSION_DENIED) setPermission('denied');
       console.warn('[geolocation] watch failed:', error.message);
     },
     WATCH_OPTIONS
@@ -87,9 +161,9 @@ export function getLastFix(): GeoFix | null {
   return lastFix;
 }
 
-/** True once the user has explicitly refused location access this session. */
+/** True once the user has explicitly refused location access. */
 export function isLocationDenied(): boolean {
-  return denied;
+  return permission === 'denied';
 }
 
 /**
@@ -106,13 +180,13 @@ export function requestFreshFix(): Promise<GeoFix | null> {
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        denied = false;
+        setPermission('granted');
         lastFix = toFix(position);
         listeners.forEach((listener) => listener(lastFix!));
         resolve(lastFix);
       },
       (error) => {
-        if (error.code === error.PERMISSION_DENIED) denied = true;
+        if (error.code === error.PERMISSION_DENIED) setPermission('denied');
         resolve(null);
       },
       WATCH_OPTIONS
@@ -125,6 +199,7 @@ export function __resetGeolocationForTests(): void {
   if (watchId !== null && isSupported()) navigator.geolocation.clearWatch(watchId);
   watchId = null;
   lastFix = null;
-  denied = false;
+  permission = 'unknown';
   listeners.clear();
+  permissionListeners.clear();
 }

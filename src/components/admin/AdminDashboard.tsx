@@ -9,11 +9,13 @@ import { KPICards, type CityKpis } from './KPICards';
 import { CityMap, type LiveSpot } from './CityMap';
 import { WeeklyTrafficChart, type TrendDay } from './WeeklyTrafficChart';
 import { AdminSettings } from './AdminSettings';
+import { ZoningConfig } from './ZoningConfig';
+import { OperatingAreaConfig } from './OperatingAreaConfig';
 import { DemoTour, shouldShowTour } from '@/components/consumer/DemoTour';
 import { BarChart3, TrendingUp, Calendar, RefreshCw, ShieldAlert, Loader2, Menu, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import { MOCK_ADMIN_KPIS, getMockAdminSpots, getMockWeeklyTrend } from '@/lib/demoMockData';
+import { MOCK_ADMIN_KPIS, DEMO_CENTER, getMockAdminSpots, getMockWeeklyTrend } from '@/lib/demoMockData';
 
 const LIVE_SPOT_STATUSES: readonly LiveSpot['status'][] = ['active', 'claimed', 'expired', 'invalid', 'reported'];
 function isLiveSpotStatus(value: string): value is LiveSpot['status'] {
@@ -37,8 +39,13 @@ export const AdminDashboard = () => {
   const [showTour, setShowTour] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const loadData = useCallback(async () => {
-    if (!municipalityId) return;
+  // Returns the error as well as storing it. handleRefresh used to read the
+  // `dataError` state straight after awaiting this, which is the value from
+  // the render that created the closure -- the toast reported the PREVIOUS
+  // load's outcome, so a failed refresh said "refreshed" and the next
+  // successful one raised an error toast.
+  const loadData = useCallback(async (): Promise<string | null> => {
+    if (!municipalityId) return null;
     setDataError(null);
 
     // Investor-pitch mock stats for the shared demo account only -- a fresh
@@ -52,7 +59,7 @@ export const AdminDashboard = () => {
       setTrend(getMockWeeklyTrend());
       setDataLoading(false);
       setLastUpdated(new Date());
-      return;
+      return null;
     }
 
     const [kpiRes, spotsRes, trendRes] = await Promise.all([
@@ -83,6 +90,7 @@ export const AdminDashboard = () => {
     setTrend(trendRes.data ?? []);
     setDataLoading(false);
     setLastUpdated(new Date());
+    return firstError?.message ?? null;
   }, [municipalityId, isDemoAccount]);
 
   useEffect(() => {
@@ -100,10 +108,10 @@ export const AdminDashboard = () => {
   const handleRefresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    await loadData();
+    const error = await loadData();
     setIsRefreshing(false);
-    if (dataError) {
-      toast({ title: t('admin.dataLoadError'), description: dataError, variant: 'destructive' });
+    if (error) {
+      toast({ title: t('admin.dataLoadError'), description: error, variant: 'destructive' });
     } else {
       toast({ title: t('admin.refreshed'), description: t('admin.refreshedDesc') });
     }
@@ -153,9 +161,10 @@ export const AdminDashboard = () => {
       case 'overview':
         return (
           <div className="space-y-6">
-            <div data-tour="admin-kpis">
-              <KPICards kpis={kpis} loading={dataLoading} />
-            </div>
+            {/* data-tour lives on the first KPI card inside KPICards, not on
+                this wrapper: the wrapper is the full four-card column on a
+                phone, which is taller than the screen. */}
+            <KPICards kpis={kpis} loading={dataLoading} />
             <div data-tour="admin-map">
               <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} />
             </div>
@@ -193,6 +202,13 @@ export const AdminDashboard = () => {
         );
       case 'livemap':
         return <CityMap spots={spots} loading={dataLoading} municipalityName={municipalityName} tall />;
+      case 'zoning':
+        return (
+          <div className="space-y-8">
+            <OperatingAreaConfig municipalityId={municipalityId} fallbackCenter={DEMO_CENTER} />
+            <ZoningConfig municipalityId={municipalityId} center={DEMO_CENTER} />
+          </div>
+        );
       case 'settings':
         return <AdminSettings municipalityId={municipalityId} spots={spots} trend={trend} />;
       default:
@@ -204,6 +220,7 @@ export const AdminDashboard = () => {
     overview: t('admin.overview'),
     analytics: t('admin.analytics'),
     livemap: t('admin.liveMap'),
+    zoning: t('admin.zoning'),
     settings: t('admin.settings'),
   };
 

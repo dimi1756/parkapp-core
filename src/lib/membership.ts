@@ -45,3 +45,19 @@ export function isPremiumActive(profile: Profile | null | undefined): boolean {
   const status = getMembershipStatus(profile);
   return status.kind === 'trial' || status.kind === 'resident';
 }
+
+/**
+ * Daily destination-search allowance per tier. Premium used to be
+ * advertised and enforced as "unlimited"; it is now a real, finite quota, so
+ * the number lives here rather than being spelled out separately in the
+ * paywall check and in the Plans copy -- PlansTab renders these same
+ * constants, which is what keeps the pricing page honest about what the
+ * app actually enforces.
+ */
+export const FREE_DAILY_SEARCHES = 1;
+export const PREMIUM_DAILY_SEARCHES = 5;
+
+/** How many searches this profile gets today. Trial and resident both count as Premium. */
+export function getDailySearchLimit(profile: Profile | null | undefined): number {
+  return isPremiumActive(profile) ? PREMIUM_DAILY_SEARCHES : FREE_DAILY_SEARCHES;
+}

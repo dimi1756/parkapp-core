@@ -1,15 +1,30 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-// See declare-spot/index.ts for why this is a secret rather than "*".
-const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
-if (!APP_ORIGIN) {
-  console.warn("[manual-unpark] APP_ORIGIN is not configured -- CORS is wide open (Access-Control-Allow-Origin: *).");
+// CORS -- see declare-spot/index.ts for the full reasoning. In short: the
+// preflight response must name the method, and the calling origin is
+// reflected back rather than matched against an allowlist, so production,
+// the custom domain, Vercel previews and localhost all work. verify_jwt,
+// not CORS, is what guards this function.
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+    return protocol === "https:";
+  } catch {
+    return false;
+  }
 }
-const corsHeaders = {
-  "Access-Control-Allow-Origin": APP_ORIGIN ?? "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  Vary: "Origin",
-};
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -29,19 +44,19 @@ function getServiceClient() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 }
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
 // Rewards the user for properly confirming they've left, as opposed to the
 // 0-point silent close performed by check-lazy-unpark.
 const MANUAL_UNPARK_BONUS = 5;
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const corsHeaders = corsHeadersFor(req);
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 
   const user = await getRequestUser(req);
   if (!user) return json({ error: "Not authenticated." }, 401);

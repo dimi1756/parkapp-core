@@ -26,7 +26,7 @@ export const LeagueModal: React.FC<LeagueModalProps> = ({ points, open, onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
             <Trophy className="h-7 w-7 text-primary" />
@@ -68,6 +68,15 @@ export const LeagueModal: React.FC<LeagueModalProps> = ({ points, open, onOpenCh
             );
           })}
         </div>
+
+        {/* The board uses gold, silver and bronze twice over, for two
+            unrelated things: a league is the points an account has earned in
+            total and never goes down, while the podium ring is simply this
+            week's top three. A Bronze driver can hold the gold ring, which
+            looks like a bug until somebody says otherwise. */}
+        <p className="text-[11px] text-muted-foreground leading-relaxed mt-1 pt-3 border-t border-border/60">
+          {t('league.vsPodium')}
+        </p>
       </DialogContent>
     </Dialog>
   );

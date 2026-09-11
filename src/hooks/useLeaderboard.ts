@@ -6,6 +6,7 @@ import { getMockDriverLeaderboard } from '@/lib/demoMockData';
 export type LeaderboardPeriod = 'daily' | 'weekly';
 
 export interface LeaderboardEntry {
+  /** Stable within one load. The views no longer expose user ids -- see below. */
   userId: string;
   fullName: string;
   points: number;
@@ -13,7 +14,23 @@ export interface LeaderboardEntry {
 }
 
 /**
- * Reads the real leaderboard_daily / leaderboard_weekly views (0001_init_schema.sql)
+ * Rebuilds the shortened name the leaderboard views publish -- "Δημήτρης Κ."
+ * from "Δημήτρης Κέκης" -- so the caller's own row can be highlighted.
+ *
+ * Marking "you" by name rather than by id is a compromise the privacy fix
+ * forces: the views deliberately dropped user_id and full_name so a
+ * leaderboard could not be used to enumerate accounts. Two drivers who
+ * shorten to the same name would both be highlighted; that is the cost of
+ * not shipping user ids to every client, and it is the right trade.
+ */
+function toDisplayName(fullName: string | null | undefined): string {
+  if (!fullName) return '';
+  const [first = '', second = ''] = fullName.trim().split(/\s+/);
+  return second ? `${first} ${second[0]}.` : first;
+}
+
+/**
+ * Reads the real leaderboard_daily / leaderboard_weekly views
  * -- derived live from the points_transactions ledger, so this can never drift
  * out of sync with what actually got awarded the way a separately-maintained
  * cache table could. Scoped to the caller's own municipality when they have
@@ -51,7 +68,7 @@ export function useLeaderboard(period: LeaderboardPeriod, limit = 20) {
           ? await (() => {
               let query = supabase
                 .from('leaderboard_daily')
-                .select('user_id, full_name, municipality_id, points_today')
+                .select('rank, display_name, municipality_id, points_today')
                 .order('points_today', { ascending: false, nullsFirst: false })
                 .limit(limit);
               if (profile?.municipality_id) query = query.eq('municipality_id', profile.municipality_id);
@@ -60,7 +77,7 @@ export function useLeaderboard(period: LeaderboardPeriod, limit = 20) {
           : await (() => {
               let query = supabase
                 .from('leaderboard_weekly')
-                .select('user_id, full_name, municipality_id, points_this_week')
+                .select('rank, display_name, municipality_id, points_this_week')
                 .order('points_this_week', { ascending: false, nullsFirst: false })
                 .limit(limit);
               if (profile?.municipality_id) query = query.eq('municipality_id', profile.municipality_id);
@@ -75,14 +92,18 @@ export function useLeaderboard(period: LeaderboardPeriod, limit = 20) {
         return;
       }
 
+      const ownDisplayName = toDisplayName(profile?.full_name);
+
       setEntries(
         (data ?? [])
-          .filter((row): row is typeof row & { user_id: string; full_name: string } => !!row.user_id && !!row.full_name)
-          .map((row) => ({
-            userId: row.user_id,
-            fullName: row.full_name,
+          .filter((row): row is typeof row & { display_name: string } => !!row.display_name)
+          .map((row, index) => ({
+            // The views publish a rank but no id; rank is unique per load, so
+            // it makes a stable React key without exposing an account id.
+            userId: `rank-${row.rank ?? index}`,
+            fullName: row.display_name,
             points: ('points_today' in row ? row.points_today : row.points_this_week) ?? 0,
-            isCurrentUser: row.user_id === profile?.id,
+            isCurrentUser: !!ownDisplayName && row.display_name === ownDisplayName,
           }))
       );
       setLoading(false);

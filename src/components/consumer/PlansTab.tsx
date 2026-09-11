@@ -1,11 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getMembershipStatus } from '@/lib/membership';
+import { getMembershipStatus, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import { Check, X, Crown, Zap, Ban, Radar, Gift, Star, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export const PlansTab = () => {
   const { profile, upgradeToPremium, redeemResidentCode } = useAuth();
@@ -20,11 +29,51 @@ export const PlansTab = () => {
   const [citizenId, setCitizenId] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [startingTrial, setStartingTrial] = useState(false);
+  // Starting a trial begins a clock that cannot be restarted (redeem_trial_premium
+  // only fires from 'free'), so it asks first rather than spending it on a stray tap.
+  const [trialConfirmOpen, setTrialConfirmOpen] = useState(false);
+  // Whether this user's municipality has set a code at all. Only ever a
+  // yes/no -- the code itself stays admin-only under RLS, since anyone who
+  // could read it would have free Premium for the asking.
+  const [codeConfigured, setCodeConfigured] = useState<boolean | null>(null);
+
+  // The working code, shown only on the shared demo account so a live
+  // presentation can type something that actually verifies. Every other
+  // account gets null from the server (see 0018_resident_code_demo_hint.sql)
+  // and keeps the descriptive placeholder -- printing the real code for
+  // everyone would hand out the free Premium the code exists to gate.
+  const [demoCode, setDemoCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!profile?.municipality_id) return;
+    supabase.rpc('has_resident_code').then(({ data, error }) => {
+      if (error) {
+        console.error('[PlansTab] has_resident_code failed:', error);
+        return;
+      }
+      setCodeConfigured(Boolean(data));
+    });
+    supabase.rpc('resident_code_hint').then(({ data, error }) => {
+      if (error) {
+        console.error('[PlansTab] resident_code_hint failed:', error);
+        return;
+      }
+      if (typeof data === 'string' && data.trim()) setDemoCode(data.trim());
+    });
+  }, [profile?.municipality_id]);
 
   const handleStartTrial = async () => {
+    setTrialConfirmOpen(false);
     setStartingTrial(true);
-    await upgradeToPremium();
+    const { error } = await upgradeToPremium();
     setStartingTrial(false);
+    if (error) {
+      toast({ title: t('plans.trialFailed'), description: error, variant: 'destructive' });
+      return;
+    }
+    // The card behind this re-renders to "Active" off the refreshed profile,
+    // but a state change nobody announced reads as a button that did nothing.
+    toast({ title: t('plans.trialStarted'), description: t('plans.trialStartedDesc', { n: trialDays }) });
   };
 
   const handleVerify = async () => {
@@ -36,14 +85,37 @@ export const PlansTab = () => {
       });
       return;
     }
+    // redeem_resident_code matches against the caller's OWN municipality's
+    // code, so an account with no municipality can only ever get back
+    // "false" -- indistinguishable from a wrong code, and misleading: there
+    // was nothing to be wrong about. Caught here so the message names the
+    // actual problem.
+    if (!profile?.municipality_id) {
+      toast({ title: t('plans.verifyNoCity'), description: t('plans.verifyNoCityDesc'), variant: 'destructive' });
+      return;
+    }
+
+    // "Double-check your code" is the wrong advice when the municipality
+    // never set one: no code could have worked, and the resident has no way
+    // to know that.
+    if (codeConfigured === false) {
+      toast({ title: t('plans.verifyNoCode'), description: t('plans.verifyNoCodeDesc'), variant: 'destructive' });
+      return;
+    }
+
     setVerifying(true);
     // Server-verified against the caller's own municipality's resident
     // code -- previously any non-empty string was accepted and silently
     // granted the same trial as the "Start Trial" button.
-    const success = await redeemResidentCode(citizenId.trim());
+    const result = await redeemResidentCode(citizenId.trim());
     setVerifying(false);
-    if (success) {
+    if (result === 'ok') {
       toast({ title: t('plans.verifySuccess'), description: t('plans.verifySuccessDesc') });
+    } else if (result === 'locked') {
+      // Five wrong guesses buys a 15-minute lockout server-side. Telling
+      // someone to double-check their code while nothing they type can work
+      // is the one message guaranteed to waste their time.
+      toast({ title: t('plans.verifyLocked'), description: t('plans.verifyLockedDesc'), variant: 'destructive' });
     } else {
       toast({ title: t('plans.verifyInvalid'), description: t('plans.verifyInvalidDesc'), variant: 'destructive' });
     }
@@ -51,12 +123,14 @@ export const PlansTab = () => {
 
   const monthlyPrice = 3;
   const yearlyPrice = monthlyPrice * 12 * 0.8;
-  const trialDays = 15;
+  // Must match redeem_trial_premium()'s interval -- the server decides the
+  // trial length, this only states it (see 0014_fourteen_day_trial.sql).
+  const trialDays = 14;
 
   return (
-    <div className="h-full overflow-y-auto pb-24">
+    <div className="h-full overflow-y-auto overscroll-none pb-24">
       {/* Header */}
-      <div className="sticky top-0 bg-background/95 backdrop-blur-sm z-10 p-4 border-b border-border">
+      <div className="sticky top-0 bg-background/60 backdrop-blur-xl backdrop-saturate-150 z-10 p-4 border-b border-white/30 dark:border-white/10">
         <h1 className="text-2xl font-bold">{t('plans.title')}</h1>
         <p className="text-muted-foreground text-sm mt-1">
           {t('plans.subtitle')}
@@ -104,7 +178,7 @@ export const PlansTab = () => {
           <ul className="space-y-3 mb-5">
             <li className="flex items-center gap-2 text-sm">
               <Check className="h-4 w-4 text-success" />
-              <span>{t('plans.searchPerDay')}</span>
+              <span>{t('plans.searchesPerDay', { n: FREE_DAILY_SEARCHES })}</span>
             </li>
             <li className="flex items-center gap-2 text-sm">
               <Check className="h-4 w-4 text-success" />
@@ -169,7 +243,7 @@ export const PlansTab = () => {
           <ul className="space-y-3 mb-5">
             <li className="flex items-center gap-2 text-sm">
               <Zap className="h-4 w-4 text-accent" />
-              <span className="font-medium">{t('plans.unlimited')}</span>
+              <span className="font-medium">{t('plans.searchesPerDay', { n: PREMIUM_DAILY_SEARCHES })}</span>
             </li>
             <li className="flex items-center gap-2 text-sm">
               <Radar className="h-4 w-4 text-accent" />
@@ -188,7 +262,7 @@ export const PlansTab = () => {
           <Button
             className="w-full bg-accent text-accent-foreground hover:bg-accent/90 gap-2"
             disabled={plan === 'premium' || startingTrial}
-            onClick={handleStartTrial}
+            onClick={() => setTrialConfirmOpen(true)}
           >
             {startingTrial && <Loader2 className="h-4 w-4 animate-spin" />}
             {plan === 'premium' ? t('plans.active') : t('plans.startTrial', { n: trialDays })}
@@ -210,19 +284,37 @@ export const PlansTab = () => {
           </p>
 
           {status.kind === 'resident' ? (
-            <div className="flex items-center gap-2 text-success bg-success/10 p-3 rounded-lg">
-              <Check className="h-5 w-5" />
-              <span className="font-medium">{t('plans.verified')}</span>
+            // Inline confirmation, not just a toast: a toast is gone in
+            // seconds, and "did my code actually work?" is a question the
+            // screen should still answer a minute later.
+            <div className="flex items-start gap-3 text-success bg-success/10 border border-success/30 p-4 rounded-2xl animate-fade-in">
+              <Check className="h-5 w-5 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-semibold text-sm">{t('plans.verified')}</p>
+                <p className="text-xs text-success/90 mt-0.5">{t('plans.verifiedDesc')}</p>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
               <Input
-                placeholder={t('plans.residentId')}
+                placeholder={demoCode ?? t('plans.residentIdPlaceholder')}
                 value={citizenId}
                 onChange={(e) => setCitizenId(e.target.value)}
                 disabled={verifying}
                 className="bg-background"
               />
+              {codeConfigured === false && (
+                <p className="text-xs text-warning">{t('plans.verifyNoCodeDesc')}</p>
+              )}
+              {demoCode && citizenId !== demoCode && (
+                <button
+                  type="button"
+                  onClick={() => setCitizenId(demoCode)}
+                  className="text-xs font-semibold text-primary hover:underline text-left"
+                >
+                  {t('plans.useDemoCode', { code: demoCode })}
+                </button>
+              )}
               <Button
                 onClick={handleVerify}
                 disabled={verifying}
@@ -235,6 +327,29 @@ export const PlansTab = () => {
           )}
         </div>
       </div>
+
+      {/* Trial confirmation. redeem_trial_premium only fires from the free
+          tier (0014_fourteen_day_trial.sql), so the 14 days start once and
+          cannot be restarted -- worth one tap to be sure, and it is where
+          the app states plainly that nothing is being charged. */}
+      <Dialog open={trialConfirmOpen} onOpenChange={setTrialConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('plans.trialConfirmTitle', { n: trialDays })}</DialogTitle>
+            <DialogDescription>
+              {t('plans.trialConfirmDesc', { n: trialDays, price: monthlyPrice })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="ghost" onClick={() => setTrialConfirmOpen(false)}>
+              {t('profile.cancel')}
+            </Button>
+            <Button className="bg-accent text-accent-foreground hover:bg-accent/90" onClick={handleStartTrial}>
+              {t('plans.trialConfirmCta')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

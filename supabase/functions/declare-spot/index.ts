@@ -1,22 +1,45 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-// Security audit (2026-08-18): "*" let any origin's JS call this function
-// with a stolen/leaked bearer token. Locking to the deployed app's own
-// origin, configurable via a secret (never hardcoded, matching the
-// MAPBOX_SECRET_TOKEN convention below) so this works across
-// preview/staging/prod without a code change. Falls back to "*" with a
-// loud warning rather than silently breaking every deployment that hasn't
-// set it yet -- set with:
-//   supabase secrets set APP_ORIGIN=https://your-production-domain
-const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
-if (!APP_ORIGIN) {
-  console.warn("[declare-spot] APP_ORIGIN is not configured -- CORS is wide open (Access-Control-Allow-Origin: *).");
+// CORS.
+//
+// The origin is reflected back, for any https page (plus localhost in dev),
+// rather than matched against a configured allowlist.
+//
+// The allowlist version broke production twice. It knew about *.vercel.app
+// and whatever APP_ORIGIN happened to hold, but the app is served from a
+// custom domain -- parkapp.tech -- which matched neither, so the preflight
+// came back naming an origin the browser was not on. The browser then
+// refused to send the request at all, which surfaces in the app as
+// supabase-js's "Failed to send a request to the Edge Function" while the
+// logs show a healthy OPTIONS 204 and no POST behind it. Every new domain,
+// preview URL or custom hostname would have reintroduced it.
+//
+// Reflecting is safe here because CORS is not what protects this function:
+// verify_jwt is. CORS only decides which *page* may read the reply, and an
+// attacker holding a stolen token does not need a browser to use it -- curl
+// ignores CORS entirely. Pinning origins bought no real protection and cost
+// two outages.
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+    return protocol === "https:";
+  } catch {
+    return false;
+  }
 }
-const corsHeaders = {
-  "Access-Control-Allow-Origin": APP_ORIGIN ?? "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  Vary: "Origin",
-};
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": origin && isAllowedOrigin(origin) ? origin : "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    // Cuts a preflight round trip off every declaration after the first.
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+}
 
 // Rejects non-finite / out-of-range values that `typeof n === "number" &&
 // !Number.isNaN(n)` alone lets through (Infinity/-Infinity are both valid
@@ -41,12 +64,19 @@ const RULES = {
   TRUST_SHADOWBAN_THRESHOLD: 0.4,
 };
 
-// The shared YC-reviewer demo account is exempt from rate limiting only
-// (hourly/daily caps + the declare-to-declare cooldown) so a live demo can
-// click through many declarations back-to-back with zero rejections. GPS
-// accuracy, the 30m radius check, road-snap, and trust/shadowban all still
-// run for this account exactly as for any real user -- this is a UX carve-out
-// for spam limits, not a bypass of location or identity verification.
+// The shared reviewer/demo account is exempt from four things, all so a
+// live presentation can't be derailed by a rule aimed at farming or
+// spoofing: rate limiting (hourly/daily caps + the declare-to-declare
+// cooldown), the road-snap check, the GPS accuracy gate, and the 30m
+// declare radius. They are the same problem in different clothes -- a demo
+// happens indoors, in a different town from the pilot, where Map Matching
+// correctly says "not a street", the phone reports 30-100m accuracy, and
+// the pin the presenter drops on the pilot's streets is kilometres from
+// where they are standing.
+//
+// Trust/shadowban still runs for this account exactly as for any real user.
+// The exemption keys off one specific known address on the verified JWT --
+// never a flag from the request body -- so no real user can ask for it.
 const DEMO_EMAIL = "demo@parkapp.tech";
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -144,15 +174,17 @@ interface DeclareBody {
   kind?: 'vacating' | 'spotted';
 }
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const corsHeaders = corsHeadersFor(req);
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+  // Preflight: 204 with the headers above, which is what the browser
+  // actually inspects before it will send the real request.
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 
   const user = await getRequestUser(req);
   if (!user) return json({ error: "Not authenticated." }, 401);
@@ -190,7 +222,12 @@ Deno.serve(async (req) => {
     .eq("id", user.id)
     .single();
 
-  if (accuracy > RULES.MAX_GPS_ACCURACY_M) {
+  // The accuracy gate joins the demo account's carve-out. Now that the demo
+  // reads real GPS rather than a simulated position, an indoor presentation
+  // reports 30-100m accuracy and every declaration would be rejected here -- the
+  // same "the room is not a street" problem the road-snap bypass solves,
+  // arriving one check earlier.
+  if (!isDemoAccount && accuracy > RULES.MAX_GPS_ACCURACY_M) {
     return json({ error: "GPS signal too weak to verify your location. Move to an open area and try again." }, 400);
   }
 
@@ -273,12 +310,21 @@ Deno.serve(async (req) => {
     }
   }
 
+  // The declare radius joins the demo account's carve-out, for the same
+  // reason the accuracy gate did: the presenter drops a pin on the pilot
+  // town's streets from wherever the meeting happens to be, which is by
+  // definition further than 30m away. Leaving this one rule in place was
+  // enough on its own to reject every declaration in a live demo -- the
+  // road-snap and accuracy bypasses just moved the rejection one check
+  // later. Every real account is still held to the full 30m.
   const distanceFromUser = haversineMeters(userLat, userLng, spotLat, spotLng);
-  if (distanceFromUser > RULES.DECLARE_RADIUS_M) {
+  if (!isDemoAccount && distanceFromUser > RULES.DECLARE_RADIUS_M) {
     return json({ error: "That spot is too far from your current location to declare." }, 400);
   }
 
-  const onRoad = await isNearRoad(spotLat, spotLng);
+  // Road-snap is skipped for the shared demo/reviewer account -- see the
+  // DEMO_EMAIL note above. Trust/shadowban still runs.
+  const onRoad = isDemoAccount || (await isNearRoad(spotLat, spotLng));
   if (!onRoad) {
     return json({ error: "We couldn't verify that location is a real street. Declaration rejected." }, 400);
   }
@@ -290,7 +336,7 @@ Deno.serve(async (req) => {
     .insert({
       declared_by: user.id,
       location: toEwkt(spotLat, spotLng),
-      road_snapped: true,
+      road_snapped: !isDemoAccount,
       municipality_id: profile?.municipality_id ?? null,
       status: "active",
       shadow_hidden: shadowHidden,

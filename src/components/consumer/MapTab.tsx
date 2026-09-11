@@ -7,6 +7,21 @@ import { useNearbySpots } from '@/hooks/useNearbySpots';
 import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation, cancelOwnSpot } from '@/lib/api/parking';
 import { claimMockSpot, isMockSpotId } from '@/lib/demoMockData';
 import { requestFreshFix } from '@/lib/geolocation';
+import { findZoneAt } from '@/lib/zones';
+import { useParkingZones } from '@/hooks/useParkingZones';
+import { useLocationPermission } from '@/hooks/useLocationPermission';
+import { useOperatingArea } from '@/hooks/useOperatingArea';
+import { isInsideOperatingArea } from '@/lib/operatingArea';
+import { PILOT_FACILITIES, occupancyLevel, OCCUPANCY_COLOR } from '@/lib/parkingFacilities';
+import { FacilityDetailsCard } from './FacilityDetailsCard';
+import { ZoneInfoCard } from './ZoneInfoCard';
+import { LocationHelpCard } from './LocationHelpCard';
+import { AlternativeSpotsCard } from './AlternativeSpotsCard';
+import { SearchResultsList } from './SearchResultsList';
+import { SmartSearchLoader } from './SmartSearchLoader';
+import { buildPredictions, candidatePoints, type PredictedStreet } from '@/lib/prediction';
+import { SPOT_VISIBLE_TTL_MS } from '@/lib/spotLifecycle';
+import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
   MapPin,
@@ -17,16 +32,17 @@ import {
   AlertTriangle,
   Check,
   ParkingCircle,
-  LocateFixed,
   ArrowUp,
   CornerUpLeft,
   CornerUpRight,
   RotateCcw,
   Flag,
+  Ban,
+  Building2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import chalkidaMap from '@/assets/chalkida-map.png';
+import offlineMapImage from '@/assets/chalkida-map.png';
 import {
   MapboxMap,
   isMapboxConfigured,
@@ -36,15 +52,12 @@ import {
   getDrivingDirections,
   getWalkingDirections,
   snapToRoad,
+  reverseGeocodeStreet,
   type PlaceSuggestion,
   type RouteStep,
 } from './MapboxMap';
 import { ConfettiBurst } from './ConfettiBurst';
 import { SpotDetailsCard } from './SpotDetailsCard';
-
-// The mocked GPS accuracy for demo declarations: comfortably inside any
-// server-side accuracy gate so reviewers succeed from a desk anywhere.
-const DEMO_ACCURACY_METERS = 5;
 
 // Once the live GPS position gets this close to a maneuver point, the
 // turn-by-turn banner advances to the next step.
@@ -59,13 +72,6 @@ const SEARCH_FLY_ZOOM = 16.5;
 // strict street-level view so a tap reliably lands on the road/curb instead
 // of clipping the building it fronts.
 const SELECTION_FLY_ZOOM = 18.5;
-
-// "Claim nearest spot": a snappy, fixed-duration hop straight to the spot
-// that was just claimed, not the distance-scaled speed the other flyTo
-// callers use -- this one should always feel the same regardless of how far
-// the spot happens to be.
-const CLAIM_FLY_ZOOM = 16.5;
-const CLAIM_FLY_DURATION_MS = 1000;
 
 // "Is the spot free?" (the "moment of truth" prompt) triggers once the
 // driver is within this radius of the target spot -- tight enough that
@@ -87,26 +93,31 @@ interface RouteTotals {
   durationSeconds: number;
 }
 
+// Destination names for the static offline fallback map only, where there
+// is no geocoder to ask. Generic on purpose: the app is not tied to any one
+// city, so these are categories rather than named businesses.
 const MOCK_DESTINATIONS = {
-  mikel: { name: 'Mikel Coffee', x: 55, y: 35 },
-  sklavenitis: { name: 'Sklavenitis', x: 70, y: 50 },
-  public: { name: 'Public Karystos', x: 52, y: 48 },
+  cafe: { name: 'Cafe', x: 55, y: 35 },
+  supermarket: { name: 'Supermarket', x: 70, y: 50 },
+  pharmacy: { name: 'Pharmacy', x: 52, y: 48 },
 };
 
-// Fallback center (Karystos, Greece -- the live pilot/demo city) used
-// whenever real geolocation isn't available (denied permission, desktop
-// demo browser, etc).
-const MAP_CENTER: [number, number] = [24.4167, 38.0167];
+// Last-resort map centre, used only until the driver's own municipality
+// centre or a real GPS fix arrives. Deliberately not a pilot city: the app
+// is location-agnostic, and hardcoding one city here is what made it look
+// single-city in the first place. Athens is the country's geographic
+// reference point, not a claim about where the service runs.
+const FALLBACK_CENTER: [number, number] = [23.7275, 37.9838];
 
 function percentToLngLat(x: number, y: number): [number, number] {
-  const lng = MAP_CENTER[0] + ((x - 50) / 50) * 0.01;
-  const lat = MAP_CENTER[1] - ((y - 50) / 50) * 0.008;
+  const lng = FALLBACK_CENTER[0] + ((x - 50) / 50) * 0.01;
+  const lat = FALLBACK_CENTER[1] - ((y - 50) / 50) * 0.008;
   return [lng, lat];
 }
 
 function lngLatToPercent(lng: number, lat: number): { x: number; y: number } {
-  const x = 50 + ((lng - MAP_CENTER[0]) / 0.01) * 50;
-  const y = 50 - ((lat - MAP_CENTER[1]) / 0.008) * 50;
+  const x = 50 + ((lng - FALLBACK_CENTER[0]) / 0.01) * 50;
+  const y = 50 - ((lat - FALLBACK_CENTER[1]) / 0.008) * 50;
   return { x, y };
 }
 
@@ -155,11 +166,36 @@ interface MapTabProps {
 }
 
 export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) => {
-  const { incrementSearches } = useApp();
+  const { canSearch, incrementSearches } = useApp();
   const { profile, isDemoAccount } = useAuth();
   const { t, language } = useLanguage();
   const { activeSession, refetch: refetchSession } = useActiveSession();
   const { spots: nearbySpots, refetch: refetchSpots } = useNearbySpots();
+  // Zones now come from the parking_zones table, drawn by each municipality's
+  // own admins -- the hardcoded array they replaced was traced by eye and
+  // rendered visibly off the real streets.
+  const { zones } = useParkingZones();
+  const { denied: locationDenied, request: requestLocation } = useLocationPermission();
+  // The circle this municipality's pilot covers. Null until a city sets one,
+  // which deliberately means "no boundary" rather than "nowhere allowed".
+  const { area: operatingArea } = useOperatingArea();
+
+  /**
+   * Ask for location, and explain if the browser won't ask.
+   *
+   * After a refusal no script can raise the prompt again -- the call just
+   * fails instantly -- so "Enable location" looked like a dead button. It
+   * still tries first (that succeeds on a fresh install, and on Android),
+   * and falls back to showing where the setting actually lives.
+   */
+  const askForLocation = async () => {
+    const next = await requestLocation();
+    if (next === 'granted') {
+      setShowLocationHelp(false);
+      return;
+    }
+    setShowLocationHelp(true);
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -173,7 +209,6 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const [walkMinutes, setWalkMinutes] = useState<number>(2);
   const [busyAction, setBusyAction] = useState<'declare' | 'spotted' | 'claim' | null>(null);
   const [celebrating, setCelebrating] = useState(false);
-  const [locateRequestId, setLocateRequestId] = useState(0);
 
   // Smart parking routing: when a search resolves to a POI, the actual
   // route/main pin target is the nearest available parking spot to it, not
@@ -209,6 +244,28 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // driver's current position rather than a snapshot from the moment of the tap.
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
 
+  // Off-street car parks: the layer that has something to show on day one,
+  // before any driver has declared anything (see src/lib/parkingFacilities.ts).
+  // Toggleable because on a dense map they compete with the community pins.
+  const [showFacilities, setShowFacilities] = useState(true);
+  const [selectedFacilityId, setSelectedFacilityId] = useState<string | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [showLocationHelp, setShowLocationHelp] = useState(false);
+  // Predicted alternative streets, shown when a search turns up no reported
+  // spot near the destination. See src/lib/prediction.ts -- heuristic, not a
+  // trained model.
+  const [alternatives, setAlternatives] = useState<PredictedStreet[] | null>(null);
+  // True while the candidate streets are being named. Reverse geocoding a
+  // ring of points is half a dozen round trips, and "no spots found"
+  // followed by several seconds of nothing is exactly where this feature
+  // looks broken instead of clever.
+  const [alternativesLoading, setAlternativesLoading] = useState(false);
+
+  // Follow mode: the camera tracks the driver while a route is running, the
+  // way every turn-by-turn app behaves. MapboxMap drops out of it the moment
+  // the driver pans, and the location button turns it back on.
+  const [followMode, setFollowMode] = useState(false);
+
   // Bumped by both action buttons to imperatively fly/zoom the camera to
   // street level centered on the user, right before a manual tap or an
   // automatic declaration -- see MapboxMap's flyToRequestId effect.
@@ -232,7 +289,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const sessionTokenRef = useRef<string>(crypto.randomUUID());
 
   // Real device position; falls back to the demo city center if unavailable.
-  const [userLngLat, setUserLngLat] = useState<[number, number]>(MAP_CENTER);
+  const [userLngLat, setUserLngLat] = useState<[number, number]>(FALLBACK_CENTER);
   const [userAccuracy, setUserAccuracy] = useState<number>(9999);
 
   // Mirrors userLngLat without being a search-debounce dependency -- reading
@@ -244,43 +301,31 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     userLngLatRef.current = userLngLat;
   }, [userLngLat]);
 
+  // Ask on open, once. The browser only shows its prompt in response to an
+  // explicit request, and a map that silently has no position is worse than
+  // one that asks for it up front.
   useEffect(() => {
-    if (isDemoAccount) {
-      // Demo reviewers judge from a desk, not a car: skip real geolocation
-      // entirely and pretend the device is at the map center with perfect
-      // accuracy. Real accounts get their position from MapboxMap's own
-      // GeolocateControl instead (see handleUserLocationChange below).
-      setUserAccuracy(DEMO_ACCURACY_METERS);
-    }
-  }, [isDemoAccount]);
+    requestLocation();
+    // Deliberately once per mount: repeating it would re-prompt on every
+    // render, and after a refusal the browser ignores it anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Demo only: the "user" follows the map, so wherever the reviewer pans,
-  // that's where their declarations land.
-  const handleCenterChange = useCallback(
-    (lng: number, lat: number) => {
-      if (isDemoAccount) setUserLngLat([lng, lat]);
-    },
-    [isDemoAccount]
-  );
+  // The demo position used to be rewritten to the map centre on every
+  // moveend ("the user follows the map"), which is exactly why the blue dot
+  // looked welded to the middle of the screen: panning moved the map AND the
+  // coordinates the marker was pinned to. The demo position is now fixed at
+  // the city centre like any real fix, so the dot stays on its street when
+  // the map moves. Declaring somewhere else is still possible through the
+  // manual pin ("I saw a free space"), which is the flow built for it.
 
-  // Real accounts only: MapboxMap's GeolocateControl prompts for permission
-  // on mount and calls this on every live GPS fix, so userLngLat always
-  // reflects the actual device position rather than a one-time snapshot.
-  const handleUserLocationChange = useCallback(
-    (lng: number, lat: number, accuracy: number) => {
-      if (isDemoAccount) return;
-      setUserLngLat([lng, lat]);
-      setUserAccuracy(accuracy);
-    },
-    [isDemoAccount]
-  );
-
-  // "My Location" button: bumps a counter MapboxMap watches to re-trigger
-  // GeolocateControl (permission prompt + fresh fix + camera fly-to), reusing
-  // the exact same tested path the auto-trigger-on-mount already uses.
-  const handleLocateMe = () => {
-    setLocateRequestId((n) => n + 1);
-  };
+  // Called on every live GPS fix, so userLngLat always reflects the actual
+  // device position rather than a one-time snapshot. Applies to every
+  // account: there is no simulated position any more.
+  const handleUserLocationChange = useCallback((lng: number, lat: number, accuracy: number) => {
+    setUserLngLat([lng, lat]);
+    setUserAccuracy(accuracy);
+  }, []);
 
   // Live autocomplete: debounce keystrokes, ignore stale responses that
   // resolve out of order.
@@ -298,13 +343,19 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     const requestId = ++searchRequestIdRef.current;
     const timer = setTimeout(async () => {
       // Biased toward wherever the driver actually is right now, not the
-      // fallback Karystos map center -- a "pharmacy" search from a different
+      // fallback map centre -- a "pharmacy" search from a different
       // town should surface that town's pharmacies first, not Athens'.
-      const results = await searchPlaces(searchQuery, userLngLatRef.current, sessionTokenRef.current);
+      const results = await searchPlaces(
+        searchQuery,
+        userLngLatRef.current,
+        sessionTokenRef.current,
+        5,
+        language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en'
+      );
       if (searchRequestIdRef.current === requestId) setSuggestions(results);
     }, 350);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, language]);
 
   // Drop the optimistic pin once the real, server-written spot has arrived
   // through useNearbySpots' realtime subscription -- matched by ownership
@@ -319,6 +370,18 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     );
     if (arrived) setOptimisticSpot(null);
   }, [nearbySpots, optimisticSpot, profile?.id]);
+
+  // Backstop for the same pin. Handing it off to the real row is the normal
+  // exit, but that depends on a realtime event arriving; if one never does
+  // (dropped socket, a refetch that misses it) the optimistic pin has no
+  // other way off the map and simply stays there, which is precisely the
+  // clutter the expiry sweep exists to prevent. It is a declaration like any
+  // other, so it gets a declaration's lifetime.
+  useEffect(() => {
+    if (!optimisticSpot) return;
+    const timer = setTimeout(() => setOptimisticSpot(null), SPOT_VISIBLE_TTL_MS);
+    return () => clearTimeout(timer);
+  }, [optimisticSpot]);
 
   // Turn-by-turn step advancement: once the live position gets close enough
   // to the current maneuver point, move on to the next instruction.
@@ -352,7 +415,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // sparse pilot-stage data instead of failing outright.
   function findNearestSpotTo(point: { lng: number; lat: number }, excludeIds: string[]) {
     const excluded = new Set(excludeIds);
-    // The investor-demo pins (getMockKarystosSpots) render on the map like
+    // The investor-demo pins (getMockDemoSpots) render on the map like
     // any real spot but have no matching parking_spots row. They used to be
     // excluded here outright, which quietly disabled the app's flagship flow
     // for the one account it exists for: on a sparse pilot database, a demo
@@ -372,6 +435,69 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       return best;
     }, null);
   }
+
+  /**
+   * Location-dependent actions refuse to start without a position rather
+   * than failing halfway through. Claiming a spot, routing to one, or
+   * declaring one all need to know where the driver actually is; without it
+   * the app would either guess or produce a nonsense result.
+   *
+   * Applies to every account, the demo one included: it reads real GPS now
+   * like any other, so it needs real permission like any other.
+   */
+  const requireLocation = (): boolean => {
+    if (!locationDenied) return true;
+    setShowLocationHelp(true);
+    return false;
+  };
+
+  /**
+   * Refuses actions taken outside the municipality's covered area.
+   *
+   * Separate from the zone rule below: a zone says "this particular street
+   * is not ours to give away", this says "we do not operate here at all
+   * yet". A city that hasn't drawn its boundary has no geofence, so this
+   * passes -- an unconfigured municipality must not lock out its own drivers.
+   */
+  const requireInsideOperatingArea = (lng: number, lat: number): boolean => {
+    if (isInsideOperatingArea(lng, lat, operatingArea)) return true;
+    // Deliberately generic: no municipality name. The operating area is a
+    // circle an admin draws, not a municipal boundary, so naming a council
+    // here was both wrong at the edges and stale the moment the pilot moved
+    // to another town.
+    toast({
+      title: t('map.outsideAreaTitle'),
+      description: t('map.outsideAreaDesc'),
+      variant: 'destructive',
+    });
+    return false;
+  };
+
+  /**
+   * The pilot's zoning rule, enforced at the moment of declaring: a spot
+   * inside a municipality's controlled/resident zone is never published to
+   * the community layer. Returns true (and explains itself) when the
+   * declaration must be refused. Both declare paths go through this -- the
+   * "I'm leaving" button, which uses the driver's own GPS, and the "I saw a
+   * free space" manual pin, which can be dropped anywhere on the map.
+   */
+  const blockedByZone = (lng: number, lat: number): boolean => {
+    const zone = findZoneAt(lng, lat, zones);
+    if (!zone) return false;
+    const isResident = zone.kind === 'resident';
+    toast({
+      // Title and body both follow the zone's kind: a controlled municipal
+      // zone announcing itself as a resident one would misstate the rule the
+      // driver just ran into, and these are the two the pilot treats
+      // differently.
+      title: t(isResident ? 'map.zoneBlockedTitle' : 'map.zoneBlockedTitleControlled'),
+      description: t(isResident ? 'map.zoneBlockedResident' : 'map.zoneBlockedControlled', {
+        zone: zone.name,
+      }),
+      variant: 'destructive',
+    });
+    return true;
+  };
 
   // Reservations are a real-database concern (0012_spot_reservations.sql):
   // a demo pin has no row to lock, and sending its id would just log an RPC
@@ -406,8 +532,12 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   };
 
   const runDestinationSearch = async (poi: Destination) => {
-    const canSearch = incrementSearches();
-    if (!canSearch) {
+    if (!requireLocation()) return;
+    // Checked here, spent below once the search has actually produced
+    // something. Spending it up front meant a failed lookup still cost the
+    // driver a search -- and on the free tier that is the whole day's
+    // allowance gone to a Mapbox hiccup.
+    if (!canSearch()) {
       setShowLimitModal(true);
       return;
     }
@@ -422,19 +552,21 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setExcludedSpotIds([]);
     setShowSpotPrompt(false);
     setIsRouting(false);
+    // Clear any alternatives left over from a previous search. Without this a
+    // successful search still showed the last failed one's card, because
+    // only loadAlternatives reset it and that runs on the not-found path.
+    setAlternatives(null);
+    setAlternativesLoading(false);
 
-    // Route from exactly where the driver is right now, not a fix that
-    // might be stale by however long since GeolocateControl last updated
-    // it -- same guaranteed-fresh capture "Emptying a space" uses. Demo
-    // accounts keep their simulated map-center position.
+    // Route from exactly where the driver is right now, not a fix that might
+    // be stale by however long since the last watch tick -- same
+    // guaranteed-fresh capture "Emptying a space" uses.
     let origin = userLngLat;
-    if (!isDemoAccount) {
-      const fresh = await getFreshPosition();
-      if (fresh) {
-        origin = [fresh.lng, fresh.lat];
-        setUserLngLat(origin);
-        setUserAccuracy(fresh.accuracy);
-      }
+    const fresh = await getFreshPosition();
+    if (fresh) {
+      origin = [fresh.lng, fresh.lat];
+      setUserLngLat(origin);
+      setUserAccuracy(fresh.accuracy);
     }
 
     const closest = findNearestSpotTo(poi, []);
@@ -464,6 +596,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
       setIsRouting(true);
+      setFollowMode(true);
+      // The search delivered a route -- only now does it cost an allowance.
+      incrementSearches();
     } else {
       toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
@@ -473,6 +608,84 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       toast({ title: t('map.spotFoundToast'), description: t('map.walkFromDest', { n: walkingMinutes(closest.d) }) });
     } else {
       setRouteState('not_found');
+      // Nothing reported nearby is exactly when the driver most needs an
+      // answer, so offer streets worth trying instead of a dead end.
+      void loadAlternatives(poi);
+    }
+  };
+
+  /**
+   * Names real streets around the destination and scores them.
+   *
+   * The names come from Mapbox reverse geocoding of a ring of points, so the
+   * suggestions are actual roads the driver can be sent to; the percentage
+   * beside each one is the heuristic in src/lib/prediction.ts, not a model.
+   * Candidates inside a protected zone are dropped -- suggesting a street the
+   * app itself refuses declarations on would contradict the whole zoning
+   * promise.
+   */
+  const loadAlternatives = async (poi: { lng: number; lat: number }) => {
+    setAlternatives(null);
+    setAlternativesLoading(true);
+    const points = candidatePoints(poi);
+
+    const named = await Promise.all(
+      points.map(async (point) => {
+        if (findZoneAt(point.lng, point.lat, zones)) return null;
+        const name = await reverseGeocodeStreet(
+          point.lng,
+          point.lat,
+          language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en'
+        );
+        return name ? { name, lng: point.lng, lat: point.lat } : null;
+      })
+    );
+
+    const streets = named.filter((entry): entry is { name: string; lng: number; lat: number } => entry !== null);
+    // An empty array, not null. Every candidate can legitimately come back
+    // unusable -- all six inside a protected zone, or the geocoder down --
+    // and returning early left `alternatives` null, so the card never
+    // rendered and the driver was back to the blank screen this whole
+    // feature exists to replace. The card handles the empty case itself.
+    setAlternatives(
+      streets.length === 0
+        ? []
+        : buildPredictions(streets, {
+            destination: poi,
+            reportedSpots: nearbySpots.map((spot) => ({ lng: spot.lng, lat: spot.lat })),
+            hour: new Date().getHours(),
+          })
+    );
+    setAlternativesLoading(false);
+  };
+
+  /** "Drive there" on a predicted street: a normal route to that road. */
+  const handleNavigateToStreet = async (street: PredictedStreet) => {
+    if (!requireLocation()) return;
+    setAlternatives(null);
+    setRouteState('searching');
+    setActiveDestination({ name: street.name, lng: street.lng, lat: street.lat });
+    setRouteTotals(null);
+    setRouteCoords(null);
+    setRouteSteps(null);
+    setCurrentStepIndex(0);
+    // No target spot: the driver is being sent to a street to look, not to a
+    // specific reported space, so the arrival prompt stays out of the way.
+    setTargetSpotId(null);
+    setPoiMarker(null);
+
+    const directions = await getDrivingDirections(userLngLat, [street.lng, street.lat], language === 'gr' ? 'el' : 'en');
+    if (directions) {
+      setRouteCoords(directions.coordinates);
+      setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+      setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+      setRouteState('found');
+      setIsRouting(true);
+      setFollowMode(true);
+    } else {
+      setRouteState('idle');
+      setActiveDestination(null);
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
     }
   };
 
@@ -499,6 +712,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
       setRouteState('found');
       setIsRouting(true);
+      setFollowMode(true);
     } else {
       setRouteState('idle');
       setActiveDestination(null);
@@ -589,6 +803,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setSearchQuery('');
     setSuggestions([]);
     setRouteProfile('driving');
+    setFollowMode(false);
+    setAlternatives(null);
+    setAlternativesLoading(false);
   };
 
   // "Yes, I Parked" -- claims the target spot right where the driver is
@@ -653,7 +870,13 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // active spot to the *original* POI (poiMarker, not wherever the driver
   // is now), and instantly redraws the route to it.
   const handleFindNextSpot = async () => {
-    if (!poiMarker || !targetSpotId) return;
+    if (!targetSpotId) return;
+    // Search around the POI when there is one, and around the driver when
+    // there isn't. The "nearest spot" button routes straight to a spot with
+    // no destination behind it, so requiring a POI here left "No, it's
+    // taken" doing nothing at all on exactly the flow that needs it most --
+    // the driver would be stood next to a taken spot with no way forward.
+    const searchAnchor = poiMarker ?? { lng: userLngLat[0], lat: userLngLat[1] };
     // Release this spot's reservation immediately -- it's taken, so no
     // reason to keep it locked out for other drivers for the rest of its TTL.
     releaseSpotIfReal(targetSpotId);
@@ -661,7 +884,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setExcludedSpotIds(excluded);
     setShowSpotPrompt(false);
 
-    const next = findNearestSpotTo(poiMarker, excluded);
+    const next = findNearestSpotTo(searchAnchor, excluded);
     if (!next) {
       toast({ title: t('map.noMoreSpots'), description: t('map.noMoreSpotsDesc'), variant: 'destructive' });
       setTargetSpotId(null);
@@ -674,7 +897,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     reserveSpotIfReal(next.id);
     setTargetSpotId(next.id);
     setWalkMinutes(walkingMinutes(next.d));
-    setActiveDestination({ name: poiMarker.name, lng: next.lng, lat: next.lat });
+    setActiveDestination({ name: poiMarker?.name ?? t('map.nearestSpot'), lng: next.lng, lat: next.lat });
     setRouteState('searching');
 
     const directions = await getDrivingDirections(userLngLat, [next.lng, next.lat], language === 'gr' ? 'el' : 'en');
@@ -694,6 +917,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // GPS/GeolocateControl says the user is standing) and, if the user had an
   // active claimed session, closes it with the honest-checkout bonus too.
   const handleDeclare = async () => {
+    if (!requireLocation()) return;
     if (selectionMode) {
       setSelectionMode(false);
       setSelectedSpot(null);
@@ -701,13 +925,11 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     setBusyAction('declare');
 
     // No manual pin drop for this button -- capture exactly where the
-    // driver is standing right now and submit directly at those coordinates.
-    // Demo accounts keep their simulated map-center position; real accounts
-    // get a guaranteed-fresh fix instead of trusting a possibly-stale one
-    // cached from GeolocateControl's last update.
+    // driver is standing right now and submit directly at those coordinates,
+    // with a guaranteed-fresh fix rather than a possibly-stale cached one.
     let [lng, lat] = userLngLat;
     let accuracy = userAccuracy;
-    if (!isDemoAccount) {
+    {
       const fresh = await getFreshPosition();
       if (fresh) {
         lng = fresh.lng;
@@ -717,17 +939,30 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         setUserAccuracy(accuracy);
       } else if (accuracy >= 9999) {
         // 9999 is userAccuracy's initial sentinel (see useState above) --
-        // reaching it here means neither this fresh attempt nor
-        // GeolocateControl has EVER produced a real fix (permission denied,
+        // reaching it here means neither this fresh attempt nor the live watch
+        // has EVER produced a real fix (permission denied,
         // no signal, desktop with no GPS). Previously this silently fell
         // through and submitted at userLngLat's own initial value --
-        // MAP_CENTER, the hardcoded map fallback -- which looks like "the
+        // FALLBACK_CENTER, the hardcoded map fallback -- which looks like "the
         // pin always drops at the same wrong spot" rather than wherever the
         // driver actually is. Fail loudly instead of guessing a location.
         toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' });
         setBusyAction(null);
         return;
       }
+    }
+
+    // Checked against the final coordinates, after the fresh GPS fix above
+    // has had its say -- the zone rule applies to where the spot actually
+    // is, not to whatever stale position the map happened to be showing.
+    if (!requireInsideOperatingArea(lng, lat)) {
+      setBusyAction(null);
+      return;
+    }
+
+    if (blockedByZone(lng, lat)) {
+      setBusyAction(null);
+      return;
     }
 
     flyToLocation(lng, lat);
@@ -795,12 +1030,27 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const handleMapTap = async (lng: number, lat: number) => {
     if (!selectionMode) return;
     setSelectedSpot({ lng, lat });
+    // The demo account skips road snapping, client and server alike: a
+    // presentation happens indoors, and nudging the pin onto the nearest
+    // real street would move it away from wherever the presenter tapped.
+    if (isDemoAccount) return;
     const snapped = await snapToRoad(lng, lat);
     if (snapped) setSelectedSpot(snapped);
   };
 
   const handleConfirmSelection = async () => {
     if (!selectedSpot) return;
+    // Both geofence checks below run before busyAction is set, so a second
+    // tap during the in-flight declare used to start a whole second one --
+    // two spots at the same coordinates, and on a real account a wasted
+    // declaration against the hourly cap.
+    if (busyAction) return;
+    // Same zoning rule as "I'm leaving", applied to the manually dropped pin
+    // -- this is the path that can actually reach into a zone the driver
+    // isn't standing in, so it matters more here, not less. The pin stays
+    // on the map so they can drag it somewhere legal instead of starting over.
+    if (!requireInsideOperatingArea(selectedSpot.lng, selectedSpot.lat)) return;
+    if (blockedByZone(selectedSpot.lng, selectedSpot.lat)) return;
     setBusyAction('spotted');
     const [userLng, userLat] = userLngLat;
     const { data, error } = await declareSpot({
@@ -842,7 +1092,49 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // Tapping a live "mine"/"reported" spot pin opens the details bottom card
   // (distance/time-since/ETA + Get Directions) -- see MapboxMap's onPinClick.
   const handlePinClick = (pinId: string) => {
+    // Facility markers share the pin-click channel; route by id so a car
+    // park opens its own card rather than the community-spot one.
+    if (PILOT_FACILITIES.some((f) => f.id === pinId)) {
+      setSelectedSpotId(null);
+      setSelectedFacilityId(pinId);
+      return;
+    }
+    setSelectedFacilityId(null);
     setSelectedSpotId(pinId);
+  };
+
+  const selectedFacility = PILOT_FACILITIES.find((f) => f.id === selectedFacilityId) ?? null;
+  const selectedZone = zones.find((z) => z.id === selectedZoneId) ?? null;
+
+  // "Drive there": the same turn-by-turn path every other destination uses,
+  // pointed at the car park's entrance.
+  const handleNavigateToFacility = async () => {
+    if (!selectedFacility) return;
+    if (!requireLocation()) return;
+    const { lng, lat, name } = selectedFacility;
+    setSelectedFacilityId(null);
+    setRouteState('searching');
+    setActiveDestination({ name, lng, lat });
+    setRouteTotals(null);
+    setRouteCoords(null);
+    setRouteSteps(null);
+    setCurrentStepIndex(0);
+    setPoiMarker(null);
+    setTargetSpotId(null);
+
+    const directions = await getDrivingDirections(userLngLat, [lng, lat], language === 'gr' ? 'el' : 'en');
+    if (directions) {
+      setRouteCoords(directions.coordinates);
+      setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+      setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+      setRouteState('found');
+      setIsRouting(true);
+      setFollowMode(true);
+    } else {
+      setRouteState('idle');
+      setActiveDestination(null);
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
+    }
   };
 
   // X badge on the driver's own ('mine') pins -- removes a declaration they
@@ -892,7 +1184,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   // just... failed. Requiring status === 'active' is what actually means
   // "available to claim," matching findNearestSpotTo's search-based
   // routing (which already had this right).
-  // Demo pins are claimable candidates too (simulated client-side, see
+  // Demo pins are candidates too (their claim is simulated client-side, see
   // claimTargetSpot) -- otherwise this button never appears at all for the
   // one account whose map is guaranteed to have spots on it.
   const nearestClaimable = nearbySpots
@@ -900,25 +1192,72 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     .map((s) => ({ ...s, d: distanceMeters(userLngLat[0], userLngLat[1], s.lng, s.lat) }))
     .sort((a, b) => a.d - b.d)[0];
 
-  const handleClaimNearest = async () => {
+  /**
+   * "Nearest spot": routes to the closest reported free spot instead of
+   * claiming it on the spot.
+   *
+   * It used to claim immediately, which is why the spot appeared to vanish:
+   * a claimed spot leaves the active list, so the pin the driver was aiming
+   * for disappeared from the map while they were still several streets away
+   * -- and claiming from a distance is not what the button means anyway.
+   *
+   * It now behaves like the search flow: soft-lock the spot so no other
+   * driver is sent to it, draw the route, follow the driver in. The claim
+   * happens at the end, through the same "is the spot still free?" prompt
+   * that fires on arrival -- which is the only point at which anyone can
+   * honestly answer it.
+   */
+  const handleNavigateToNearest = async () => {
     if (!nearestClaimable) return;
+    if (!requireLocation()) return;
+    if (!requireInsideOperatingArea(userLngLat[0], userLngLat[1])) return;
+
+    const spot = nearestClaimable;
     setBusyAction('claim');
-    const { ok, error } = await claimTargetSpot(nearestClaimable.id);
-    if (!ok) {
-      if (error) toast({ title: t('map.claimFailed'), description: error, variant: 'destructive' });
-    } else {
-      toast({ title: t('map.claimedToast'), description: t('map.claimedToastDesc') });
-      // Fly straight to the claimed spot at street zoom and open its details
-      // card (distance/time + a "Get Directions" button that reuses
-      // navigateToSpotPin) instead of launching full turn-by-turn
-      // immediately -- claiming and committing to navigate are two
-      // different intents, and the card lets the driver confirm the right
-      // spot lit up before starting a route.
-      flyToLocation(nearestClaimable.lng, nearestClaimable.lat, CLAIM_FLY_ZOOM, CLAIM_FLY_DURATION_MS);
-      setSelectedSpotId(nearestClaimable.id);
-    }
+
+    // Locked before routing, exactly as the destination search does it --
+    // otherwise two drivers can be sent to the same spot.
+    reserveSpotIfReal(spot.id);
+    setTargetSpotId(spot.id);
+    setExcludedSpotIds([]);
+    // No POI: this spot is the destination, so arriving ends the trip
+    // rather than handing off to a walking leg.
+    setPoiMarker(null);
+    setSelectedSpotId(null);
+    setShowSpotPrompt(false);
+    setActiveDestination({ name: t('map.nearestSpot'), lng: spot.lng, lat: spot.lat });
+    setRouteState('searching');
+
+    const directions = await getDrivingDirections(userLngLat, [spot.lng, spot.lat], language === 'gr' ? 'el' : 'en');
     setBusyAction(null);
+
+    if (!directions) {
+      toast({ title: t('map.routeUnavailable'), variant: 'destructive' });
+      setRouteState('idle');
+      setActiveDestination(null);
+      setTargetSpotId(null);
+      releaseSpotIfReal(spot.id);
+      return;
+    }
+
+    setRouteCoords(directions.coordinates);
+    setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+    setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+    setRouteState('found');
+    setIsRouting(true);
+    setFollowMode(true);
+    toast({
+      title: t('map.navigatingToSpot'),
+      description: t('map.navigatingToSpotDesc', { distance: formatDistance(spot.d) }),
+    });
   };
+
+  // Zone the driver is currently standing in, if any -- drives the warning
+  // banner. Recomputed per render off the live position, which is cheap:
+  // a couple of rings, a handful of edges each.
+  const currentZone = findZoneAt(userLngLat[0], userLngLat[1], zones);
+
+  const isPremium = isPremiumActive(profile);
 
   const isNavigating = Boolean(activeDestination && routeSteps && routeSteps.length > 0);
   const currentStep = routeSteps?.[currentStepIndex] ?? null;
@@ -937,15 +1276,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     <div className="relative h-full w-full overflow-hidden">
       {isMapboxConfigured ? (
         <MapboxMap
-          center={MAP_CENTER}
+          center={operatingArea?.center ?? FALLBACK_CENTER}
           userLocation={userLngLat}
-          // The demo mock dot only ever meant "here's the point a manual pin
-          // drop will use" -- now that only "I saw a free space" drops a
-          // manual pin, the dot has no reason to show outside that mode.
-          showCustomUserDot={isDemoAccount && selectionMode}
-          isDemoAccount={isDemoAccount}
           onUserLocationChange={handleUserLocationChange}
-          locateRequestId={locateRequestId}
           flyToTarget={flyToTarget}
           flyToRequestId={flyToRequestId}
           onPinClick={handlePinClick}
@@ -957,6 +1290,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               lat: s.lat,
               type: (s.declared_by === profile?.id ? 'mine' : 'reported') as 'mine' | 'reported',
               label: s.declared_by === profile?.id ? 'Your declared spot' : 'Reported free space',
+              // Set by useNearbySpots' expiry sweep for a spot in its last
+              // seconds -- see src/lib/spotLifecycle.ts.
+              fading: s.fading,
             })),
             ...(optimisticSpot
               ? [{ id: 'optimistic-mine', lng: optimisticSpot.lng, lat: optimisticSpot.lat, type: 'mine' as const, label: 'Your declared spot' }]
@@ -973,17 +1309,43 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             ...(selectedSpot
               ? [{ id: 'selection', lng: selectedSpot.lng, lat: selectedSpot.lat, type: 'selection' as const }]
               : []),
+            // Colour carries the occupancy level, so the marker and the card
+            // it opens can never disagree about how full a car park is.
+            ...(showFacilities
+              ? PILOT_FACILITIES.map((f) => ({
+                  id: f.id,
+                  lng: f.lng,
+                  lat: f.lat,
+                  type: 'garage' as const,
+                  label: f.name,
+                  color: OCCUPANCY_COLOR[occupancyLevel(f)],
+                }))
+              : []),
           ]}
           onMapClick={handleMapTap}
-          onCenterChange={handleCenterChange}
           onConfirmSelection={handleConfirmSelection}
+          zones={zones}
+          onLocateFailed={() => {
+            // A refusal is the common case and has a fix the driver can
+            // act on; anything else (no signal, no GPS hardware) does not,
+            // so that keeps the plain message.
+            if (locationDenied) setShowLocationHelp(true);
+            else toast({ title: t('map.noGpsTitle'), description: t('map.noGpsDesc'), variant: 'destructive' });
+          }}
+          onZoneClick={(zoneId) => {
+            setSelectedSpotId(null);
+            setSelectedFacilityId(null);
+            setSelectedZoneId(zoneId);
+          }}
+          followUser={followMode}
+          operatingArea={operatingArea}
           routeCoordinates={routeCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
-          <img src={chalkidaMap} alt={t('map.offlineMapAlt')} className="w-full h-full object-cover" />
+          <img src={offlineMapImage} alt={t('map.offlineMapAlt')} className="w-full h-full object-cover" />
           {/* Says out loud that this is the no-token fallback. Without it a
               missing VITE_MAPBOX_TOKEN just looks like a live map that has
               stopped responding to pinch, drag and search. */}
@@ -1071,7 +1433,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       {/* Header: turn-by-turn maneuver banner while navigating, search bar otherwise.
           The outer strip is pointer-events-none so its padding never blocks the
           Mapbox controls underneath -- only the actual card/input is clickable. */}
-      <div className="absolute top-0 left-0 right-0 z-20 p-4 pt-6 pointer-events-none">
+      <div className="absolute top-0 left-0 right-0 z-20 p-4 pt-[calc(1.5rem+env(safe-area-inset-top))] pointer-events-none">
         {isNavigating && currentStep ? (
           <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 pointer-events-auto animate-fade-in">
             <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
@@ -1084,7 +1446,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           </div>
         ) : (
           <div className="relative pointer-events-auto">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+            {/* One magnifier, not two. The decorative one on the left said
+                nothing the placeholder and the button on the right weren't
+                already saying, and the padding it reserved is now text room --
+                which a long Greek or Turkish destination needs. */}
             <input
               ref={inputRef}
               value={searchQuery}
@@ -1093,7 +1458,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               onBlur={() => setTimeout(() => setSuggestions([]), 150)}
               disabled={routeState === 'searching'}
               placeholder={t('map.searchPlaceholder')}
-              className="w-full h-14 pl-12 pr-16 text-base rounded-[20px] shadow-[0_8px_32px_0_rgba(0,0,0,0.08)] bg-background/95 backdrop-blur-xl border border-white/20 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full h-14 pl-5 pr-16 text-base rounded-3xl shadow-xl bg-background/70 backdrop-blur-xl border border-white/40 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
             <Button
               onClick={handleSearch}
@@ -1105,85 +1470,112 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             </Button>
 
             {suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-2 glass-card p-1 max-h-64 overflow-y-auto z-30 animate-fade-in">
-                {suggestions.map((s) => (
-                  <button
-                    key={s.id}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleSelectSuggestion(s);
-                    }}
-                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-secondary/70 transition-colors flex items-center gap-2"
-                  >
-                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium truncate">{s.name}</span>
-                      {s.address && <span className="block text-xs text-muted-foreground truncate">{s.address}</span>}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <SearchResultsList results={suggestions} onSelect={handleSelectSuggestion} />
             )}
           </div>
         )}
       </div>
 
-      {/* Top action row: Points pill + Claimable-spot banner grouped
-          side-by-side directly under the search bar, instead of the pill on
-          the left and the banner pushed down the right edge -- that
-          previous layout cleared Mapbox's controls but left the banner
-          stranded awkwardly mid-map. pr-14 (well past the right-4 edge
-          padding) reserves the top-right zoom/compass/geolocate control
-          column's width so this row's content can never reach under it
-          regardless of viewport size; overflow-x-auto is the fallback for
-          narrow phones where the pill + the (long, especially in Greek)
-          button text genuinely don't both fit -- the row scrolls within its
-          own reserved bounds rather than spilling out past that padding.
-          Both elements still fade out together while the search dropdown is
-          open, exactly as before. */}
+      {/* Top action row: points, the car-park toggle, and "nearest spot",
+          directly under the search bar.
+          It used to scroll horizontally inside a gutter reserved for map
+          controls that have since moved to the bottom-right corner, so on a
+          narrow phone it cut its own contents off at both ends. One line
+          now, with the last item allowed to shrink: with the shortened
+          label all three fit, and a longer translation truncates rather
+          than wrapping to a second row that would eat into the map.
+          Everything still fades out together while the search dropdown is
+          open. */}
       <div
-        className={`absolute top-24 left-4 right-4 z-20 flex items-center gap-3 pr-14 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-opacity duration-200 ${
-          suggestions.length > 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        className={`absolute top-[calc(6rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex flex-nowrap items-center gap-2 transition-opacity duration-200 ${
+          // The driving screen earns every pixel: points and "claim nearest"
+          // are browsing affordances, not things anyone acts on mid-route.
+          suggestions.length > 0 || isNavigating ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
         <button
           type="button"
           onClick={() => onNavigateToOffers?.()}
           aria-label={`${profile?.points_balance ?? 0} ${t('map.points')} — ${t('nav.offers')}`}
-          className="points-pill flex items-center gap-2 cursor-pointer transition-all duration-200 ease-out active:scale-[0.97] hover:brightness-110 shrink-0"
+          className="points-pill flex items-center gap-1.5 px-3 text-xs cursor-pointer transition-all duration-200 ease-out active:scale-[0.97] hover:brightness-110 shrink-0"
           data-tour="points"
         >
           <span>💎</span>
           <span>{profile?.points_balance ?? 0} {t('map.points')}</span>
         </button>
 
+        <button
+          type="button"
+          onClick={() => {
+            setShowFacilities((on) => !on);
+            setSelectedFacilityId(null);
+          }}
+          aria-pressed={showFacilities}
+          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold shadow-lg shrink-0 transition-colors ${
+            showFacilities
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-background/95 text-muted-foreground border border-border'
+          }`}
+        >
+          <Building2 className="h-3.5 w-3.5" />
+          P
+        </button>
+
         {!activeSession && nearestClaimable && (
           <Button
-            onClick={handleClaimNearest}
-            disabled={busyAction === 'claim'}
+            onClick={handleNavigateToNearest}
+            disabled={busyAction === 'claim' || locationDenied}
             size="sm"
-            className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground shrink-0"
+            className="rounded-full shadow-lg gap-1.5 bg-success hover:bg-success/90 text-success-foreground min-w-0"
           >
-            {busyAction === 'claim' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ParkingCircle className="h-3.5 w-3.5" />}
-            {t('map.claimNearest')}
+            {busyAction === 'claim' ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            ) : (
+              <ParkingCircle className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span className="truncate">{t('map.claimNearest')}</span>
           </Button>
         )}
       </div>
 
-      {/* My Location -- real accounts only; demo intentionally never touches real GPS. */}
-      {!isDemoAccount && (
-        <button
-          onClick={handleLocateMe}
-          aria-label={t('map.myLocation')}
-          className="absolute bottom-60 right-4 z-20 w-11 h-11 rounded-full bg-background shadow-lg border border-border flex items-center justify-center hover:bg-secondary transition-colors"
-        >
-          <LocateFixed className="h-5 w-5 text-primary" />
-        </button>
+      {/* Location refused: the map still renders, but the actions that need a
+          position are blocked, so say why once, prominently, instead of
+          letting each one fail on its own. */}
+      {locationDenied && !selectionMode && (
+        <div className="absolute top-[calc(10rem+env(safe-area-inset-top))] left-4 right-4 z-50 flex justify-center">
+          <div className="glass-card rounded-3xl px-4 py-3 shadow-xl animate-fade-in border-destructive/40 bg-destructive/10 w-full max-w-sm">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold">{t('map.locationRequired')}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{t('map.locationRequiredDesc')}</p>
+                <button
+                  onClick={askForLocation}
+                  className="mt-2 text-xs font-semibold text-primary hover:underline"
+                >
+                  {t('map.locationEnable')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Standing inside a controlled/resident zone: say so before the driver
+          taps a declare button and gets refused. Yields the slot to Map
+          Selection Mode's own banner, which occupies the same position. */}
+      {!selectionMode && currentZone && (
+        <div className="absolute top-[calc(10rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex justify-center">
+          <div className="glass-card rounded-2xl px-4 py-2.5 flex items-center gap-2 shadow-lg animate-fade-in border-warning/40 bg-warning/10">
+            <Ban className="h-4 w-4 text-warning shrink-0" />
+            <span className="text-xs font-medium">{t('map.zoneBadge', { zone: currentZone.name })}</span>
+          </div>
+        </div>
       )}
 
       {/* Map Selection Mode banner */}
       {selectionMode && (
-        <div className="absolute top-40 left-4 right-4 z-20 flex justify-center">
+        <div className="absolute top-[calc(10rem+env(safe-area-inset-top))] left-4 right-4 z-20 flex justify-center">
           <div className="glass-card px-4 py-2.5 flex items-center gap-3 shadow-lg animate-fade-in">
             <span className="text-xs font-medium">{t('map.selectionBannerText')}</span>
             <button
@@ -1205,7 +1597,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           bottom bar, so turn-by-turn navigation isn't fighting the map for
           screen space -- reporting is still one tap away, just decluttered. */}
       {selectionMode ? (
-        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-4 px-4" data-tour="actions">
+        <div className="absolute bottom-20 left-0 right-0 z-20 flex items-center justify-center gap-4 px-4" data-tour="actions">
           <button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
@@ -1223,6 +1615,25 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             {t('map.confirmSpot')}
           </Button>
         </div>
+      ) : (alternativesLoading || alternatives) && !isNavigating ? (
+        <AlternativeSpotsCard
+          streets={alternatives ?? []}
+          loading={alternativesLoading}
+          onNavigate={handleNavigateToStreet}
+          onClose={() => {
+            setAlternatives(null);
+            setAlternativesLoading(false);
+          }}
+        />
+      ) : selectedZone && !isNavigating ? (
+        <ZoneInfoCard zone={selectedZone} onClose={() => setSelectedZoneId(null)} />
+      ) : selectedFacility && !isNavigating ? (
+        <FacilityDetailsCard
+          facility={selectedFacility}
+          distanceMeters={distanceMeters(userLngLat[0], userLngLat[1], selectedFacility.lng, selectedFacility.lat)}
+          onNavigate={handleNavigateToFacility}
+          onClose={() => setSelectedFacilityId(null)}
+        />
       ) : clickedNearbySpot && !isNavigating ? (
         <SpotDetailsCard
           distanceMeters={distanceMeters(userLngLat[0], userLngLat[1], clickedNearbySpot.lng, clickedNearbySpot.lat)}
@@ -1231,79 +1642,54 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           onClose={() => setSelectedSpotId(null)}
         />
       ) : isRouting ? (
-        <div className="absolute top-1/2 left-4 -translate-y-1/2 z-20 flex flex-col gap-3" data-tour="actions">
-          {/* `group` + `group-hover`/`group-focus-within` tooltip: the FAB
-              alone doesn't say what it does, and this app is mostly used
-              one-handed on a phone mount where a hover state won't fire --
-              focus-within covers a tap/keyboard focus too, hover covers desktop. */}
-          <div className="group relative">
-            <button
-              onClick={handleToggleSelectionMode}
-              disabled={busyAction !== null}
-              aria-label={t('map.sawFreeSpace')}
-              className="w-12 h-12 rounded-full shadow-lg bg-background/95 backdrop-blur-sm border border-primary/30 flex items-center justify-center hover:bg-secondary transition-colors disabled:opacity-50"
-            >
-              <Eye className="h-5 w-5 text-primary" />
-            </button>
-            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-              {t('map.sawFreeSpace')}
-            </span>
-          </div>
-          <div className="group relative">
-            <button
-              onClick={handleDeclare}
-              disabled={busyAction !== null}
-              aria-label={activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
-              className="w-12 h-12 rounded-full shadow-xl bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {busyAction === 'declare' ? (
-                <Loader2 className="h-5 w-5 animate-spin text-primary-foreground" />
-              ) : activeSession ? (
-                <Check className="h-5 w-5 text-primary-foreground" />
-              ) : (
-                <Navigation className="h-5 w-5 text-primary-foreground" />
-              )}
-            </button>
-            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-              {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
-            </span>
-          </div>
-        </div>
+        // Nothing here on purpose. This used to be a column of unlabelled
+        // circular FABs floating over the middle-left of the map: reporting a
+        // spot is not something a driver does while following a route, and
+        // they read as stray controls rather than as anything meaningful.
+        null
       ) : (
-        <div className="absolute bottom-28 left-0 right-0 z-20 flex items-center justify-center gap-3 px-4" data-tour="actions">
+        // The two buttons share the row rather than sizing to their own
+        // text. Greek labels are long enough that fixed padding pushed the
+        // pair wider than the screen, so both ended up clipped at the edges.
+        // flex-1 + min-w-0 + truncate keeps them inside the padding at any
+        // label length, in any language.
+        <div className="absolute bottom-20 left-0 right-0 z-20 flex items-stretch justify-center gap-2 px-4" data-tour="actions">
           <Button
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
             variant="outline"
-            className="h-12 rounded-full px-4 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-2"
+            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-1.5"
           >
-            <Eye className="h-4 w-4" />
-            <span className="text-sm">{t('map.sawFreeSpace')}</span>
-            <span className="text-xs text-muted-foreground">+5</span>
+            <Eye className="h-4 w-4 shrink-0" />
+            <span className="text-sm truncate">{t('map.sawFreeSpace')}</span>
+            <span className="text-xs text-muted-foreground shrink-0">+5</span>
           </Button>
 
           <Button
             onClick={handleDeclare}
             disabled={busyAction !== null}
-            className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
+            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-xl gap-1.5 font-semibold bg-primary hover:bg-primary/90"
           >
             {busyAction === 'declare' ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
             ) : activeSession ? (
-              <Check className="h-5 w-5" />
+              <Check className="h-5 w-5 shrink-0" />
             ) : (
-              <Navigation className="h-5 w-5" />
+              <Navigation className="h-5 w-5 shrink-0" />
             )}
-            {activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}
+            <span className="truncate">{activeSession ? t('map.leavingSpot') : t('map.emptyingSpace')}</span>
           </Button>
         </div>
       )}
 
-      {/* Searching Modal */}
+      {/* Searching Modal. The scrim stays light and blurred rather than
+          near-opaque -- the map showing through is what makes this read as a
+          panel floating over the app instead of a page that has been
+          replaced by a loading screen. */}
       {routeState === 'searching' && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-background/40 backdrop-blur-md z-50 flex items-center justify-center">
           <div className="glass-card p-8 mx-4 text-center animate-fade-in">
-            <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
+            <SmartSearchLoader />
             <h3 className="text-lg font-semibold mb-2">{t('map.smartSearch')}</h3>
             <p className="text-sm text-muted-foreground">{t('map.checkingSpots')}</p>
           </div>
@@ -1319,18 +1705,36 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             </button>
             <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-warning" />
             <h3 className="text-lg font-semibold mb-2">{t('map.limitTitle')}</h3>
-            <p className="text-sm text-muted-foreground mb-4">{t('map.limitDesc')}</p>
-            <Button
-              onClick={() => {
-                setShowLimitModal(false);
-                onNavigateToPlans?.();
-              }}
-              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-            >
-              {t('map.upgradeCta')}
-            </Button>
+            {/* Premium is a finite allowance now, so this modal can be shown
+                to someone who has already upgraded. Pushing "Upgrade to
+                Premium" at a Premium subscriber reads as broken -- they get
+                the reset-at-midnight explanation and a plain dismiss instead. */}
+            <p className="text-sm text-muted-foreground mb-4">
+              {isPremium
+                ? t('map.limitDescPremium', { n: PREMIUM_DAILY_SEARCHES })
+                : t('map.limitDesc', { n: FREE_DAILY_SEARCHES })}
+            </p>
+            {isPremium ? (
+              <Button variant="outline" className="w-full" onClick={() => setShowLimitModal(false)}>
+                {t('profile.cancel')}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  setShowLimitModal(false);
+                  onNavigateToPlans?.();
+                }}
+                className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+              >
+                {t('map.upgradeCta')}
+              </Button>
+            )}
           </div>
         </div>
+      )}
+
+      {showLocationHelp && (
+        <LocationHelpCard onClose={() => setShowLocationHelp(false)} onRetry={askForLocation} />
       )}
 
       {/* Demo-only celebration on successful declarations */}
@@ -1340,7 +1744,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           clears the whole route), plus the nearest already-reported free spot
           near it, if any. */}
       {activeDestination && routeState !== 'searching' && (
-        <div className="absolute bottom-44 left-4 right-4 z-20">
+        // Sits low too, for the same reason as the action row: while
+        // navigating this is the only thing on the bottom of the screen, and
+        // everything above it is map the driver is trying to read.
+        <div className="absolute bottom-24 left-4 right-4 z-20">
           <div className="glass-card p-4 animate-fade-in space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -1368,34 +1775,17 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
         </div>
       )}
 
-      {/* Turn-by-turn instruction panel -- the current/next maneuver, right
-          below the destination info card, filling the bottom-center space
-          the big action buttons vacated (FABs moved to the side while
-          isRouting). Suppressed while the "Is the spot free?" prompt is up,
-          or while Map Selection Mode's Cancel/Confirm pair is using that
-          same bottom-28 slot -- both would otherwise render on top of it. */}
-      {isNavigating && currentStep && !showSpotPrompt && !selectionMode && (
-        <div className="absolute bottom-28 left-4 right-4 z-20">
-          <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 animate-fade-in">
-            <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
-              <ManeuverIcon type={currentStep.maneuverType} modifier={currentStep.maneuverModifier} className="h-6 w-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-bold text-sm leading-tight">
-                {t('map.inDistance', { distance: formatDistance(currentStep.distanceMeters) })}
-              </p>
-              <p className="text-xs text-primary-foreground/85 truncate">{currentStep.instruction}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The bottom turn-by-turn panel that used to sit here is gone: it
+          repeated, word for word, the maneuver banner already pinned at the
+          top of the screen. Two identical instruction cards on a phone-sized
+          driving view is noise, and it cost the bottom half of the map. */}
 
       {/* "Is the spot free?" -- fires once the live position is within
           SPOT_PROXIMITY_METERS of the target spot. Reclaims the bottom-center
           area the big action buttons vacated (they're FABs on the side while
           isRouting), so this is front and center exactly when it matters. */}
       {showSpotPrompt && targetSpotId && (
-        <div className="absolute bottom-28 left-4 right-4 z-30 flex justify-center">
+        <div className="absolute bottom-20 left-4 right-4 z-30 flex justify-center">
           <div className="glass-card p-4 shadow-2xl animate-fade-in w-full max-w-sm space-y-1">
             <p className="font-bold text-base text-center">{t('map.arrivedTitle')}</p>
             <p className="text-sm text-muted-foreground text-center pb-2">{t('map.isSpotFreeTitle')}</p>

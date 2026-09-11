@@ -69,14 +69,24 @@ export const ConsumerApp = () => {
   };
 
   return (
-    <div className="h-[100dvh] w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
-      {/* key remounts the pane per tab so each switch gets the fade-in */}
-      <div key={activeTab} className="flex-1 overflow-hidden animate-fade-in">
+    // h-full rather than h-[100dvh]: #root is already pinned to the visible
+    // viewport (see index.css / main.tsx), so inheriting that box is exact,
+    // where re-deriving dvh here would reintroduce the very measurement iOS
+    // gets wrong.
+    <div className="h-full w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
+      {/* key remounts the pane per tab so each switch gets the fade-in.
+          Every tab but the map gets the accent-tinted canvas behind it: the
+          map is its own background, and laying a wash over it would only
+          mute the thing the driver is reading. */}
+      <div
+        key={activeTab}
+        className={`flex-1 overflow-hidden animate-fade-in ${activeTab === 'map' ? '' : 'app-canvas'}`}
+      >
         {renderTab()}
       </div>
 
       <nav
-        className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border px-2 pb-safe"
+        className="absolute bottom-0 left-0 right-0 bg-background/70 backdrop-blur-xl backdrop-saturate-150 border-t border-white/40 dark:border-white/10 px-2 pb-safe"
         data-tour="nav"
       >
         <div className="flex items-center justify-around py-2">

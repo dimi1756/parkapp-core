@@ -18,6 +18,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
+import { MyReportsCard } from './MyReportsCard';
+import { CustomizationCard } from './CustomizationCard';
 
 const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR', pl: 'PL' };
@@ -194,6 +196,15 @@ export const ProfileTab = () => {
           </div>
         </div>
 
+        {/* Declaration history. Sits directly under the trust/points card,
+            which is what it explains: those numbers came from these rows. */}
+        <MyReportsCard />
+
+        {/* Appearance. Below the settings rows it belongs with, and above
+            the account actions, which is where iOS puts Display & Brightness
+            relative to the rest of Settings. */}
+        <CustomizationCard />
+
         {/* Account Settings */}
         <div className="glass-card divide-y divide-border">
           <button
@@ -256,11 +267,25 @@ export const ProfileTab = () => {
         <p className="text-center text-xs text-muted-foreground pt-4">
           ParkApp v1.0.0 • {t('common.tagline')}
         </p>
+
+        {/* Parent-brand footer. The logo is served from /public rather than
+            imported so it stays a plain static asset -- and it carries an
+            empty alt with the wordmark beside it, so a screen reader hears
+            "Powered by Urban Sync" once, not twice. */}
+        <div className="flex flex-col items-center gap-2 pt-2 pb-2 opacity-80">
+          <img
+            src="/urbansync-logo.jpg"
+            alt=""
+            className="h-8 w-8 rounded-xl object-cover shadow-sm"
+            loading="lazy"
+          />
+          <p className="text-center text-xs font-medium text-muted-foreground">{t('profile.poweredBy')}</p>
+        </div>
       </div>
 
       {/* Edit Profile Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-sm rounded-2xl">
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{t('profile.editProfile')}</DialogTitle>
             <DialogDescription>{t('profile.editDesc')}</DialogDescription>
@@ -304,7 +329,7 @@ export const ProfileTab = () => {
 
       {/* Privacy & Security Dialog */}
       <Dialog open={privacyOpen} onOpenChange={setPrivacyOpen}>
-        <DialogContent className="max-w-sm rounded-2xl">
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{t('profile.privacy')}</DialogTitle>
             <DialogDescription>{t('profile.privacyDesc')}</DialogDescription>

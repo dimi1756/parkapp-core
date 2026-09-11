@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Plus, Minus, Compass } from 'lucide-react';
+import { Plus, Minus, Compass, LocateFixed, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getLastFix, requestFreshFix, subscribeToPosition } from '@/lib/geolocation';
+import { zonesToGeoJson, type ParkingZone } from '@/lib/zones';
+import { operatingAreaToGeoJson, type OperatingArea } from '@/lib/operatingArea';
 
 // Reads the token from an env variable so it's never hardcoded in source.
 // Add VITE_MAPBOX_TOKEN=pk.xxxxx to a .env file at the project root.
@@ -78,6 +80,38 @@ export interface PlaceSuggestion {
   name: string;
   /** Street address -- the dropdown's secondary (muted) line. */
   address: string;
+  /**
+   * Metres from the `proximity` point, straight from Mapbox (it measures it
+   * against the same point we bias with). Real, not estimated. Undefined for
+   * results the API returns without one.
+   */
+  distanceMeters?: number;
+  /** Mapbox POI category ("pharmacy", "restaurant", ...), used to pick the row icon. */
+  category?: string;
+}
+
+/**
+ * Bounding box, in degrees, for a hard local restriction around `proximity`.
+ *
+ * `proximity` alone is only a soft bias: for a generic term like "pharmacy"
+ * Mapbox happily ranked well-known Athens results above the ones on the next
+ * street, because a brand match outweighs a few hundred kilometres. A bbox
+ * is a filter rather than a preference, so those simply stop coming back.
+ *
+ * 30km is wide enough to cover a town and everything a driver might plausibly
+ * drive to from it, and narrow enough to keep another city's results out.
+ */
+const LOCAL_SEARCH_RADIUS_KM = 30;
+
+function localBbox([lng, lat]: [number, number]): string {
+  const dLat = LOCAL_SEARCH_RADIUS_KM / 111.32;
+  // Longitude degrees shrink toward the poles; without this the box would be
+  // far too narrow in Greece and too wide near the equator.
+  const dLng = dLat / Math.max(Math.cos((lat * Math.PI) / 180), 0.01);
+  const clampLat = (v: number) => Math.min(90, Math.max(-90, v));
+  return [lng - dLng, clampLat(lat - dLat), lng + dLng, clampLat(lat + dLat)]
+    .map((v) => v.toFixed(6))
+    .join(',');
 }
 
 // Autocomplete-style multi-result search for the live search dropdown, biased
@@ -88,29 +122,55 @@ export interface PlaceSuggestion {
 // together for Search Box API billing. Returns an empty array (never
 // throws) on any failure so callers can render "no results" instead of
 // crashing mid-keystroke.
-export async function searchPlaces(
-  query: string,
-  proximity: [number, number],
-  sessionToken: string,
-  limit = 5
-): Promise<PlaceSuggestion[]> {
-  if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
+interface SuggestFeature {
+  mapbox_id: string;
+  name?: string;
+  full_address?: string;
+  place_formatted?: string;
+  distance?: number;
+  poi_category?: string[];
+  maki?: string;
+}
 
-  const url = `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}&session_token=${sessionToken}&limit=${limit}&country=gr&proximity=${proximity[0]},${proximity[1]}`;
-
+async function fetchSuggestions(url: string, query: string): Promise<PlaceSuggestion[]> {
   try {
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
-    const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
-    return suggestions.map((s: { mapbox_id: string; name?: string; full_address?: string; place_formatted?: string }) => ({
+    const suggestions: SuggestFeature[] = Array.isArray(data?.suggestions) ? data.suggestions : [];
+    return suggestions.map((s) => ({
       id: s.mapbox_id,
       name: s.name ?? query,
       address: s.full_address ?? s.place_formatted ?? '',
+      distanceMeters: typeof s.distance === 'number' ? s.distance : undefined,
+      category: s.poi_category?.[0] ?? s.maki,
     }));
   } catch {
     return [];
   }
+}
+
+export async function searchPlaces(
+  query: string,
+  proximity: [number, number],
+  sessionToken: string,
+  limit = 5,
+  language = 'el'
+): Promise<PlaceSuggestion[]> {
+  if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
+
+  const base =
+    `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}` +
+    `&session_token=${sessionToken}&limit=${limit}&country=gr&language=${language}` +
+    `&proximity=${proximity[0]},${proximity[1]}`;
+
+  // Local first. If nothing in the box matches, fall back to the unbounded
+  // search so someone deliberately looking up another city still gets it --
+  // the bbox is there to reorder everyday searches, not to trap the driver
+  // inside a 30km circle.
+  const local = await fetchSuggestions(`${base}&bbox=${localBbox(proximity)}`, query);
+  if (local.length > 0) return local;
+  return fetchSuggestions(base, query);
 }
 
 // Resolves a suggestion's actual coordinates -- must be called with the same
@@ -126,6 +186,37 @@ export async function retrievePlace(mapboxId: string, sessionToken: string): Pro
     if (!Array.isArray(coords)) return null;
     const [lng, lat] = coords;
     return { lng, lat };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Street name at a coordinate, via Mapbox reverse geocoding.
+ *
+ * types=street asks for the road itself rather than the building or the
+ * neighbourhood, which is what the predictive suggestions are about. Returns
+ * null on any failure so a caller can simply drop that candidate -- a
+ * missing street name is not worth an error path of its own.
+ */
+export async function reverseGeocodeStreet(
+  lng: number,
+  lat: number,
+  // Mapbox serves all three of the app's languages. 'tr' was missing only
+  // because the predictive suggestions, the first caller, passed en/el --
+  // the declaration history is read in Turkish too.
+  language: 'en' | 'el' | 'tr' = 'en'
+): Promise<string | null> {
+  if (!MAPBOX_TOKEN) return null;
+  const url =
+    `https://api.mapbox.com/search/geocode/v6/reverse?longitude=${lng}&latitude=${lat}` +
+    `&types=street&limit=1&language=${language}&access_token=${MAPBOX_TOKEN}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const name = data?.features?.[0]?.properties?.name;
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
   } catch {
     return null;
   }
@@ -249,25 +340,23 @@ export interface MapPin {
   id: string;
   lng: number;
   lat: number;
-  type: 'mine' | 'reported' | 'destination' | 'selection' | 'poi';
+  type: 'mine' | 'reported' | 'destination' | 'selection' | 'poi' | 'garage';
   label?: string;
+  /** 'garage' only: occupancy colour, so the marker matches its details card. */
+  color?: string;
+  /**
+   * The spot is in the last seconds before it expires -- the marker animates
+   * to transparent instead of vanishing between frames. Toggled on the
+   * existing DOM element, never by recreating the marker, so a pin fading
+   * out cannot cause the map to rebuild anything around it.
+   */
+  fading?: boolean;
 }
 
 interface MapboxMapProps {
   center: [number, number]; // [lng, lat]
   /** Mock position for the demo account; ignored once real GPS is live. */
   userLocation: [number, number];
-  /** Demo accounts render a custom mock dot; real accounts rely on Mapbox's own GeolocateControl blue dot. */
-  showCustomUserDot: boolean;
-  /**
-   * True for the whole demo session, unlike showCustomUserDot (only true
-   * during Map Selection Mode's manual pin drop) -- gates whether
-   * GeolocateControl ever asks for/tracks real GPS at all. Demo accounts
-   * must never trigger it: a real permission grant would render Mapbox's
-   * own blue dot at the tester's actual location while every pin renders at
-   * the simulated Karystos map-center, visibly desyncing the two.
-   */
-  isDemoAccount?: boolean;
   /** Fires with each real GPS fix once GeolocateControl starts tracking (real accounts only). */
   onUserLocationChange?: (lng: number, lat: number, accuracy: number) => void;
   pins: MapPin[];
@@ -292,13 +381,21 @@ interface MapboxMapProps {
   flyToTarget?: { lng: number; lat: number; zoom?: number; duration?: number } | null;
   /** Increment (with flyToTarget set) to imperatively fly the camera to a location at street-level zoom. */
   flyToRequestId?: number;
+  /** Controlled/resident parking zones, drawn as shaded no-declare areas. Omit to draw none. */
+  zones?: ParkingZone[];
+  /** Fires when the location button can't get a fix (permission refused, no signal) so the caller can explain why. */
+  onLocateFailed?: () => void;
+  /** Fires with a zone id when one of the drawn zones is tapped. */
+  onZoneClick?: (zoneId: string) => void;
+  /** While true, each new GPS fix recentres the camera -- until the driver pans away. */
+  followUser?: boolean;
+  /** The municipality's covered area, drawn as a boundary circle. Omit to draw none. */
+  operatingArea?: OperatingArea | null;
 }
 
 export const MapboxMap: React.FC<MapboxMapProps> = ({
   center,
   userLocation,
-  showCustomUserDot,
-  isDemoAccount = false,
   onUserLocationChange,
   pins,
   onMapClick,
@@ -312,6 +409,11 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   locateRequestId,
   flyToTarget,
   flyToRequestId,
+  zones,
+  onLocateFailed,
+  onZoneClick,
+  followUser = false,
+  operatingArea,
 }) => {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -324,11 +426,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // degrees so a rotate gesture (or the driving chase camera) doesn't
   // re-render this component on every animation frame.
   const [bearing, setBearing] = useState(() => Math.round(lastCamera?.bearing ?? 0));
+  const [pitch, setPitch] = useState(() => Math.round(lastCamera?.pitch ?? 0));
 
   // True once a real GPS fix exists for this (non-demo) session -- gates the
   // user dot, which now belongs to this component rather than to Mapbox's
   // GeolocateControl.
   const [hasRealFix, setHasRealFix] = useState(() => getLastFix() !== null);
+
+  // True while the location button is waiting on a fresh fix.
+  const [locating, setLocating] = useState(false);
 
   // Flipped the moment the driver moves the camera themselves (drag, pinch,
   // rotate). From then on, live GPS fixes update the dot but never move the
@@ -351,6 +457,12 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onUserLocationChangeRef.current = onUserLocationChange;
   const onConfirmSelectionRef = useRef(onConfirmSelection);
   onConfirmSelectionRef.current = onConfirmSelection;
+  const onLocateFailedRef = useRef(onLocateFailed);
+  onLocateFailedRef.current = onLocateFailed;
+  const onZoneClickRef = useRef(onZoneClick);
+  onZoneClickRef.current = onZoneClick;
+  const followUserRef = useRef(followUser);
+  followUserRef.current = followUser;
   const isNavigatingRef = useRef(isNavigating);
   isNavigatingRef.current = isNavigating;
   const routeProfileRef = useRef(routeProfile);
@@ -382,6 +494,10 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     });
 
     map.on('click', (e) => {
+      // A zone tap calls preventDefault on its own layer handler; honouring
+      // it here stops one tap from both opening the zone card and dropping a
+      // selection pin underneath it.
+      if (e.defaultPrevented) return;
       onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat);
     });
 
@@ -393,10 +509,17 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       if ((e as { originalEvent?: unknown }).originalEvent) userMovedCameraRef.current = true;
     });
 
-    map.on('rotate', () => {
-      const next = Math.round(map.getBearing());
-      setBearing((prev) => (prev === next ? prev : next));
-    });
+    // 'rotate' covers gesture rotation; 'move' also catches bearing changes
+    // that arrive through an easeTo/flyTo (the driving chase camera, or the
+    // reset below), so the needle can never drift out of sync with the map.
+    const syncCamera = () => {
+      const nextBearing = Math.round(map.getBearing());
+      const nextPitch = Math.round(map.getPitch());
+      setBearing((prev) => (prev === nextBearing ? prev : nextBearing));
+      setPitch((prev) => (prev === nextPitch ? prev : nextPitch));
+    };
+    map.on('rotate', syncCamera);
+    map.on('move', syncCamera);
 
     map.on('moveend', () => {
       const c = map.getCenter();
@@ -427,7 +550,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // and moves the camera only on the session's very first fix and only if
   // the driver hasn't already panned somewhere themselves.
   useEffect(() => {
-    if (isDemoAccount) return;
     return subscribeToPosition((fix) => {
       setHasRealFix(true);
       onUserLocationChangeRef.current?.(fix.lng, fix.lat, fix.accuracy);
@@ -443,6 +565,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         map.easeTo({ bearing: fix.heading, duration: 500 });
       }
 
+      // Follow mode (navigation, or straight after a claim): every fix
+      // recentres, Google-Maps style -- until the driver pans away, at which
+      // point userMovedCameraRef latches and the camera is theirs again
+      // until they ask for it back via the location button.
+      if (followUserRef.current && !userMovedCameraRef.current) {
+        map.easeTo({ center: [fix.lng, fix.lat], duration: 700 });
+        return;
+      }
+
       if (!hasAutoCenteredThisSession && !userMovedCameraRef.current) {
         hasAutoCenteredThisSession = true;
         map.easeTo({
@@ -452,7 +583,19 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         });
       }
     });
-  }, [isDemoAccount]);
+  }, []);
+
+  // Turning follow mode on recentres straight away rather than waiting for
+  // the next GPS tick, and clears any earlier pan -- starting navigation is
+  // an explicit request to be followed.
+  useEffect(() => {
+    if (!followUser) return;
+    userMovedCameraRef.current = false;
+    const map = mapRef.current;
+    const fix = getLastFix();
+    if (!map || !fix) return;
+    map.easeTo({ center: [fix.lng, fix.lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), duration: 700 });
+  }, [followUser]);
 
   // "My Location" button (rendered by MapTab) bumps this counter. This is
   // the one gesture that explicitly asks to be re-centred, so it also clears
@@ -511,12 +654,12 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     }
   }, [flyToRequestId, flyToTarget]);
 
-  // The user dot. Real accounts now get it from this component (once a real
-  // fix exists) rather than from GeolocateControl's own blue dot, which came
-  // bundled with camera behaviour we no longer want. Demo accounts keep the
-  // old rule: a dot only during Map Selection Mode's manual pin drop, where
-  // it means "this is the point a tap will use".
-  const showUserDot = isDemoAccount ? showCustomUserDot : hasRealFix;
+  // The user dot: this component's job now, rather than GeolocateControl's
+  // blue dot, which came bundled with camera behaviour we no longer want.
+  //
+  // Shown as soon as a real fix exists -- there is no simulated position any
+  // more, for any account.
+  const showUserDot = hasRealFix;
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -552,8 +695,9 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
     // Add or update markers
     pins.forEach((pin) => {
-      if (markersRef.current[pin.id]) {
-        markersRef.current[pin.id].setLngLat([pin.lng, pin.lat]);
+      const existing = markersRef.current[pin.id];
+      if (existing) {
+        existing.setLngLat([pin.lng, pin.lat]);
         return;
       }
 
@@ -578,6 +722,27 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           onConfirmSelectionRef.current?.();
         });
         markersRef.current[pin.id] = new mapboxgl.Marker({ element: wrapper, anchor: 'bottom' })
+          .setLngLat([pin.lng, pin.lat])
+          .addTo(map);
+        return;
+      }
+
+      if (pin.type === 'garage') {
+        // A rounded "P" plate rather than a teardrop: this marks a building
+        // with many spaces, and must not be mistaken at a glance for one of
+        // the single community-reported spots around it. Colour comes from
+        // the caller so it always agrees with the occupancy bar on the card.
+        const el = document.createElement('div');
+        el.className = 'mapbox-pin-wrapper';
+        el.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:10px;background:${pin.color ?? '#2563eb'};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);color:white;font-weight:800;font-size:15px;font-family:inherit;line-height:1;">P</div>
+        `;
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          onPinClickRef.current?.(pin.id);
+        });
+        markersRef.current[pin.id] = new mapboxgl.Marker({ element: el })
           .setLngLat([pin.lng, pin.lat])
           .addTo(map);
         return;
@@ -651,7 +816,160 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           .addTo(map);
       }
     });
+
+    // Fade state, applied to whatever element is now on the map -- one pass
+    // covering markers just created and markers that were already there.
+    //
+    // It is a class toggle on the existing DOM node, never a rebuild. A pin
+    // entering its last seconds must not be torn down and recreated: that
+    // would restart the CSS animation on every sweep tick, so the marker
+    // would strobe instead of fading, and it would drop and re-add a Mapbox
+    // marker several times a second on a map the driver is trying to read.
+    pins.forEach((pin) => {
+      markersRef.current[pin.id]
+        ?.getElement()
+        .classList.toggle('mapbox-pin-fading', Boolean(pin.fading));
+    });
   }, [pins]);
+
+  // The operating-area boundary. Drawn as a faint fill with a dashed edge
+  // rather than a dimming mask over everything outside it: the driver still
+  // needs to read the map beyond the boundary (that is where they might be
+  // heading), they just need to know where the service stops.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    const draw = () => {
+      const source = map.getSource('operating-area') as mapboxgl.GeoJSONSource | undefined;
+      if (!operatingArea) {
+        // Emptying the source rather than removing the layers keeps this
+        // idempotent -- the area can arrive, change, or clear at any time.
+        source?.setData({ type: 'FeatureCollection', features: [] });
+        return;
+      }
+      const data = operatingAreaToGeoJson(operatingArea);
+      if (source) {
+        source.setData(data);
+        return;
+      }
+
+      // First time the boundary arrives: if the camera is still sitting on a
+      // default (no restored position, no GPS fix, driver hasn't panned),
+      // open on the city rather than on a generic fallback point. Matters
+      // most for a driver who refused location -- they should still see
+      // their own town.
+      if (!lastCamera && !getLastFix() && !userMovedCameraRef.current) {
+        map.jumpTo({ center: operatingArea.center, zoom: 13 });
+      }
+
+      map.addSource('operating-area', { type: 'geojson', data });
+      // Added at the very bottom of the app's own layers so zones, routes and
+      // markers all stay legible over it.
+      const beforeId = map.getLayer('parking-zones-line') ? 'parking-zones-line' : undefined;
+      map.addLayer(
+        {
+          id: 'operating-area-fill',
+          type: 'fill',
+          source: 'operating-area',
+          paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.06 },
+        },
+        beforeId
+      );
+      map.addLayer(
+        {
+          id: 'operating-area-outline',
+          type: 'line',
+          source: 'operating-area',
+          layout: { 'line-join': 'round' },
+          paint: { 'line-color': '#2563eb', 'line-width': 2, 'line-dasharray': [3, 2], 'line-opacity': 0.7 },
+        },
+        beforeId
+      );
+    };
+
+    if (map.isStyleLoaded()) draw();
+    else map.once('load', draw);
+  }, [operatingArea]);
+
+  // Controlled/resident parking zones, drawn as thick lines along the street
+  // axis. A filled corridor polygon (what this used to be) inevitably spilled
+  // over the buildings either side; a wide line hugs the road at every zoom
+  // and reads as "this street is protected". Sits beneath the route line so a
+  // route crossing a zone stays readable, and beneath every marker (Mapbox
+  // markers are DOM elements, always above canvas layers).
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    const drawZones = () => {
+      const data = zonesToGeoJson(zones ?? []);
+      const source = map.getSource('parking-zones') as mapboxgl.GeoJSONSource | undefined;
+      if (source) {
+        source.setData(data);
+        return;
+      }
+      if (!zones || zones.length === 0) return;
+
+      map.addSource('parking-zones', { type: 'geojson', data });
+      // Red for residents-only, amber for controlled/paid: the first is a
+      // harder "not yours to give away", and both match the destructive /
+      // warning roles the rest of the app already uses.
+      const zoneColor = ['match', ['get', 'kind'], 'resident', '#dc2626', '#f59e0b'] as unknown as string;
+      const beforeId = map.getLayer('route-casing') ? 'route-casing' : undefined;
+
+      // Interpolated width so the band tracks the street's apparent size
+      // instead of staying a fixed pixel thickness while the map zooms.
+      map.addLayer(
+        {
+          id: 'parking-zones-line',
+          type: 'line',
+          source: 'parking-zones',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': zoneColor,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 13, 6, 16, 14, 19, 26],
+            'line-opacity': 0.45,
+          },
+        },
+        beforeId
+      );
+      // Solid hairline down the middle: without it the translucent band
+      // reads as a vague smudge rather than a marked street.
+      map.addLayer(
+        {
+          id: 'parking-zones-spine',
+          type: 'line',
+          source: 'parking-zones',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': zoneColor, 'line-width': 2, 'line-opacity': 0.9 },
+        },
+        beforeId
+      );
+
+      map.on('click', 'parking-zones-line', (e) => {
+        const id = e.features?.[0]?.properties?.id;
+        if (typeof id === 'string') {
+          // Stops the map's own click handler from also treating this as a
+          // "tap on empty map" (which drops a pin in selection mode).
+          e.preventDefault();
+          onZoneClickRef.current?.(id);
+        }
+      });
+      map.on('mouseenter', 'parking-zones-line', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'parking-zones-line', () => {
+        map.getCanvas().style.cursor = '';
+      });
+    };
+
+    if (map.isStyleLoaded()) {
+      drawZones();
+    } else {
+      map.once('load', drawZones);
+    }
+  }, [zones]);
 
   // Real driving-route polyline from the Directions API. Mapbox's driving
   // profile already returns one continuous geometry across ferry legs when a
@@ -770,10 +1088,79 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
   const handleZoomIn = () => mapRef.current?.zoomIn({ duration: 300 });
   const handleZoomOut = () => mapRef.current?.zoomOut({ duration: 300 });
-  // Orientation button: back to north-up and flat. Also hands the camera
-  // back to the driver, so it doubles as "undo whatever the 3D chase view
-  // did to my map".
-  const handleResetNorth = () => mapRef.current?.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+  // Orientation button, as a toggle rather than a one-way reset.
+  //
+  // Pointing north is usually what someone wants -- but not always, and a
+  // driver who rotated the map to match the street ahead of them shouldn't
+  // lose that orientation permanently to a mistaken tap. So the first tap
+  // remembers the bearing and snaps north; the next tap, if the map is still
+  // north-up, puts the remembered bearing back.
+  //
+  // The reported "does nothing" case is the third one: north-up already,
+  // with nothing remembered because the map has never been rotated. Rotating
+  // needs a two-finger twist that most people never try, so that is the
+  // common state. It now levels the pitch as well, which is a visible change
+  // whenever the 3D driving camera has tilted the map -- and pitch is
+  // exactly what a driver wants flattened when they reach for this button.
+  const previousBearingRef = useRef(0);
+  const handleResetNorth = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    const currentBearing = map.getBearing();
+
+    // Not exactly 0: a bearing can settle a hair off after an animation, and
+    // "0.4 degrees" should still count as facing north.
+    const facingNorth = Math.abs(currentBearing) <= 0.5;
+
+    if (!facingNorth) {
+      previousBearingRef.current = currentBearing;
+      map.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+      return;
+    }
+
+    map.easeTo({ bearing: previousBearingRef.current, pitch: 0, duration: 400 });
+  };
+
+  /**
+   * Location button. Lives here rather than in MapTab so it sits in the same
+   * control column as zoom and the compass, and so it can reach the map
+   * directly instead of round-tripping through a request counter.
+   *
+   * One path for every account: ask for real GPS, fly to the real fix. The
+   * demo account used to be recentred on a simulated position instead, which
+   * meant the button quietly did nothing useful for the one account most
+   * likely to be demonstrating it.
+   */
+  const handleLocate = async () => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // An explicit "take me to my position" also hands camera-following back
+    // to the app until the driver pans away again.
+    userMovedCameraRef.current = false;
+
+    const flyTo = (lng: number, lat: number) =>
+      map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), essential: true, speed: 1.4 });
+
+    // Move immediately on the cached fix so the tap always feels like it did
+    // something, then correct once a fresh one lands.
+    const cached = getLastFix();
+    if (cached) flyTo(cached.lng, cached.lat);
+
+    setLocating(true);
+    const fix = await requestFreshFix();
+    setLocating(false);
+
+    if (!fix) {
+      // No cached position either means we never had one: nothing happened
+      // on screen, so the driver needs to be told why.
+      if (!cached) onLocateFailedRef.current?.();
+      return;
+    }
+    setHasRealFix(true);
+    onUserLocationChangeRef.current?.(fix.lng, fix.lat, fix.accuracy);
+    flyTo(fix.lng, fix.lat);
+  };
 
   const controlButton =
     'w-11 h-11 flex items-center justify-center text-foreground/80 hover:text-foreground hover:bg-secondary/70 active:scale-95 transition-all';
@@ -782,13 +1169,14 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     <div className="absolute inset-0 w-full h-full">
       <div ref={containerRef} className="parkapp-map-shell absolute inset-0 w-full h-full" />
 
-      {/* Zoom + orientation stack. Deliberately on the right edge well below
-          the floating search bar and the points/claim row above it (which
-          reserves this column's width) and well above the bottom cards --
-          Mapbox's own controls sat at y=10 underneath the search bar, which
-          is why tapping them did nothing. */}
-      <div className="absolute right-4 bottom-72 z-10 flex flex-col items-center gap-2">
-        <div className="flex flex-col rounded-2xl overflow-hidden bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
+      {/* Map controls, bottom-right: zoom, orientation, locate, in one
+          vertical column. Mapbox's own sat at y=10 underneath the floating
+          search bar, which is why tapping them did nothing. bottom-64 is as
+          low as this can go without colliding with the full-width bottom
+          cards (destination info, spot/facility/zone sheets), which start
+          around bottom-44 and are the one thing that must never be covered. */}
+      <div className="absolute right-4 bottom-64 z-10 flex flex-col items-center gap-2">
+        <div className="flex flex-col rounded-2xl overflow-hidden bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
           <button type="button" onClick={handleZoomIn} aria-label={t('map.zoomIn')} className={controlButton}>
             <Plus className="h-5 w-5" />
           </button>
@@ -798,16 +1186,39 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           </button>
         </div>
 
+        {/* Shown only while the map is actually rotated or tilted.
+            A compass whose whole job is "put the map back to north" has
+            nothing to do when the map is already north-up and flat, and a
+            button that cannot do anything reads as broken -- which is
+            exactly how this one was reported. Google and Apple Maps hide
+            theirs for the same reason. Rotating (two-finger twist) or
+            starting turn-by-turn brings it back. */}
+        {(Math.abs(bearing) > 0.5 || pitch > 0.5) && (
+          <button
+            type="button"
+            onClick={handleResetNorth}
+            aria-label={t('map.resetNorth')}
+            className={`${controlButton} rounded-2xl bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] animate-fade-in`}
+          >
+            <Compass
+              className="h-5 w-5 text-primary transition-transform duration-200"
+              style={{ transform: `rotate(${-bearing}deg)` }}
+            />
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={handleResetNorth}
-          aria-label={t('map.resetNorth')}
-          className={`${controlButton} rounded-2xl bg-background/90 backdrop-blur-md border border-border/60 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]`}
+          onClick={handleLocate}
+          disabled={locating}
+          aria-label={t('map.myLocation')}
+          className={`${controlButton} rounded-full bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] disabled:opacity-70`}
         >
-          <Compass
-            className="h-5 w-5 text-primary transition-transform duration-200"
-            style={{ transform: `rotate(${-bearing}deg)` }}
-          />
+          {locating ? (
+            <Loader2 className="h-5 w-5 text-primary animate-spin" />
+          ) : (
+            <LocateFixed className="h-5 w-5 text-primary" />
+          )}
         </button>
       </div>
     </div>

@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  KARYSTOS_CENTER,
+  DEMO_CENTER,
   getMockDriverLeaderboard,
   getMockCityLeaderboard,
   MOCK_ADMIN_KPIS,
-  getMockKarystosSpots,
+  getMockDemoSpots,
   getMockWeeklyTrend,
   getMockAdminSpots,
   isMockSpotId,
@@ -92,7 +92,7 @@ describe('MOCK_ADMIN_KPIS', () => {
   });
 });
 
-describe('getMockKarystosSpots', () => {
+describe('getMockDemoSpots', () => {
   const FIXED_NOW = new Date('2026-08-18T12:00:00.000Z');
 
   beforeEach(() => {
@@ -105,20 +105,20 @@ describe('getMockKarystosSpots', () => {
   });
 
   it('places every spot near the Karystos center', () => {
-    for (const spot of getMockKarystosSpots()) {
-      expect(Math.abs(spot.lng - KARYSTOS_CENTER[0])).toBeLessThan(0.01);
-      expect(Math.abs(spot.lat - KARYSTOS_CENTER[1])).toBeLessThan(0.01);
+    for (const spot of getMockDemoSpots()) {
+      expect(Math.abs(spot.lng - DEMO_CENTER[0])).toBeLessThan(0.01);
+      expect(Math.abs(spot.lat - DEMO_CENTER[1])).toBeLessThan(0.01);
     }
   });
 
   it('gives every spot status "active" and unique ids', () => {
-    const spots = getMockKarystosSpots();
+    const spots = getMockDemoSpots();
     expect(spots.every((s) => s.status === 'active')).toBe(true);
     expect(new Set(spots.map((s) => s.id)).size).toBe(spots.length);
   });
 
   it('declares every spot in the past and expires every spot in the future, relative to "now"', () => {
-    for (const spot of getMockKarystosSpots()) {
+    for (const spot of getMockDemoSpots()) {
       expect(new Date(spot.declared_at).getTime()).toBeLessThan(FIXED_NOW.getTime());
       expect(new Date(spot.expires_at).getTime()).toBeGreaterThan(FIXED_NOW.getTime());
     }
@@ -143,9 +143,9 @@ describe('getMockAdminSpots', () => {
     });
   });
 
-  it('reuses the same coordinates as getMockKarystosSpots', () => {
+  it('reuses the same coordinates as getMockDemoSpots', () => {
     const adminSpots = getMockAdminSpots();
-    const driverSpots = getMockKarystosSpots();
+    const driverSpots = getMockDemoSpots();
     expect(adminSpots.map((s) => [s.lat, s.lng])).toEqual(driverSpots.map((s) => [s.lat, s.lng]));
   });
 });
@@ -182,7 +182,7 @@ describe('mock spot claiming (demo happy path)', () => {
   });
 
   it('recognises every mock spot id, and nothing else', () => {
-    for (const spot of getMockKarystosSpots()) {
+    for (const spot of getMockDemoSpots()) {
       expect(isMockSpotId(spot.id)).toBe(true);
     }
     // Shaped like the real thing: a Postgres uuid from parking_spots.
@@ -190,26 +190,26 @@ describe('mock spot claiming (demo happy path)', () => {
   });
 
   it('removes a claimed spot from the map, and leaves the rest alone', () => {
-    const before = getMockKarystosSpots();
+    const before = getMockDemoSpots();
     const target = before[0];
 
     claimMockSpot(target.id);
 
-    const after = getMockKarystosSpots();
+    const after = getMockDemoSpots();
     expect(after.map((s) => s.id)).not.toContain(target.id);
     expect(after).toHaveLength(before.length - 1);
   });
 
   it('does not bring a claimed spot back on the next read', () => {
-    const target = getMockKarystosSpots()[0];
+    const target = getMockDemoSpots()[0];
     claimMockSpot(target.id);
-    expect(getMockKarystosSpots().map((s) => s.id)).not.toContain(target.id);
-    expect(getMockKarystosSpots().map((s) => s.id)).not.toContain(target.id);
+    expect(getMockDemoSpots().map((s) => s.id)).not.toContain(target.id);
+    expect(getMockDemoSpots().map((s) => s.id)).not.toContain(target.id);
   });
 
   it('keeps the admin live map complete when a driver claims a spot', () => {
     const adminBefore = getMockAdminSpots();
-    claimMockSpot(getMockKarystosSpots()[0].id);
+    claimMockSpot(getMockDemoSpots()[0].id);
     expect(getMockAdminSpots()).toEqual(adminBefore);
   });
 });
