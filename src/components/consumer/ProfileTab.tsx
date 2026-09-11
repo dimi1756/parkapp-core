@@ -22,7 +22,7 @@ import { MyReportsCard } from './MyReportsCard';
 import { CustomizationCard } from './CustomizationCard';
 
 const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
-const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR' };
+const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR', pl: 'PL' };
 
 export const ProfileTab = () => {
   const { darkMode, toggleDarkMode, setAdminMode } = useApp();
@@ -178,7 +178,7 @@ export const ProfileTab = () => {
               <span className="font-medium">{t('profile.language')}</span>
             </div>
             <div className="flex rounded-full border border-border bg-secondary/50 p-0.5">
-              {(['en', 'gr', 'tr'] as Language[]).map((lang) => (
+              {(['en', 'gr', 'tr', 'pl'] as Language[]).map((lang) => (
                 <button
                   key={lang}
                   type="button"

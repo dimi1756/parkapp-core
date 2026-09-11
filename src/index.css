@@ -38,7 +38,7 @@
     --input: 210 20% 90%;
     --ring: 210 100% 35%;
 
-    --radius: 0.75rem;
+    --radius: 0.875rem;
 
     /* Driven by the Customization screen (src/lib/uiPreferences.ts). Declared
        here so the app is fully styled before any JavaScript runs -- the
@@ -142,6 +142,20 @@
     @apply bg-background text-foreground antialiased;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  /* Native iOS spring press: all interactive chrome scales down on tap.
+     transition-all in the base keeps color + transform in one declaration
+     so no Tailwind utility can accidentally remove the transform transition. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    transition: transform 200ms ease-out, opacity 200ms ease-out;
+  }
+
+  button:not(:disabled):active,
+  [role="button"]:not(:disabled):active {
+    transform: scale(0.97);
   }
 
   /* Native-app feel: interactive chrome shouldn't be text-selectable or show
@@ -282,9 +296,10 @@
 
   /* Clears the iOS home-indicator / Android gesture bar for chrome pinned to
      the bottom edge. Needs viewport-fit=cover on the <meta viewport> tag in
-     index.html, or env(safe-area-inset-*) always resolves to 0. */
+     index.html, or env(safe-area-inset-*) always resolves to 0.
+     The 20px floor ensures a comfortable buffer on non-notched devices too. */
   .pb-safe {
-    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+    padding-bottom: max(env(safe-area-inset-bottom), 20px);
   }
 
 }

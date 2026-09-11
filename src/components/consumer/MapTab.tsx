@@ -1464,7 +1464,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               onClick={handleSearch}
               disabled={routeState === 'searching'}
               size="icon"
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl bg-primary hover:bg-primary/90"
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-[14px] bg-primary hover:bg-primary/90"
             >
               {routeState === 'searching' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
             </Button>
@@ -1497,7 +1497,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           type="button"
           onClick={() => onNavigateToOffers?.()}
           aria-label={`${profile?.points_balance ?? 0} ${t('map.points')} — ${t('nav.offers')}`}
-          className="points-pill flex items-center gap-1.5 px-3 text-xs cursor-pointer transition-transform active:scale-95 hover:brightness-110 shrink-0"
+          className="points-pill flex items-center gap-1.5 px-3 text-xs cursor-pointer transition-all duration-200 ease-out active:scale-[0.97] hover:brightness-110 shrink-0"
           data-tour="points"
         >
           <span>💎</span>

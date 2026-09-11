@@ -10,13 +10,13 @@ import { MapPin, Loader2, Sparkles } from 'lucide-react';
 const DEMO_EMAIL = 'demo@parkapp.tech';
 const DEMO_PASSWORD = 'demo123456';
 
-const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR' };
+const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR', pl: 'PL' };
 
 const LanguageToggle = () => {
   const { language, setLanguage } = useLanguage();
   return (
     <div className="absolute top-4 right-4 z-10 flex rounded-full border border-border bg-background/80 backdrop-blur-sm p-0.5 shadow-sm">
-      {(['en', 'gr', 'tr'] as Language[]).map((lang) => (
+      {(['en', 'gr', 'tr', 'pl'] as Language[]).map((lang) => (
         <button
           key={lang}
           type="button"

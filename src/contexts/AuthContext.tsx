@@ -57,6 +57,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // straight on the map, never the vehicle-onboarding step.
 const DEMO_EMAIL = 'demo@parkapp.tech';
 
+// Tour-done flags written by DemoTour.tsx (pattern: parkapp_demo_tour_<id>_done_v1).
+// Cleared on every demo sign-in and sign-out so the tour restarts fresh for
+// each reviewer session without requiring them to use incognito mode.
+const DEMO_TOUR_IDS = ['map', 'offers', 'plans', 'profile', 'leaderboard', 'admin'] as const;
+const clearDemoTours = () => {
+  DEMO_TOUR_IDS.forEach((id) => localStorage.removeItem(`parkapp_demo_tour_${id}_done_v1`));
+};
+
 // GDPR: only the last 2 characters of the plate are ever shown in the UI.
 // The full plate is stored server-side for municipality enforcement use only.
 export function maskPlate(plate: string | null | undefined): string {
@@ -166,11 +174,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signIn = async (email: string, password: string) => {
+    // Clear before the auth call: onAuthStateChange fires before the
+    // signInWithPassword promise resolves, so clearing after loses the race.
+    if (email === DEMO_EMAIL) clearDemoTours();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message ?? null };
   };
 
   const signOut = async () => {
+    if (session?.user?.email === DEMO_EMAIL) clearDemoTours();
     await supabase.auth.signOut();
   };
 

@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { STRINGS, StringKey } from '@/i18n/strings';
 
-export type Language = 'en' | 'gr' | 'tr';
+export type Language = 'en' | 'gr' | 'tr' | 'pl';
 
 const LANGUAGE_KEY = 'parkapp_language';
-const VALID_LANGUAGES: Language[] = ['en', 'gr', 'tr'];
+const VALID_LANGUAGES: Language[] = ['en', 'gr', 'tr', 'pl'];
 
 interface LanguageContextType {
   language: Language;
@@ -41,10 +41,10 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     [language]
   );
 
-  const locale = language === 'gr' ? 'el-GR' : language === 'tr' ? 'tr-TR' : 'en-US';
+  const locale = language === 'gr' ? 'el-GR' : language === 'tr' ? 'tr-TR' : language === 'pl' ? 'pl-PL' : 'en-US';
 
   useEffect(() => {
-    document.documentElement.lang = language === 'gr' ? 'el' : language === 'tr' ? 'tr' : 'en';
+    document.documentElement.lang = language === 'gr' ? 'el' : language === 'tr' ? 'tr' : language === 'pl' ? 'pl' : 'en';
   }, [language]);
 
   return (
