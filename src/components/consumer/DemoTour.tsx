@@ -160,23 +160,28 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
   const spotWidth = rect.width + SPOT_PADDING * 2;
   const spotHeight = rect.height + SPOT_PADDING * 2;
 
+  // Use the app frame's bounding rect (the max-w-md centered container) for
+  // horizontal clamping so the card never bleeds outside the visible app area
+  // on a desktop browser. Falls back to the full viewport for admin/full-width.
+  const appFrame = document.querySelector('[data-app-frame]');
+  const frameRect = appFrame?.getBoundingClientRect() ?? {
+    left: 0,
+    width: window.innerWidth,
+  };
+
   // The visible window, in the same coordinate space as getBoundingClientRect
   // and position:fixed -- the layout viewport.
-  //
-  // Height alone isn't enough: on iOS the visible area can also be *offset*
-  // within the layout viewport (toolbars overlaying the top, pinch-zoom, the
-  // keyboard), so a card at top: 12 can still land behind the address bar.
-  // offsetTop is where the visible window actually starts.
   const visibleTop = window.visualViewport?.offsetTop ?? 0;
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   const visibleBottom = visibleTop + viewportHeight;
   const GAP = 12;
-
   const HGAP = 16;
-  const cardWidth = Math.min(300, window.innerWidth - HGAP * 2);
+
+  const cardWidth = Math.min(300, frameRect.width - HGAP * 2);
+  const rawLeft = rect.left + rect.width / 2 - cardWidth / 2;
   const cardLeft = Math.max(
-    HGAP,
-    Math.min(rect.left + rect.width / 2 - cardWidth / 2, window.innerWidth - cardWidth - HGAP)
+    frameRect.left + HGAP,
+    Math.min(rawLeft, frameRect.left + frameRect.width - cardWidth - HGAP)
   );
 
   // Prefer whichever side the card actually fits on, rather than guessing
@@ -208,7 +213,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
     top: cardTop,
     left: cardLeft,
     width: cardWidth,
-    maxWidth: `calc(100vw - 2rem)`,
+    maxWidth: frameRect.width - HGAP * 2,
     maxHeight: Math.max(160, viewportHeight - GAP * 2),
     overflowY: 'auto',
   };

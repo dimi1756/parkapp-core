@@ -73,7 +73,7 @@ export const ConsumerApp = () => {
     // viewport (see index.css / main.tsx), so inheriting that box is exact,
     // where re-deriving dvh here would reintroduce the very measurement iOS
     // gets wrong.
-    <div className="h-full w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
+    <div data-app-frame className="h-full w-full max-w-md mx-auto bg-background flex flex-col overflow-hidden relative">
       {/* key remounts the pane per tab so each switch gets the fade-in.
           Every tab but the map gets the accent-tinted canvas behind it: the
           map is its own background, and laying a wash over it would only
