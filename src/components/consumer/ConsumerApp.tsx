@@ -6,7 +6,7 @@ import { OffersTab } from './OffersTab';
 import { PlansTab } from './PlansTab';
 import { ProfileTab } from './ProfileTab';
 import { LeaderboardTab } from './LeaderboardTab';
-import { DemoTour, shouldShowTour, dismissTour, type TourId } from './DemoTour';
+import { DemoTour, shouldShowTour, dismissTour, clearAllDemoTours, type TourId } from './DemoTour';
 import { Map, Gift, CreditCard, User, Trophy } from 'lucide-react';
 
 type TabType = 'map' | 'offers' | 'plans' | 'profile' | 'leaderboard';
@@ -38,8 +38,14 @@ export const ConsumerApp = () => {
     }
     prevTabRef.current = activeTab;
 
-    // On the first render after demo login, force the tour active regardless
-    // of localStorage (clearDemoTours may still be racing in AuthContext).
+    // On the first render after demo login (or session restore), clear all
+    // per-tab flags so every tour runs once this session regardless of what
+    // a previous session left in localStorage. signIn() also clears them in
+    // AuthContext, but that doesn't run when the session is auto-restored.
+    if (justLoggedIn) clearAllDemoTours();
+
+    // Force the current tab's tour on first detection (justLoggedIn bypasses
+    // the localStorage check so the map tour always shows on login/restore).
     setActiveTour(justLoggedIn ? activeTab : (shouldShowTour(activeTab) ? activeTab : null));
   }, [activeTab, isDemoAccount]);
 

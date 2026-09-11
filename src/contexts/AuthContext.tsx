@@ -109,6 +109,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      // Clear tour flags on session restore (not just on explicit signIn) so
+      // every page load starts with fresh tours for the demo account.
+      if (session?.user?.email === DEMO_EMAIL) clearDemoTours();
       setSession(session);
       // Awaited before setLoading(false) -- previously this fired the fetch
       // without waiting for it, so `loading` flipped false the instant the

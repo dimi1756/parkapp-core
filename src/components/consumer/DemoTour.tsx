@@ -48,7 +48,18 @@ const TOURS: Record<TourId, TourStep[]> = {
   ],
 };
 
+const TOUR_IDS: TourId[] = ['map', 'offers', 'plans', 'profile', 'leaderboard', 'admin'];
 const doneKey = (id: TourId) => `parkapp_demo_tour_${id}_done_v1`;
+
+/**
+ * Clears all per-tab tour flags so every tour will show again on next visit.
+ * Called in ConsumerApp on first demo-session detection (covers both fresh
+ * sign-in and session-restore from a previous visit — signIn() also clears
+ * them in AuthContext, but that doesn't run when the session is auto-restored).
+ */
+export const clearAllDemoTours = () => {
+  TOUR_IDS.forEach((id) => localStorage.removeItem(doneKey(id)));
+};
 
 /**
  * Master switch for the guided tours.
@@ -100,7 +111,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
     (attempt = 0) => {
       const el = document.querySelector(`[data-tour="${steps[stepIndex].target}"]`);
       if (!el) {
-        if (attempt < 8) {
+        if (attempt < 12) {
           setTimeout(() => measure(attempt + 1), 250);
           return;
         }
