@@ -474,6 +474,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   routeProfileRef.current = routeProfile;
   const confirmLabelRef = useRef(t('map.confirmSpot'));
   confirmLabelRef.current = t('map.confirmSpot');
+  const availableSpotLabelRef = useRef(t('map.availableSpot'));
+  availableSpotLabelRef.current = t('map.availableSpot');
 
   // Initialize map once
   useEffect(() => {
@@ -774,9 +776,16 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       // on an inner, non-marker wrapper instead, leaving el's own position
       // untouched.
       el.className = 'mapbox-pin-wrapper';
+      const pinHeight = Math.round((size * 44) / 34);
+      const isReported = pin.type === 'reported';
       el.innerHTML = `
-        <div style="position:relative;width:${size}px;height:${Math.round((size * 44) / 34)}px;">
-          <svg width="${size}" height="${Math.round((size * 44) / 34)}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+        <div style="position:relative;width:${size}px;height:${pinHeight}px;">
+          ${
+            isReported
+              ? `<div style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1d4ed8;color:white;border-radius:5px;padding:2px 6px;font-size:9px;font-weight:600;white-space:nowrap;margin-bottom:3px;pointer-events:none;font-family:inherit;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${availableSpotLabelRef.current}</div>`
+              : ''
+          }
+          <svg width="${size}" height="${pinHeight}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
             <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
             <circle cx="17" cy="17" r="6" fill="white"/>
           </svg>
@@ -1176,6 +1185,17 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     map.easeTo({ bearing: previousBearingRef.current, pitch: 0, duration: 400 });
   };
 
+  const handle3dToggle = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (pitch > 0.5) {
+      previousBearingRef.current = map.getBearing();
+      map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
+    } else {
+      map.easeTo({ pitch: 45, bearing: previousBearingRef.current ?? 0, duration: 600 });
+    }
+  };
+
   /**
    * Location button. Lives here rather than in MapTab so it sits in the same
    * control column as zoom and the compass, and so it can reach the map
@@ -1241,26 +1261,22 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
           </button>
         </div>
 
-        {/* Shown only while the map is actually rotated or tilted.
-            A compass whose whole job is "put the map back to north" has
-            nothing to do when the map is already north-up and flat, and a
-            button that cannot do anything reads as broken -- which is
-            exactly how this one was reported. Google and Apple Maps hide
-            theirs for the same reason. Rotating (two-finger twist) or
-            starting turn-by-turn brings it back. */}
-        {(Math.abs(bearing) > 0.5 || pitch > 0.5) && (
-          <button
-            type="button"
-            onClick={handleResetNorth}
-            aria-label={t('map.resetNorth')}
-            className={`${controlButton} rounded-2xl bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] animate-fade-in`}
-          >
-            <Compass
-              className="h-5 w-5 text-primary transition-transform duration-200"
-              style={{ transform: `rotate(${-bearing}deg)` }}
-            />
-          </button>
-        )}
+        {/* Permanent 2D/3D toggle: always visible, rotates compass needle
+            with current bearing, and badge flips between '3D' and '2D'. */}
+        <button
+          type="button"
+          onClick={handle3dToggle}
+          aria-label={pitch > 0.5 ? t('map.toggle2d') : t('map.toggle3d')}
+          className={`${controlButton} rounded-2xl bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] relative`}
+        >
+          <Compass
+            className="h-5 w-5 text-primary transition-transform duration-200"
+            style={{ transform: `rotate(${-bearing}deg)` }}
+          />
+          <span className="absolute bottom-0.5 right-0.5 text-[7px] font-bold text-primary leading-none">
+            {pitch > 0.5 ? '2D' : '3D'}
+          </span>
+        </button>
 
         <button
           type="button"

@@ -529,6 +529,19 @@ const en = {
   'customize.preview': 'Preview',
   'customize.moreGlass': 'More glass',
   'customize.moreSolid': 'More solid',
+
+  // Map 2D/3D view toggle
+  'map.toggle2d': 'Switch to 2D view',
+  'map.toggle3d': 'Switch to 3D view',
+  'map.availableSpot': 'Available spot',
+
+  // Demo account history street names (localised so the pitch rehearsal
+  // shows Greek names when GR is active, not English transliterations).
+  'demo.street.aktiKarystou': 'Akti Karystou',
+  'demo.street.sahtoUri': 'Sahtouri Street',
+  'demo.street.amalia': 'Amalia Square',
+  'demo.street.kriezotou': 'Kriezotou Street',
+  'demo.street.aeolou': 'Aeolou Street',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -1037,6 +1050,16 @@ const gr: Record<keyof typeof en, string> = {
   'customize.preview': 'Προεπισκόπηση',
   'customize.moreGlass': 'Πιο διάφανο',
   'customize.moreSolid': 'Πιο συμπαγές',
+
+  'map.toggle2d': '2D προβολή',
+  'map.toggle3d': '3D προβολή',
+  'map.availableSpot': 'Διαθέσιμη θέση',
+
+  'demo.street.aktiKarystou': 'Ακτή Καρύστου',
+  'demo.street.sahtoUri': 'Οδός Σαχτούρη',
+  'demo.street.amalia': 'Πλατεία Αμαλίας',
+  'demo.street.kriezotou': 'Οδός Κριεζώτου',
+  'demo.street.aeolou': 'Οδός Αιόλου',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -1545,6 +1568,16 @@ const tr: Record<keyof typeof en, string> = {
   'customize.preview': 'Önizleme',
   'customize.moreGlass': 'Daha saydam',
   'customize.moreSolid': 'Daha opak',
+
+  'map.toggle2d': '2D görünüm',
+  'map.toggle3d': '3D görünüm',
+  'map.availableSpot': 'Müsait yer',
+
+  'demo.street.aktiKarystou': 'Akti Karystou',
+  'demo.street.sahtoUri': 'Sahtouri Caddesi',
+  'demo.street.amalia': 'Amalia Meydanı',
+  'demo.street.kriezotou': 'Kriezotou Caddesi',
+  'demo.street.aeolou': 'Aeolou Caddesi',
 };
 
 const pl: Record<keyof typeof en, string> = {
@@ -2089,6 +2122,16 @@ const pl: Record<keyof typeof en, string> = {
   'customize.preview': 'Podgląd',
   'customize.moreGlass': 'Bardziej przezroczyste',
   'customize.moreSolid': 'Bardziej nieprzezroczyste',
+
+  'map.toggle2d': 'Widok 2D',
+  'map.toggle3d': 'Widok 3D',
+  'map.availableSpot': 'Wolne miejsce',
+
+  'demo.street.aktiKarystou': 'Akti Karystou',
+  'demo.street.sahtoUri': 'ul. Sahtouri',
+  'demo.street.amalia': 'Plac Amalii',
+  'demo.street.kriezotou': 'ul. Kriezotou',
+  'demo.street.aeolou': 'ul. Aeolou',
 };
 
 export type StringKey = keyof typeof en;

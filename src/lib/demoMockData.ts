@@ -11,6 +11,7 @@ import type { CityKpis } from '@/components/admin/KPICards';
 import type { LiveSpot } from '@/components/admin/CityMap';
 import type { TrendDay } from '@/components/admin/WeeklyTrafficChart';
 import type { MyReport } from '@/hooks/useMyReports';
+import type { StringKey } from '@/i18n/strings';
 
 // Karystos, southern Euboea -- the live demo takes place here. Scattered a
 // few hundred meters apart around the waterfront/town center so they read
@@ -177,15 +178,14 @@ export function getMockAdminSpots(): LiveSpot[] {
 
 // Karystos streets the demo pins sit on, paired with what each declaration
 // earned: +10 for vacating a space you were in, +5 for reporting one you
-// saw, matching declare-spot's own award. Street names are written out
-// rather than reverse-geocoded so the demo history renders instantly and
-// identically every time, with no Mapbox round trip to go wrong on stage.
-const MOCK_REPORT_STREETS: [string, number, number, number][] = [
-  ['Akti Karystou', 24.4171, 38.0159, 10],
-  ['Sahtouri Street', 24.4198, 38.0182, 5],
-  ['Amalia Square', 24.4155, 38.0174, 10],
-  ['Kriezotou Street', 24.4142, 38.0191, 10],
-  ['Aeolou Street', 24.4211, 38.0166, 5],
+// saw, matching declare-spot's own award. Street names are i18n keys so the
+// demo history shows in the active language without a Mapbox round trip.
+const MOCK_REPORT_STREETS: [StringKey, number, number, number][] = [
+  ['demo.street.aktiKarystou', 24.4171, 38.0159, 10],
+  ['demo.street.sahtoUri', 24.4198, 38.0182, 5],
+  ['demo.street.amalia', 24.4155, 38.0174, 10],
+  ['demo.street.kriezotou', 24.4142, 38.0191, 10],
+  ['demo.street.aeolou', 24.4211, 38.0166, 5],
 ];
 
 /**
@@ -196,15 +196,15 @@ const MOCK_REPORT_STREETS: [string, number, number, number][] = [
  * entries all timestamped within one hour would read as a script that had
  * just been run. Times are derived from `now` so the list never goes stale.
  */
-export function getMockMyReports(): MyReport[] {
+export function getMockMyReports(t: (key: StringKey) => string): MyReport[] {
   const now = Date.now();
   const HOURS_AGO = [3, 27, 30, 51, 76];
-  return MOCK_REPORT_STREETS.map(([street, lng, lat, points], i) => ({
+  return MOCK_REPORT_STREETS.map(([streetKey, lng, lat, points], i) => ({
     id: `demo-report-${i}`,
     declaredAt: new Date(now - HOURS_AGO[i] * 60 * 60 * 1000).toISOString(),
     lng,
     lat,
-    street,
+    street: t(streetKey),
     points,
   }));
 }

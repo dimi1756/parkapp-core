@@ -6,7 +6,7 @@ import { OffersTab } from './OffersTab';
 import { PlansTab } from './PlansTab';
 import { ProfileTab } from './ProfileTab';
 import { LeaderboardTab } from './LeaderboardTab';
-import { DemoTour, shouldShowTour, dismissTour, clearAllDemoTours, type TourId } from './DemoTour';
+import { DemoTour, shouldShowTour, dismissTour, type TourId } from './DemoTour';
 import { Map, Gift, CreditCard, User, Trophy } from 'lucide-react';
 
 type TabType = 'map' | 'offers' | 'plans' | 'profile' | 'leaderboard';
@@ -17,36 +17,24 @@ export const ConsumerApp = () => {
   const [activeTab, setActiveTab] = useState<TabType>('map');
   const [activeTour, setActiveTour] = useState<TourId | null>(null);
   const prevTabRef = useRef<TabType | null>(null);
-  // Tracks whether the previous render already had isDemoAccount=true so we
-  // can detect the sign-in transition and bypass the localStorage check.
-  const wasDemoRef = useRef(false);
 
   // Demo-only: each tab greets the reviewer with its own short tour the
-  // first time they open it. Leaving a tab mid-tour counts as dismissing
-  // that tab's tour — no nagging on the way back.
+  // first time they open it in this page session. Tour flags are cleared by
+  // AuthContext on every page load (getSession restore) and on explicit demo
+  // sign-in, so no clearing is needed here. Navigating between tabs or back
+  // from the Admin Dashboard must NEVER reset completed tours — that's why
+  // this effect only reads shouldShowTour, never clears it.
   useEffect(() => {
-    if (!isDemoAccount) {
-      wasDemoRef.current = false;
-      return;
-    }
-    const justLoggedIn = !wasDemoRef.current;
-    wasDemoRef.current = true;
+    if (!isDemoAccount) return;
 
     const prevTab = prevTabRef.current;
-    if (!justLoggedIn && prevTab && prevTab !== activeTab) {
+    if (prevTab && prevTab !== activeTab) {
+      // Switching away from a tab mid-tour counts as dismissing it.
       dismissTour(prevTab);
     }
     prevTabRef.current = activeTab;
 
-    // On the first render after demo login (or session restore), clear all
-    // per-tab flags so every tour runs once this session regardless of what
-    // a previous session left in localStorage. signIn() also clears them in
-    // AuthContext, but that doesn't run when the session is auto-restored.
-    if (justLoggedIn) clearAllDemoTours();
-
-    // Force the current tab's tour on first detection (justLoggedIn bypasses
-    // the localStorage check so the map tour always shows on login/restore).
-    setActiveTour(justLoggedIn ? activeTab : (shouldShowTour(activeTab) ? activeTab : null));
+    setActiveTour(shouldShowTour(activeTab) ? activeTab : null);
   }, [activeTab, isDemoAccount]);
 
   const tabs = [

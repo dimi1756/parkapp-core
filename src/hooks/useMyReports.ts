@@ -49,7 +49,7 @@ const cacheKey = (lng: number, lat: number) => `${lng.toFixed(4)},${lat.toFixed(
  */
 export function useMyReports() {
   const { session, isDemoAccount } = useAuth();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const [reports, setReports] = useState<MyReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +112,7 @@ export function useMyReports() {
     // show in a presentation -- the same treatment the leaderboard and admin
     // KPIs already get. Never touches a real user's session.
     if (isDemoAccount) {
-      setReports(getMockMyReports());
+      setReports(getMockMyReports(t));
       setLoading(false);
       setError(null);
       return;
@@ -153,7 +153,7 @@ export function useMyReports() {
     return () => {
       cancelled = true;
     };
-  }, [userId, isDemoAccount, language, load]);
+  }, [userId, isDemoAccount, language, load, t]);
 
   return { reports, loading, error };
 }
