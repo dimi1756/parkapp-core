@@ -231,23 +231,23 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
 
       <div
         ref={cardRef}
-        className="absolute glass-card p-4 shadow-2xl animate-fade-in pointer-events-auto z-10"
+        className="absolute bg-white dark:bg-neutral-900 rounded-2xl p-4 shadow-2xl animate-fade-in pointer-events-auto z-10"
         style={cardStyle}
         key={stepIndex}
       >
         <button
           onClick={finish}
           aria-label={t('tour.skipAria')}
-          className="absolute top-2.5 right-2.5 text-muted-foreground hover:text-foreground transition-colors"
+          className="absolute top-2.5 right-2.5 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-50 transition-colors"
         >
           <X className="h-4 w-4" />
         </button>
 
         <div className="flex items-center gap-2 mb-1.5 pr-6">
           <Sparkles className="h-4 w-4 text-accent shrink-0" />
-          <h3 className="font-semibold text-sm">{t(step.titleKey)}</h3>
+          <h3 className="font-semibold text-sm text-neutral-900 dark:text-neutral-50">{t(step.titleKey)}</h3>
         </div>
-        <p className="text-xs text-muted-foreground leading-relaxed mb-3">{t(step.bodyKey)}</p>
+        <p className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">{t(step.bodyKey)}</p>
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -261,7 +261,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
                 />
               ))}
             </div>
-            <span className="text-[10px] text-muted-foreground font-medium">
+            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-medium">
               {stepIndex + 1}/{steps.length}
             </span>
           </div>
