@@ -761,7 +761,9 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       // with the primary red spot/destination pin for attention.
       const isPoi = pin.type === 'poi';
       const isMine = pin.type === 'mine';
-      const color = isMine ? '#16a34a' : pin.type === 'reported' ? '#2563eb' : isPoi ? '#9333ea' : '#dc2626';
+      // Reported pins take a caller-supplied confidence color; everything else
+      // uses a fixed role color (green own, purple poi, red destination).
+      const color = isMine ? '#16a34a' : pin.type === 'reported' ? (pin.color ?? '#2563eb') : isPoi ? '#9333ea' : '#dc2626';
       const size = isPoi ? 22 : 34;
       const el = document.createElement('div');
       // Mapbox's own `.mapboxgl-marker` CSS class sets `position: absolute`
@@ -777,14 +779,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       // untouched.
       el.className = 'mapbox-pin-wrapper';
       const pinHeight = Math.round((size * 44) / 34);
-      const isReported = pin.type === 'reported';
       el.innerHTML = `
         <div style="position:relative;width:${size}px;height:${pinHeight}px;">
-          ${
-            isReported
-              ? `<div style="position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1d4ed8;color:white;border-radius:5px;padding:2px 6px;font-size:9px;font-weight:600;white-space:nowrap;margin-bottom:3px;pointer-events:none;font-family:inherit;box-shadow:0 1px 3px rgba(0,0,0,0.3);">${availableSpotLabelRef.current}</div>`
-              : ''
-          }
           <svg width="${size}" height="${pinHeight}" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
             <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2"/>
             <circle cx="17" cy="17" r="6" fill="white"/>

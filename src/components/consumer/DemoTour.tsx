@@ -23,6 +23,7 @@ const TOURS: Record<TourId, TourStep[]> = {
     { target: 'actions', titleKey: 'tour.map.1.title', bodyKey: 'tour.map.1.body' },
     { target: 'points', titleKey: 'tour.map.2.title', bodyKey: 'tour.map.2.body' },
     { target: 'nav', titleKey: 'tour.map.3.title', bodyKey: 'tour.map.3.body' },
+    { target: 'actions', titleKey: 'tour.map.4.title', bodyKey: 'tour.map.4.body' },
   ],
   offers: [
     { target: 'offers-list', titleKey: 'tour.offers.1.title', bodyKey: 'tour.offers.1.body' },

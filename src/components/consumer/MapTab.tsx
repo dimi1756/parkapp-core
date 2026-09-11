@@ -6,6 +6,7 @@ import { useActiveSession } from '@/hooks/useActiveSession';
 import { useNearbySpots } from '@/hooks/useNearbySpots';
 import { declareSpot, claimSpot, manualUnpark, reserveSpot, releaseSpotReservation, cancelOwnSpot } from '@/lib/api/parking';
 import { claimMockSpot, isMockSpotId } from '@/lib/demoMockData';
+import { calculateSpotConfidence, confidenceColor } from '@/lib/spotConfidence';
 import { requestFreshFix } from '@/lib/geolocation';
 import { findZoneAt } from '@/lib/zones';
 import { useParkingZones } from '@/hooks/useParkingZones';
@@ -1307,16 +1308,23 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           onPinClick={handlePinClick}
           onDeleteOwnPin={handleDeleteOwnPin}
           pins={[
-            ...nearbySpots.map((s) => ({
-              id: s.id,
-              lng: s.lng,
-              lat: s.lat,
-              type: (s.declared_by === profile?.id ? 'mine' : 'reported') as 'mine' | 'reported',
-              label: s.declared_by === profile?.id ? 'Your declared spot' : 'Reported free space',
-              // Set by useNearbySpots' expiry sweep for a spot in its last
-              // seconds -- see src/lib/spotLifecycle.ts.
-              fading: s.fading,
-            })),
+            ...nearbySpots.map((s) => {
+              const isOwn = s.declared_by === profile?.id;
+              const type = (isOwn ? 'mine' : 'reported') as 'mine' | 'reported';
+              return {
+                id: s.id,
+                lng: s.lng,
+                lat: s.lat,
+                type,
+                label: isOwn ? 'Your declared spot' : 'Reported free space',
+                // Confidence-based color for others' reported spots; own spots
+                // always green since the driver knows whether they just left.
+                color: !isOwn ? confidenceColor(calculateSpotConfidence(s)) : undefined,
+                // Set by useNearbySpots' expiry sweep for a spot in its last
+                // seconds -- see src/lib/spotLifecycle.ts.
+                fading: s.fading,
+              };
+            }),
             ...(optimisticSpot
               ? [{ id: 'optimistic-mine', lng: optimisticSpot.lng, lat: optimisticSpot.lat, type: 'mine' as const, label: 'Your declared spot' }]
               : []),
