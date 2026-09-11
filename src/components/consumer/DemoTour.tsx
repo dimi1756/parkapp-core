@@ -231,7 +231,7 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
 
       <div
         ref={cardRef}
-        className="absolute glass-card p-4 shadow-2xl animate-fade-in pointer-events-auto"
+        className="absolute glass-card p-4 shadow-2xl animate-fade-in pointer-events-auto z-10"
         style={cardStyle}
         key={stepIndex}
       >
