@@ -74,7 +74,7 @@ export const OCCUPANCY_COLOR: Record<OccupancyLevel, string> = {
 export const PILOT_FACILITIES: ParkingFacility[] = [
   {
     id: 'facility-dimotiko',
-    name: 'Δημοτικό Πάρκινγκ Καρύστου',
+    name: 'Municipal Parking Karystos',
     kind: 'public',
     lng: 24.4189,
     lat: 38.0178,
@@ -85,7 +85,7 @@ export const PILOT_FACILITIES: ParkingFacility[] = [
   },
   {
     id: 'facility-limani',
-    name: 'Πάρκινγκ Λιμένος',
+    name: 'Port Parking',
     kind: 'public',
     lng: 24.4205,
     lat: 38.0155,

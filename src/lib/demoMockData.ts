@@ -181,11 +181,11 @@ export function getMockAdminSpots(): LiveSpot[] {
 // rather than reverse-geocoded so the demo history renders instantly and
 // identically every time, with no Mapbox round trip to go wrong on stage.
 const MOCK_REPORT_STREETS: [string, number, number, number][] = [
-  ['Ακτή Καρύστου', 24.4171, 38.0159, 10],
-  ['Οδός Σαχτούρη', 24.4198, 38.0182, 5],
-  ['Πλατεία Αμαλίας', 24.4155, 38.0174, 10],
-  ['Οδός Κριεζώτου', 24.4142, 38.0191, 10],
-  ['Οδός Αιόλου', 24.4211, 38.0166, 5],
+  ['Akti Karystou', 24.4171, 38.0159, 10],
+  ['Sahtouri Street', 24.4198, 38.0182, 5],
+  ['Amalia Square', 24.4155, 38.0174, 10],
+  ['Kriezotou Street', 24.4142, 38.0191, 10],
+  ['Aeolou Street', 24.4211, 38.0166, 5],
 ];
 
 /**
