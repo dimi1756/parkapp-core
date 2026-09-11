@@ -166,8 +166,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signIn = async (email: string, password: string) => {
+    // Clear before the auth call: onAuthStateChange fires before the
+    // signInWithPassword promise resolves, so clearing after loses the race.
+    if (email === DEMO_EMAIL) clearDemoTours();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (!error && email === DEMO_EMAIL) clearDemoTours();
     return { error: error?.message ?? null };
   };
 

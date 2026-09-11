@@ -17,18 +17,30 @@ export const ConsumerApp = () => {
   const [activeTab, setActiveTab] = useState<TabType>('map');
   const [activeTour, setActiveTour] = useState<TourId | null>(null);
   const prevTabRef = useRef<TabType | null>(null);
+  // Tracks whether the previous render already had isDemoAccount=true so we
+  // can detect the sign-in transition and bypass the localStorage check.
+  const wasDemoRef = useRef(false);
 
   // Demo-only: each tab greets the reviewer with its own short tour the
   // first time they open it. Leaving a tab mid-tour counts as dismissing
   // that tab's tour — no nagging on the way back.
   useEffect(() => {
-    if (!isDemoAccount) return;
+    if (!isDemoAccount) {
+      wasDemoRef.current = false;
+      return;
+    }
+    const justLoggedIn = !wasDemoRef.current;
+    wasDemoRef.current = true;
+
     const prevTab = prevTabRef.current;
-    if (prevTab && prevTab !== activeTab) {
+    if (!justLoggedIn && prevTab && prevTab !== activeTab) {
       dismissTour(prevTab);
     }
     prevTabRef.current = activeTab;
-    setActiveTour(shouldShowTour(activeTab) ? activeTab : null);
+
+    // On the first render after demo login, force the tour active regardless
+    // of localStorage (clearDemoTours may still be racing in AuthContext).
+    setActiveTour(justLoggedIn ? activeTab : (shouldShowTour(activeTab) ? activeTab : null));
   }, [activeTab, isDemoAccount]);
 
   const tabs = [
