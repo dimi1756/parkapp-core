@@ -497,7 +497,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       // were physically unclickable, and GeolocateControl moved the camera
       // as a side effect of every fix. Both jobs are now done by this
       // component's own controls plus src/lib/geolocation.ts.
-      attributionControl: true,
+      attributionControl: false,
     });
 
     map.on('click', (e) => {
