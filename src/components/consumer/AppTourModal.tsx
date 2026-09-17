@@ -67,8 +67,16 @@ export const AppTourModal: React.FC<AppTourModalProps> = ({ open, onClose }) => 
         onClick={handleClose}
       />
 
-      {/* Card */}
-      <div className="absolute inset-x-4 top-14 bottom-10 flex flex-col bg-background/88 backdrop-blur-xl backdrop-saturate-150 border border-white/20 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-slide-up">
+      {/*
+        Card: solid, not glass. Liquid Glass is for chrome that floats OVER
+        content (the nav banner, action pills) -- this sheet IS the content,
+        and at near-fullscreen size a translucent fill let the busy blurred
+        map/header behind it bleed through across a huge area, which
+        backdrop-saturate-150 then amplified into a muddy, low-contrast wash
+        that made the title/body text nearly unreadable. A thin translucent
+        border is enough to keep the "glass sheet" feel at the edges.
+      */}
+      <div className="absolute inset-x-4 top-14 bottom-10 flex flex-col bg-background border border-white/20 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-slide-up">
 
         {/* Close button */}
         <button
@@ -77,7 +85,7 @@ export const AppTourModal: React.FC<AppTourModalProps> = ({ open, onClose }) => 
           aria-label={t('appTour.close')}
           className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-secondary/60 hover:bg-secondary flex items-center justify-center transition-colors active:scale-[0.95]"
         >
-          <X className="h-4 w-4 text-muted-foreground" />
+          <X className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
         </button>
 
         {/* Slides — compositor-only slide transition via translateX */}
@@ -100,12 +108,12 @@ export const AppTourModal: React.FC<AppTourModalProps> = ({ open, onClose }) => 
                 </div>
 
                 {/* Title */}
-                <h2 className="text-xl font-bold tracking-tight text-foreground mb-3 leading-snug">
+                <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50 mb-3 leading-snug">
                   {t(sk.title as Parameters<typeof t>[0])}
                 </h2>
 
                 {/* Body */}
-                <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
+                <p className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed max-w-xs">
                   {t(sk.body as Parameters<typeof t>[0])}
                 </p>
               </div>
