@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -80,6 +80,32 @@ const SELECTION_FLY_ZOOM = 18.5;
 // server-side CLAIM_RADIUS_M so "yes, I'm parking" here and the actual claim
 // call a moment later are judging the same distance.
 const SPOT_PROXIMITY_METERS = 30;
+
+// If the driver strays more than this from the active route, reroute.
+const REROUTE_DEVIATION_M = 50;
+// Minimum gap between two automatic reroutes (ms) to avoid rapid-fire calls.
+const REROUTE_COOLDOWN_MS = 15_000;
+
+// Returns the minimum distance (meters) from a point to any vertex of a polyline.
+function minDistToPolyline(lng: number, lat: number, coords: [number, number][]): number {
+  let min = Infinity;
+  for (const [clng, clat] of coords) {
+    const d = distanceMeters(lng, lat, clng, clat);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+// Returns the index of the route vertex closest to the user (for polyline trimming).
+function closestRouteIndex(lng: number, lat: number, coords: [number, number][]): number {
+  let minDist = Infinity;
+  let minIdx = 0;
+  for (let i = 0; i < coords.length; i++) {
+    const d = distanceMeters(lng, lat, coords[i][0], coords[i][1]);
+    if (d < minDist) { minDist = d; minIdx = i; }
+  }
+  return minIdx;
+}
 
 type RouteState = 'idle' | 'searching' | 'found' | 'not_found';
 
@@ -283,6 +309,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const inputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const searchRequestIdRef = useRef(0);
+  const lastRerouteRef = useRef<number>(0);
   // Set right before we programmatically fill the search box with a chosen
   // suggestion's full name, so that text change doesn't re-trigger the
   // autocomplete effect and pop the dropdown back open over the selection.
@@ -399,6 +426,33 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
       setCurrentStepIndex((i) => Math.min(i + 1, routeSteps.length - 1));
     }
   }, [userLngLat, routeSteps, currentStepIndex]);
+
+  // Auto-reroute: if the driver strays REROUTE_DEVIATION_M from the active
+  // driving route, silently recalculate from current position to destination.
+  // A 15-second cooldown prevents rapid-fire API calls on every GPS tick.
+  useEffect(() => {
+    if (!isRouting || routeProfile !== 'driving' || !routeCoords || !activeDestination) return;
+    const minDist = minDistToPolyline(userLngLat[0], userLngLat[1], routeCoords);
+    if (minDist <= REROUTE_DEVIATION_M) return;
+    const now = Date.now();
+    if (now - lastRerouteRef.current < REROUTE_COOLDOWN_MS) return;
+    lastRerouteRef.current = now;
+    void (async () => {
+      const directions = await getDrivingDirections(
+        userLngLat,
+        [activeDestination.lng, activeDestination.lat],
+        language === 'gr' ? 'el' : 'en'
+      );
+      if (directions) {
+        setRouteCoords(directions.coordinates);
+        setRouteSteps(directions.steps.length > 0 ? directions.steps : null);
+        setRouteTotals({ distanceMeters: directions.distanceMeters, durationSeconds: directions.durationSeconds });
+        setCurrentStepIndex(0);
+        toast({ title: t('map.reroutingToast') });
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userLngLat]);
 
   // "Is the spot free?" -- triggers once the live position is close enough
   // to the current target spot. Stays up once shown (rather than hiding
@@ -849,9 +903,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
     }
 
     if (!finalPoi) {
-      // No searched destination -- this WAS the destination, so parking here
-      // is the end of the trip.
-      toast({ title: t('map.pointsEarnedToast') });
+      toast({ title: t('map.congratsParked') });
       clearRoute();
       return;
     }
@@ -1286,6 +1338,15 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
   const isNavigating = Boolean(activeDestination && routeSteps && routeSteps.length > 0);
   const currentStep = routeSteps?.[currentStepIndex] ?? null;
 
+  // Trim the route polyline to start from the user's current position so the
+  // "already traveled" portion behind them disappears as they move.
+  const displayRouteCoords = useMemo(() => {
+    if (!isRouting || !routeCoords || routeCoords.length < 2) return routeCoords;
+    const idx = closestRouteIndex(userLngLat[0], userLngLat[1], routeCoords);
+    const trimmed = routeCoords.slice(Math.max(0, idx));
+    return trimmed.length >= 2 ? trimmed : routeCoords;
+  }, [userLngLat, isRouting, routeCoords]);
+
   // Remaining distance/ETA is the sum of the not-yet-passed steps once we
   // have them; falls back to the whole-route total on the rare route that
   // came back with no steps at all.
@@ -1370,7 +1431,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           }}
           followUser={followMode}
           operatingArea={operatingArea}
-          routeCoordinates={routeCoords}
+          routeCoordinates={displayRouteCoords}
           walkingRouteCoordinates={walkingRouteCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
@@ -1817,27 +1878,51 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           area the big action buttons vacated (they're FABs on the side while
           isRouting), so this is front and center exactly when it matters. */}
       {showSpotPrompt && targetSpotId && (
-        <div className="absolute bottom-20 left-4 right-4 z-30 flex justify-center">
-          <div className="glass-card p-4 shadow-2xl animate-fade-in w-full max-w-sm space-y-1">
-            <p className="font-bold text-base text-center">{t('map.arrivedTitle')}</p>
-            <p className="text-sm text-muted-foreground text-center pb-2">{t('map.isSpotFreeTitle')}</p>
-            <div className="flex items-center gap-2">
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-6">
+          {/* Scrim */}
+          <div className="absolute inset-0 bg-background/50 backdrop-blur-sm" />
+          {/* Liquid Glass modal */}
+          <div className="relative glass-card p-6 w-full max-w-sm animate-fade-in shadow-2xl rounded-3xl space-y-5">
+            {/* Header */}
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 backdrop-blur-md flex items-center justify-center">
+                <MapPin className="h-8 w-8 text-primary" />
+              </div>
+              <h2 className="text-xl font-bold">{t('map.arrivedTitle')}</h2>
+              <p className="text-sm text-muted-foreground">{t('map.isSpotFreeTitle')}</p>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex flex-col gap-3">
+              {/* Button 1 — Πάρκαρα στη θέση */}
+              <Button
+                onClick={handleSpotConfirmedFree}
+                disabled={busyAction !== null}
+                className="w-full h-14 text-base rounded-2xl gap-2 bg-success hover:bg-success/90 text-success-foreground shadow-lg"
+              >
+                {busyAction === 'claim' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
+                {t('map.arrivedParked')}
+              </Button>
+
+              {/* Button 2 — Δεν υπάρχει η θέση */}
               <Button
                 onClick={handleFindNextSpot}
                 disabled={busyAction !== null}
                 variant="destructive"
-                className="flex-1 gap-1.5 h-12 text-base"
+                className="w-full h-14 text-base rounded-2xl gap-2 shadow-lg"
               >
-                <X className="h-4 w-4" />
-                {t('map.noFindNext')}
+                <X className="h-5 w-5" />
+                {t('map.spotNotFound')}
               </Button>
+
+              {/* Button 3 — Ακύρωση */}
               <Button
-                onClick={handleSpotConfirmedFree}
+                onClick={() => { setShowSpotPrompt(false); clearRoute(); }}
                 disabled={busyAction !== null}
-                className="flex-1 gap-1.5 h-12 text-base bg-success hover:bg-success/90 text-success-foreground"
+                variant="outline"
+                className="w-full h-12 text-base rounded-2xl bg-background/60 backdrop-blur-md"
               >
-                {busyAction === 'claim' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                {t('map.yesIParked')}
+                {t('map.cancelNav')}
               </Button>
             </div>
           </div>
