@@ -1018,10 +1018,20 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // Tour showcase: the map tour's "Spot confidence colours" step walks
   // through the green/amber/red legend, but a live map rarely has all three
   // confidence levels on screen at once to point at. While showcasePins is
-  // true, three large demo pins are planted around the map's current
-  // center so the legend has something concrete to sit next to; they're
-  // removed the instant the step changes or the tour closes (showcasePins
-  // going false re-runs this effect, which clears them and returns).
+  // true:
+  //  - 3 large demo pins are planted in a TIGHT cluster (a few metres apart
+  //    -- roughly a car's length -- not the ~80m spread the first version
+  //    used, which put them outside the visible viewport on a phone)
+  //  - the camera gently reframes via flyTo's `offset` (shifts where the
+  //    unchanged center point renders on screen, not the geo-coordinate
+  //    itself) so the cluster sits in the upper map area, clear of where
+  //    the tutorial card and the declare-spot buttons dock at the bottom
+  //  - an invisible marker tagged data-tour="spot-confidence-showcase" is
+  //    sized to bound the cluster with margin, giving DemoTour's step 4 a
+  //    real target to spotlight instead of the (wrong) action buttons
+  // Turning showcasePins off restores the exact pre-showcase camera and
+  // removes every marker created here -- nothing about the driver's own
+  // pan/zoom is left changed.
   useEffect(() => {
     const map = mapRef.current;
 
@@ -1030,11 +1040,28 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
     if (!map || !showcasePins) return;
 
+    const preShowcaseCamera = {
+      center: map.getCenter(),
+      zoom: map.getZoom(),
+      bearing: map.getBearing(),
+      pitch: map.getPitch(),
+    };
+
     const { lng, lat } = map.getCenter();
+
+    // Pushes the (unchanged) center point ~60px up the screen so the
+    // cluster clears the bottom-docked card/buttons, without moving the
+    // camera to a different place or changing what "center" means. Kept
+    // under DemoTour's 450ms first-measurement delay so the spotlight
+    // isn't measured mid-animation.
+    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), STREET_ZOOM), offset: [0, -60], duration: 350 });
+
+    // A car's length or two apart in each direction -- reads as one tight
+    // group on any phone width, unlike the previous ~80m spread.
     const offsets: [number, number][] = [
-      [-0.0009, -0.0004],
-      [0.0009, -0.0004],
-      [0, 0.0007],
+      [-0.00016, 0],
+      [0.00016, 0],
+      [0, 0.00014],
     ];
     const colors = ['#22c55e', '#f59e0b', '#ef4444']; // green (high) / amber (medium) / red (low)
 
@@ -1057,9 +1084,30 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       );
     });
 
+    // Invisible spotlight target: bottom-anchored at the same shared point
+    // the two side pins sit near, sized to comfortably enclose all 3
+    // (which -- anchored 'bottom' -- extend upward from their coordinate,
+    // not symmetrically around it).
+    const targetEl = document.createElement('div');
+    targetEl.setAttribute('data-tour', 'spot-confidence-showcase');
+    targetEl.style.width = '110px';
+    targetEl.style.height = '100px';
+    showcaseMarkersRef.current.push(
+      new mapboxgl.Marker({ element: targetEl, anchor: 'bottom' })
+        .setLngLat([lng, lat])
+        .addTo(map)
+    );
+
     return () => {
       showcaseMarkersRef.current.forEach((m) => m.remove());
       showcaseMarkersRef.current = [];
+      map.flyTo({
+        center: preShowcaseCamera.center,
+        zoom: preShowcaseCamera.zoom,
+        bearing: preShowcaseCamera.bearing,
+        pitch: preShowcaseCamera.pitch,
+        duration: 500,
+      });
     };
   }, [showcasePins]);
 

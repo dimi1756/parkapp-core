@@ -23,7 +23,11 @@ const TOURS: Record<TourId, TourStep[]> = {
     { target: 'actions', titleKey: 'tour.map.1.title', bodyKey: 'tour.map.1.body' },
     { target: 'points', titleKey: 'tour.map.2.title', bodyKey: 'tour.map.2.body' },
     { target: 'nav', titleKey: 'tour.map.3.title', bodyKey: 'tour.map.3.body' },
-    { target: 'actions', titleKey: 'tour.map.4.title', bodyKey: 'tour.map.4.body' },
+    // MapboxMap plants this invisible target (and the 3 demo pins it
+    // bounds) only while this exact step is showing -- see showcasePins in
+    // MapboxMap.tsx. Never 'actions': that highlighted the declare-spot
+    // buttons instead of the pin cluster this step is actually about.
+    { target: 'spot-confidence-showcase', titleKey: 'tour.map.4.title', bodyKey: 'tour.map.4.body' },
   ],
   offers: [
     { target: 'offers-list', titleKey: 'tour.offers.1.title', bodyKey: 'tour.offers.1.body' },
@@ -241,7 +245,7 @@ export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[60]" role="dialog" aria-label={t('tour.aria')}>
+    <div className="fixed inset-0 w-full h-[100dvh] overflow-hidden z-[60]" role="dialog" aria-label={t('tour.aria')}>
       {/* Spotlight: the box-shadow dims everything except the target. It is
           pointer-events-none so the reviewer can still tap the real UI. */}
       <div
