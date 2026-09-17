@@ -6,7 +6,7 @@ import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Home, Briefcase, Dumbbell, Navigation, Loader2, X } from 'lucide-react';
+import { Home, Briefcase, Dumbbell, Navigation, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
 
 type FavKey = 'home' | 'work' | 'gym';
 
@@ -22,14 +22,42 @@ const ROWS: FavRow[] = [
   { key: 'gym', icon: <Dumbbell className="h-4 w-4" />, labelKey: 'favorites.gym' },
 ];
 
+function isMobile(): boolean {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
 function openNav(address: string, app: 'google' | 'apple' | 'waze') {
   const q = encodeURIComponent(address);
-  const urls: Record<typeof app, string> = {
-    google: `comgooglemaps://?q=${q}`,
-    apple: `http://maps.apple.com/?q=${q}`,
-    waze: `waze://?q=${q}&navigate=yes`,
-  };
-  window.open(urls[app], '_blank');
+  const d = encodeURIComponent(address);
+
+  if (isMobile()) {
+    const schemeUrls: Record<typeof app, string> = {
+      google: `comgooglemaps://?daddr=${d}&directionsmode=driving`,
+      apple: `maps://maps.apple.com/?daddr=${d}&dirflg=d`,
+      waze: `waze://?q=${q}&navigate=yes`,
+    };
+    const fallbackUrls: Record<typeof app, string> = {
+      google: `https://www.google.com/maps/dir/?api=1&destination=${d}`,
+      apple: `https://maps.apple.com/?daddr=${d}&dirflg=d`,
+      waze: `https://www.waze.com/ul?q=${q}&navigate=yes`,
+    };
+    const scheme = schemeUrls[app];
+    const fallback = fallbackUrls[app];
+    const start = Date.now();
+    window.location.href = scheme;
+    setTimeout(() => {
+      if (Date.now() - start < 1500) {
+        window.open(fallback, '_blank');
+      }
+    }, 800);
+  } else {
+    const webUrls: Record<typeof app, string> = {
+      google: `https://www.google.com/maps/dir/?api=1&destination=${d}`,
+      apple: `https://maps.apple.com/?daddr=${d}&dirflg=d`,
+      waze: `https://www.waze.com/ul?q=${q}&navigate=yes`,
+    };
+    window.open(webUrls[app], '_blank');
+  }
 }
 
 interface NavSheetProps {
@@ -69,7 +97,7 @@ const NavSheet: React.FC<NavSheetProps> = ({ address, label, onClose, t }) => (
           <button
             type="button"
             onClick={() => { openNav(address, 'google'); onClose(); }}
-            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-[#4285F4]/10 hover:bg-[#4285F4]/20 transition-colors border border-[#4285F4]/20 text-left"
+            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-[#4285F4]/10 hover:bg-[#4285F4]/20 transition-colors border border-[#4285F4]/20 text-left active:scale-[0.98] transition-transform duration-100"
           >
             <span className="text-xl">🗺️</span>
             <span className="font-medium text-[#4285F4]">{t('favorites.googleMaps')}</span>
@@ -78,7 +106,7 @@ const NavSheet: React.FC<NavSheetProps> = ({ address, label, onClose, t }) => (
           <button
             type="button"
             onClick={() => { openNav(address, 'apple'); onClose(); }}
-            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-secondary/40 hover:bg-secondary transition-colors border border-border text-left"
+            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-secondary/40 hover:bg-secondary transition-colors border border-border text-left active:scale-[0.98] transition-transform duration-100"
           >
             <span className="text-xl">🍎</span>
             <span className="font-medium text-foreground">{t('favorites.appleMaps')}</span>
@@ -87,7 +115,7 @@ const NavSheet: React.FC<NavSheetProps> = ({ address, label, onClose, t }) => (
           <button
             type="button"
             onClick={() => { openNav(address, 'waze'); onClose(); }}
-            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-[#33CCFF]/10 hover:bg-[#33CCFF]/20 transition-colors border border-[#33CCFF]/20 text-left"
+            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-[#33CCFF]/10 hover:bg-[#33CCFF]/20 transition-colors border border-[#33CCFF]/20 text-left active:scale-[0.98] transition-transform duration-100"
           >
             <span className="text-xl">🚗</span>
             <span className="font-medium text-[#00B4D8]">{t('favorites.waze')}</span>
@@ -99,7 +127,7 @@ const NavSheet: React.FC<NavSheetProps> = ({ address, label, onClose, t }) => (
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-3.5 rounded-2xl bg-secondary/60 hover:bg-secondary transition-colors text-sm font-semibold text-muted-foreground"
+            className="w-full py-3.5 rounded-2xl bg-secondary/60 hover:bg-secondary transition-colors text-sm font-semibold text-muted-foreground active:scale-[0.98] transition-transform duration-100"
           >
             {t('favorites.cancel')}
           </button>
@@ -109,10 +137,17 @@ const NavSheet: React.FC<NavSheetProps> = ({ address, label, onClose, t }) => (
   </>
 );
 
+/** True if the field is non-empty but missing at least one comma (incomplete address). */
+function isIncomplete(val: string): boolean {
+  const trimmed = val.trim();
+  return trimmed.length > 0 && !trimmed.includes(',');
+}
+
 export const FavoriteLocationsCard: React.FC = () => {
   const { profile } = useAuth();
   const { t } = useLanguage();
 
+  const [expanded, setExpanded] = useState(false);
   const [home, setHome] = useState('');
   const [work, setWork] = useState('');
   const [gym, setGym] = useState('');
@@ -152,56 +187,73 @@ export const FavoriteLocationsCard: React.FC = () => {
     }
   };
 
+  const saveDisabled = saving || [home, work, gym].some(isIncomplete);
+
   return (
     <>
-      <div className="glass-card p-4 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-            <Navigation className="h-5 w-5 text-primary" />
+      <div className="glass-card">
+        {/* accordion header */}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-secondary/50 transition-colors rounded-2xl active:scale-[0.99] transition-transform duration-100"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Navigation className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold">{t('favorites.title')}</p>
+              <p className="text-xs text-muted-foreground">{t('favorites.subtitle')}</p>
+            </div>
           </div>
-          <div>
-            <p className="font-semibold">{t('favorites.title')}</p>
-            <p className="text-xs text-muted-foreground">{t('favorites.subtitle')}</p>
+          {expanded
+            ? <ChevronUp className="h-5 w-5 text-muted-foreground shrink-0" />
+            : <ChevronDown className="h-5 w-5 text-muted-foreground shrink-0" />}
+        </button>
+
+        {/* accordion body */}
+        {expanded && (
+          <div className="px-4 pb-4 space-y-4 border-t border-border pt-4">
+            <div className="space-y-3">
+              {ROWS.map(({ key, icon, labelKey }) => {
+                const val = values[key];
+                const label = t(labelKey);
+                return (
+                  <div key={key} className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{icon}</span>
+                      <Label className="font-medium">{label}</Label>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        value={val}
+                        onChange={(e) => setters[key](e.target.value)}
+                        placeholder={t('favorites.addressPlaceholder')}
+                        className="flex-1"
+                      />
+                      {val.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => setSheet({ key, label, address: val.trim() })}
+                          className="h-10 w-10 shrink-0 rounded-xl bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors border border-primary/20 active:scale-[0.97] transition-transform duration-100"
+                          title={t('favorites.navigate')}
+                        >
+                          <Navigation className="h-4 w-4 text-primary" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <Button onClick={handleSave} disabled={saveDisabled} className="w-full rounded-xl">
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {t('favorites.save')}
+            </Button>
           </div>
-        </div>
-
-        <div className="space-y-3">
-          {ROWS.map(({ key, icon, labelKey }) => {
-            const val = values[key];
-            const label = t(labelKey);
-            return (
-              <div key={key} className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">{icon}</span>
-                  <Label className="font-medium">{label}</Label>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={val}
-                    onChange={(e) => setters[key](e.target.value)}
-                    placeholder={t('favorites.addressPlaceholder')}
-                    className="flex-1"
-                  />
-                  {val.trim() && (
-                    <button
-                      type="button"
-                      onClick={() => setSheet({ key, label, address: val.trim() })}
-                      className="h-10 w-10 shrink-0 rounded-xl bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors border border-primary/20"
-                      title={t('favorites.navigate')}
-                    >
-                      <Navigation className="h-4 w-4 text-primary" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <Button onClick={handleSave} disabled={saving} className="w-full rounded-xl">
-          {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-          {t('favorites.save')}
-        </Button>
+        )}
       </div>
 
       {sheet && (
