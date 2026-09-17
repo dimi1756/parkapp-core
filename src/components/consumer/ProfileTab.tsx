@@ -133,7 +133,8 @@ export const ProfileTab = () => {
       </div>
 
       <div className="p-4 space-y-4 -mt-4">
-        {/* Points / Score Card */}
+
+        {/* 1 ─ Score / Level Card */}
         <div className="glass-card p-5 flex items-center justify-between" data-tour="profile-score">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -157,8 +158,46 @@ export const ProfileTab = () => {
           </div>
         </div>
 
-        {/* Settings Card */}
+        {/* 2 ─ Admin Dashboard (municipality admins only) */}
+        {isAdmin && (
+          <div
+            onClick={() => setAdminMode(true)}
+            className="glass-card p-4 cursor-pointer hover:bg-primary/5 transition-colors border-primary/20 bg-primary/5"
+            data-tour="profile-admin"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Building2 className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <span className="font-semibold block">{t('profile.adminDashboard')}</span>
+                  <span className="text-sm text-muted-foreground">{t('profile.controlCenter', { name: municipalityName ?? 'Municipality' })}</span>
+                </div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-primary" />
+            </div>
+          </div>
+        )}
+
+        {/* 3 ─ Eco Dashboard */}
+        <EcoDashboardCard />
+
+        {/* 4 ─ Digital Glovebox */}
+        <GloveboxCard />
+
+        {/* 5 ─ Favorite Locations */}
+        <FavoriteLocationsCard />
+
+        {/* 6 ─ Appearance */}
+        <CustomizationCard />
+
+        {/* 7 ─ Declaration History (2 rows collapsed by default) */}
+        <MyReportsCard />
+
+        {/* 8 ─ Settings Group: toggles + profile actions in one card */}
         <div className="glass-card divide-y divide-border" data-tour="profile-settings">
+          {/* Dark Mode */}
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Moon className="h-5 w-5 text-muted-foreground" />
@@ -167,6 +206,7 @@ export const ProfileTab = () => {
             <Switch checked={darkMode} onCheckedChange={toggleDarkMode} />
           </div>
 
+          {/* Notifications */}
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Bell className="h-5 w-5 text-muted-foreground" />
@@ -175,6 +215,7 @@ export const ProfileTab = () => {
             <Switch checked={notificationsOn} onCheckedChange={handleNotificationsToggle} />
           </div>
 
+          {/* Language */}
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-muted-foreground text-base leading-none w-5 text-center">🌐</span>
@@ -197,28 +238,8 @@ export const ProfileTab = () => {
               ))}
             </div>
           </div>
-        </div>
 
-        {/* Declaration history. Sits directly under the trust/points card,
-            which is what it explains: those numbers came from these rows. */}
-        <MyReportsCard />
-
-        {/* Appearance. Below the settings rows it belongs with, and above
-            the account actions, which is where iOS puts Display & Brightness
-            relative to the rest of Settings. */}
-        <CustomizationCard />
-
-        {/* Eco Dashboard */}
-        <EcoDashboardCard />
-
-        {/* Digital Glovebox */}
-        <GloveboxCard />
-
-        {/* Favorite Locations */}
-        <FavoriteLocationsCard />
-
-        {/* Account Settings */}
-        <div className="glass-card divide-y divide-border">
+          {/* Edit Profile */}
           <button
             onClick={openEdit}
             className="w-full p-4 flex items-center justify-between text-left hover:bg-secondary/50 transition-colors"
@@ -230,6 +251,7 @@ export const ProfileTab = () => {
             <ChevronRight className="h-5 w-5 text-muted-foreground" />
           </button>
 
+          {/* Privacy & Security */}
           <button
             onClick={() => setPrivacyOpen(true)}
             className="w-full p-4 flex items-center justify-between text-left hover:bg-secondary/50 transition-colors"
@@ -242,30 +264,7 @@ export const ProfileTab = () => {
           </button>
         </div>
 
-        {/* Admin Switch -- only rendered for real municipality_admins rows,
-            never a client-side toggle anyone could flip on themselves. */}
-        {isAdmin && (
-          <div
-            onClick={() => setAdminMode(true)}
-            className="glass-card p-4 cursor-pointer hover:bg-primary/5 transition-colors border-primary/20 bg-primary/5"
-            data-tour="profile-admin"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Building2 className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <span className="font-semibold block">{t('profile.adminDashboard')}</span>
-                  <span className="text-sm text-muted-foreground">{t('profile.controlCenter', { name: municipalityName ?? 'Municipality' })}</span>
-                </div>
-              </div>
-              <ChevronRight className="h-5 w-5 text-primary" />
-            </div>
-          </div>
-        )}
-
-        {/* Logout */}
+        {/* 9 ─ Logout */}
         <Button
           variant="outline"
           className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
@@ -275,15 +274,11 @@ export const ProfileTab = () => {
           {t('profile.logOut')}
         </Button>
 
-        {/* App Version */}
+        {/* Version footer */}
         <p className="text-center text-xs text-muted-foreground pt-4">
           ParkApp v1.0.0 • {t('common.tagline')}
         </p>
 
-        {/* Parent-brand footer. The logo is served from /public rather than
-            imported so it stays a plain static asset -- and it carries an
-            empty alt with the wordmark beside it, so a screen reader hears
-            "Powered by Urban Sync" once, not twice. */}
         <div className="flex flex-col items-center gap-2 pt-2 pb-2 opacity-80">
           <img
             src="/urbansync-logo.jpg"

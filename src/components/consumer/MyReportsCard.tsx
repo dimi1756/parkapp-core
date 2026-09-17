@@ -4,7 +4,7 @@ import { useMyReports, type MyReport } from '@/hooks/useMyReports';
 import { History, MapPin, Loader2, AlertTriangle, ChevronDown } from 'lucide-react';
 
 /** How many rows show before "see all". Five fills the card without turning it into a page. */
-const COLLAPSED_COUNT = 3;
+const COLLAPSED_COUNT = 2;
 
 /**
  * Date and time in the driver's own locale, split so the row can lead with
