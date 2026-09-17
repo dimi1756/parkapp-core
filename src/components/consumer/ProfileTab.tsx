@@ -185,22 +185,28 @@ export const ProfileTab = ({ onOpenAppTour }: ProfileTabProps) => {
         )}
 
         {/* 3 ─ Eco Dashboard */}
-        <EcoDashboardCard />
+        <div data-tour="profile-eco">
+          <EcoDashboardCard />
+        </div>
 
         {/* 4 ─ Digital Glovebox */}
-        <GloveboxCard />
+        <div data-tour="profile-glovebox">
+          <GloveboxCard />
+        </div>
 
         {/* 5 ─ Favorite Locations */}
         <FavoriteLocationsCard />
 
         {/* 6 ─ Appearance */}
-        <CustomizationCard />
+        <div data-tour="profile-appearance">
+          <CustomizationCard />
+        </div>
 
         {/* 7 ─ Declaration History (2 rows collapsed by default) */}
         <MyReportsCard />
 
         {/* 8 ─ Settings Group: toggles + profile actions in one card */}
-        <div className="glass-card divide-y divide-border" data-tour="profile-settings">
+        <div className="glass-card divide-y divide-border">
           {/* Dark Mode */}
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">

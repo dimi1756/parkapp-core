@@ -37,10 +37,19 @@ const TOURS: Record<TourId, TourStep[]> = {
     { target: 'plans-premium', titleKey: 'tour.plans.1.title', bodyKey: 'tour.plans.1.body' },
     { target: 'plans-resident', titleKey: 'tour.plans.2.title', bodyKey: 'tour.plans.2.body' },
   ],
+  // Follows the Profile tab's actual top-to-bottom card order and leads
+  // with high-value features rather than generic settings -- the old
+  // "Make it yours" step (dark mode/notifications toggles) is retired.
+  // Admin is deliberately last: it's the B2G grand finale, and it sits
+  // near the top of the page, so this step scrolls back up after Glovebox
+  // and Appearance have scrolled down -- exactly what the smooth-scroll
+  // fix in measure() below exists for.
   profile: [
     { target: 'profile-score', titleKey: 'tour.profile.1.title', bodyKey: 'tour.profile.1.body' },
-    { target: 'profile-settings', titleKey: 'tour.profile.2.title', bodyKey: 'tour.profile.2.body' },
-    { target: 'profile-admin', titleKey: 'tour.profile.3.title', bodyKey: 'tour.profile.3.body' },
+    { target: 'profile-eco', titleKey: 'tour.profile.2.title', bodyKey: 'tour.profile.2.body' },
+    { target: 'profile-glovebox', titleKey: 'tour.profile.3.title', bodyKey: 'tour.profile.3.body' },
+    { target: 'profile-appearance', titleKey: 'tour.profile.4.title', bodyKey: 'tour.profile.4.body' },
+    { target: 'profile-admin', titleKey: 'tour.profile.5.title', bodyKey: 'tour.profile.5.body' },
   ],
   leaderboard: [
     { target: 'leaderboard-title', titleKey: 'tour.leaderboard.1.title', bodyKey: 'tour.leaderboard.1.body' },
@@ -118,6 +127,12 @@ export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
     onClose();
   }, [tourId, onClose]);
 
+  // Holds the cleanup for whatever scroll measurement is currently pending
+  // (the 'scrollend' listener + its fallback timeout below), so a late
+  // callback from a step the reviewer already moved past can never
+  // overwrite `rect` with a stale element's position.
+  const measureCleanupRef = useRef<(() => void) | null>(null);
+
   // Some targets (e.g. the Admin card, gated behind an async authorization
   // RPC) aren't in the DOM the instant the tour opens. Poll briefly before
   // concluding a step's target genuinely isn't there and skipping it.
@@ -138,13 +153,35 @@ export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
         }
         return;
       }
-      // Bring below-the-fold targets (e.g. the resident card in Plans) into
-      // view before measuring the spotlight. A short timeout (rather than
-      // requestAnimationFrame) lets the scroll settle without depending on
-      // an animation-frame callback, which browsers can defer indefinitely
-      // for a backgrounded/non-composited tab.
-      el.scrollIntoView({ block: 'center', behavior: 'auto' });
-      setTimeout(() => setRect(el.getBoundingClientRect()), 50);
+
+      // Cancel any previous step's still-pending scroll measurement before
+      // starting a new one.
+      measureCleanupRef.current?.();
+
+      // Bring off-screen targets (e.g. the resident card in Plans, or the
+      // Profile tour scrolling back up to Admin after Glovebox/Appearance
+      // scrolled down) smoothly into view before measuring the spotlight.
+      // Measuring can't happen on a short fixed delay once this is a smooth
+      // scroll rather than an instant jump -- a smooth scroll can still be
+      // animating well past 50ms on a longer page. 'scrollend' measures the
+      // instant the scroll actually settles; the timeout is a fallback for
+      // browsers without it (or when the target was already in view, so it
+      // never fires at all).
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      let settled = false;
+      const onSettled = () => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('scrollend', onSettled);
+        measureCleanupRef.current = null;
+        setRect(el.getBoundingClientRect());
+      };
+      window.addEventListener('scrollend', onSettled, { once: true });
+      const fallback = setTimeout(onSettled, 600);
+      measureCleanupRef.current = () => {
+        clearTimeout(fallback);
+        window.removeEventListener('scrollend', onSettled);
+      };
     },
     [steps, stepIndex, finish]
   );
@@ -158,6 +195,8 @@ export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
     return () => {
       clearTimeout(timer);
       window.removeEventListener('resize', onResize);
+      measureCleanupRef.current?.();
+      measureCleanupRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
