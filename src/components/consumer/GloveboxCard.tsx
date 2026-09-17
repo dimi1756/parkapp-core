@@ -88,7 +88,12 @@ export const GloveboxCard: React.FC = () => {
 
     setSaving(false);
     if (error) {
-      toast({ title: t('glovebox.saveFailed'), description: error.message, variant: 'destructive' });
+      // Raw PostgREST/network errors (e.g. a schema-cache miss on a column
+      // that hasn't been migrated live yet) are logged for debugging but
+      // never shown verbatim -- the driver sees a clear, localized message
+      // instead of database internals.
+      console.error('[GloveboxCard] save failed:', error);
+      toast({ title: t('glovebox.saveFailed'), description: t('glovebox.saveFailedDesc'), variant: 'destructive' });
     } else {
       toast({ title: t('glovebox.saved') });
     }

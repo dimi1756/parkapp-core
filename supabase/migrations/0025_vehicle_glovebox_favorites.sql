@@ -10,3 +10,7 @@ alter table public.profiles
   add column if not exists car_insurance_expiry   date,
   add column if not exists road_tax_expiry        date,
   add column if not exists favorite_locations     jsonb;
+
+-- Force PostgREST to pick up the new columns immediately instead of
+-- waiting for its next automatic schema-cache refresh.
+NOTIFY pgrst, 'reload schema';
