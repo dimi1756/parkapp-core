@@ -60,7 +60,7 @@ export const AppTourModal: React.FC<AppTourModalProps> = ({ open, onClose }) => 
   const next = () => (isLast ? handleClose() : setCurrent((c) => c + 1));
 
   return (
-    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 w-full h-[100dvh] z-[70] overflow-hidden" role="dialog" aria-modal="true">
       {/* Scrim */}
       <div
         className="absolute inset-0 bg-black/55 backdrop-blur-sm animate-fade-in"
@@ -74,8 +74,14 @@ export const AppTourModal: React.FC<AppTourModalProps> = ({ open, onClose }) => 
         fill + a single blur pass keeps the blurred map/header softly visible
         behind the sheet; text below is forced fully opaque so it reads
         cleanly over that fill regardless of what's behind it.
+
+        Width is capped and centered (inset-x-0 + w-[90%] max-w-sm + mx-auto)
+        rather than the old inset-x-4 edge-margin approach, which stretched
+        into a full-width banner on anything wider than a phone -- on
+        desktop it spanned nearly the entire browser window. Vertical
+        footprint (top-14/bottom-10) is unchanged.
       */}
-      <div className="absolute inset-x-4 top-14 bottom-10 flex flex-col bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg border border-white/30 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-slide-up">
+      <div className="absolute inset-x-0 top-14 bottom-10 mx-auto w-[90%] max-w-sm flex flex-col bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg border border-white/30 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-slide-up">
 
         {/* Close button */}
         <button

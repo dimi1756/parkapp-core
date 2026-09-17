@@ -86,9 +86,14 @@ const SPOT_PADDING = 8;
 interface DemoTourProps {
   tourId: TourId;
   onClose: () => void;
+  /** Fires whenever the visible step changes -- lets a mount site (e.g. the
+   *  map, for the "Spot confidence colours" step) react to which step of
+   *  its own tour is currently showing without DemoTour needing to know
+   *  anything about that surface's internals. */
+  onStepChange?: (stepIndex: number) => void;
 }
 
-export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
+export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
   const { t } = useLanguage();
   const steps = TOURS[tourId];
   const [stepIndex, setStepIndex] = useState(0);
@@ -146,6 +151,11 @@ export const DemoTour = ({ tourId, onClose }: DemoTourProps) => {
       clearTimeout(timer);
       window.removeEventListener('resize', onResize);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex]);
+
+  useEffect(() => {
+    onStepChange?.(stepIndex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIndex]);
 

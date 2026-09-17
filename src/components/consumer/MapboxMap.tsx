@@ -478,6 +478,13 @@ interface MapboxMapProps {
   followUser?: boolean;
   /** The municipality's covered area, drawn as a boundary circle. Omit to draw none. */
   operatingArea?: OperatingArea | null;
+  /**
+   * While true, all real `pins` are hidden and replaced with 3 large
+   * green/amber/red demo pins at the map's current center -- used by the
+   * map tour's "Spot confidence colours" step, where a live map rarely has
+   * all three confidence levels on screen at once to point at.
+   */
+  showcasePins?: boolean;
 }
 
 // Maps our internal language codes to the ISO codes Mapbox's vector tiles
@@ -542,6 +549,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onZoneClick,
   followUser = false,
   operatingArea,
+  showcasePins = false,
 }) => {
   const { t, language } = useLanguage();
   // Ref keeps the language available inside one-time event listeners without
@@ -552,6 +560,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const showcaseMarkersRef = useRef<mapboxgl.Marker[]>([]);
 
   // Live compass heading of the camera, mirrored into React state purely so
   // the orientation button's needle can rotate with it. Rounded to whole
@@ -842,6 +851,18 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     if (!mapRef.current) return;
     const map = mapRef.current;
 
+    // Tour showcase active: real pins are hidden entirely while the 3 demo
+    // pins (added by the effect below) stand in for them. Re-running this
+    // effect when showcasePins flips back to false restores every real pin
+    // automatically via the normal sync logic below.
+    if (showcasePins) {
+      Object.keys(markersRef.current).forEach((id) => {
+        markersRef.current[id].remove();
+        delete markersRef.current[id];
+      });
+      return;
+    }
+
     const currentIds = new Set(pins.map((p) => p.id));
 
     // Remove markers that no longer exist
@@ -992,7 +1013,55 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         ?.getElement()
         .classList.toggle('mapbox-pin-fading', Boolean(pin.fading));
     });
-  }, [pins]);
+  }, [pins, showcasePins]);
+
+  // Tour showcase: the map tour's "Spot confidence colours" step walks
+  // through the green/amber/red legend, but a live map rarely has all three
+  // confidence levels on screen at once to point at. While showcasePins is
+  // true, three large demo pins are planted around the map's current
+  // center so the legend has something concrete to sit next to; they're
+  // removed the instant the step changes or the tour closes (showcasePins
+  // going false re-runs this effect, which clears them and returns).
+  useEffect(() => {
+    const map = mapRef.current;
+
+    showcaseMarkersRef.current.forEach((m) => m.remove());
+    showcaseMarkersRef.current = [];
+
+    if (!map || !showcasePins) return;
+
+    const { lng, lat } = map.getCenter();
+    const offsets: [number, number][] = [
+      [-0.0009, -0.0004],
+      [0.0009, -0.0004],
+      [0, 0.0007],
+    ];
+    const colors = ['#22c55e', '#f59e0b', '#ef4444']; // green (high) / amber (medium) / red (low)
+
+    colors.forEach((color, i) => {
+      const [dLng, dLat] = offsets[i];
+      const el = document.createElement('div');
+      el.className = 'mapbox-pin-wrapper';
+      el.style.transform = 'scale(1.25)';
+      el.style.transformOrigin = 'bottom center';
+      el.innerHTML = `
+        <svg width="34" height="44" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="${color}" stroke="white" stroke-width="2.5"/>
+          <circle cx="17" cy="17" r="6" fill="white"/>
+        </svg>
+      `;
+      showcaseMarkersRef.current.push(
+        new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+          .setLngLat([lng + dLng, lat + dLat])
+          .addTo(map)
+      );
+    });
+
+    return () => {
+      showcaseMarkersRef.current.forEach((m) => m.remove());
+      showcaseMarkersRef.current = [];
+    };
+  }, [showcasePins]);
 
   // The operating-area boundary. Drawn as a faint fill with a dashed edge
   // rather than a dimming mask over everything outside it: the driver still

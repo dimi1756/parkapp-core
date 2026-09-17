@@ -19,6 +19,11 @@ export const ConsumerApp = () => {
   const [activeTour, setActiveTour] = useState<TourId | null>(null);
   const prevTabRef = useRef<TabType | null>(null);
   const [appTourOpen, setAppTourOpen] = useState(() => !hasSeenAppTour());
+  // Which step of the map tour is currently showing -- drives the "Spot
+  // confidence colours" step's dummy-pin showcase on the map (step index 3,
+  // see TOURS.map in DemoTour.tsx). Only meaningful while activeTour==='map'.
+  const [mapTourStepIndex, setMapTourStepIndex] = useState(0);
+  const showSpotConfidenceDemo = activeTour === 'map' && mapTourStepIndex === 3;
 
   // Demo-only: each tab greets the reviewer with its own short tour the
   // first time they open it in this page session. Tour flags are cleared by
@@ -50,7 +55,13 @@ export const ConsumerApp = () => {
   const renderTab = () => {
     switch (activeTab) {
       case 'map':
-        return <MapTab onNavigateToPlans={() => setActiveTab('plans')} onNavigateToOffers={() => setActiveTab('offers')} />;
+        return (
+          <MapTab
+            onNavigateToPlans={() => setActiveTab('plans')}
+            onNavigateToOffers={() => setActiveTab('offers')}
+            showSpotConfidenceDemo={showSpotConfidenceDemo}
+          />
+        );
       case 'offers':
         return <OffersTab />;
       case 'plans':
@@ -109,7 +120,11 @@ export const ConsumerApp = () => {
       </nav>
 
       {activeTour === activeTab && activeTour && (
-        <DemoTour tourId={activeTour} onClose={() => setActiveTour(null)} />
+        <DemoTour
+          tourId={activeTour}
+          onClose={() => setActiveTour(null)}
+          onStepChange={setMapTourStepIndex}
+        />
       )}
 
       <AppTourModal

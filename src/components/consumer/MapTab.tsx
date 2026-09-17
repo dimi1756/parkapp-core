@@ -191,9 +191,13 @@ function ManeuverIcon({ type, modifier, className }: { type: string; modifier?: 
 interface MapTabProps {
   onNavigateToPlans?: () => void;
   onNavigateToOffers?: () => void;
+  /** True while the map tour's "Spot confidence colours" step is showing --
+   *  swaps the live pins for 3 large demo pins (green/amber/red) so the
+   *  legend has something concrete to point at. */
+  showSpotConfidenceDemo?: boolean;
 }
 
-export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) => {
+export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfidenceDemo }: MapTabProps) => {
   const { canSearch, incrementSearches } = useApp();
   const { profile, isDemoAccount } = useAuth();
   const { t, language } = useLanguage();
@@ -1436,6 +1440,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           walkingRouteCoordinates={walkingRouteCoords}
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
+          showcasePins={showSpotConfidenceDemo}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
