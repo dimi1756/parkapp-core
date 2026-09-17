@@ -20,6 +20,8 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { MyReportsCard } from './MyReportsCard';
 import { CustomizationCard } from './CustomizationCard';
+import { GloveboxCard } from './GloveboxCard';
+import { FavoriteLocationsCard } from './FavoriteLocationsCard';
 
 const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR', pl: 'PL' };
@@ -204,6 +206,12 @@ export const ProfileTab = () => {
             the account actions, which is where iOS puts Display & Brightness
             relative to the rest of Settings. */}
         <CustomizationCard />
+
+        {/* Digital Glovebox */}
+        <GloveboxCard />
+
+        {/* Favorite Locations */}
+        <FavoriteLocationsCard />
 
         {/* Account Settings */}
         <div className="glass-card divide-y divide-border">

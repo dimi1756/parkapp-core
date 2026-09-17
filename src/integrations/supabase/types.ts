@@ -408,51 +408,69 @@ export type Database = {
       }
       profiles: {
         Row: {
+          car_insurance_expiry: string | null
+          car_size: string | null
           created_at: string
           device_fingerprint: string | null
+          driving_license_expiry: string | null
           email: string | null
+          favorite_locations: { home?: string; work?: string; gym?: string } | null
           full_name: string
           id: string
+          kteo_expiry: string | null
           membership_expires_at: string | null
           membership_tier: string
           municipality_id: string | null
           phone: string
           points_balance: number
           resident_verified: boolean
+          road_tax_expiry: string | null
           trust_score: number
           vehicle_color: string | null
           vehicle_make: string | null
           vehicle_plate: string | null
         }
         Insert: {
+          car_insurance_expiry?: string | null
+          car_size?: string | null
           created_at?: string
           device_fingerprint?: string | null
+          driving_license_expiry?: string | null
           email?: string | null
+          favorite_locations?: { home?: string; work?: string; gym?: string } | null
           full_name: string
           id: string
+          kteo_expiry?: string | null
           membership_expires_at?: string | null
           membership_tier?: string
           municipality_id?: string | null
           phone: string
           points_balance?: number
           resident_verified?: boolean
+          road_tax_expiry?: string | null
           trust_score?: number
           vehicle_color?: string | null
           vehicle_make?: string | null
           vehicle_plate?: string | null
         }
         Update: {
+          car_insurance_expiry?: string | null
+          car_size?: string | null
           created_at?: string
           device_fingerprint?: string | null
+          driving_license_expiry?: string | null
           email?: string | null
+          favorite_locations?: { home?: string; work?: string; gym?: string } | null
           full_name?: string
           id?: string
+          kteo_expiry?: string | null
           membership_expires_at?: string | null
           membership_tier?: string
           municipality_id?: string | null
           phone?: string
           points_balance?: number
           resident_verified?: boolean
+          road_tax_expiry?: string | null
           trust_score?: number
           vehicle_color?: string | null
           vehicle_make?: string | null
