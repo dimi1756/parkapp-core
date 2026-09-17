@@ -104,6 +104,12 @@ export interface PlaceSuggestion {
 const LOCAL_SEARCH_RADIUS_KM = 15;
 const WIDE_SEARCH_RADIUS_KM = 35;
 
+// Final governor applied after every tier, including the unrestricted
+// country-only one: a brand-popularity match 50km+ away is worse than no
+// match at all for someone searching their own street. Only an explicit
+// other-city name in the query (see mentionsOtherCity below) waives it.
+const HARD_RADIUS_KM = 20;
+
 function bboxAround([lng, lat]: [number, number], radiusKm: number): string {
   const dLat = radiusKm / 111.32;
   // Longitude degrees shrink toward the poles; without this the box would be
@@ -113,6 +119,49 @@ function bboxAround([lng, lat]: [number, number], radiusKm: number): string {
   return [lng - dLng, clampLat(lat - dLat), lng + dLng, clampLat(lat + dLat)]
     .map((v) => v.toFixed(6))
     .join(',');
+}
+
+// Major Greek cities/regions a driver might legitimately search for outside
+// their current area -- typing one of these explicitly waives the hard
+// radius cutoff below. Deliberately small and conservative: this is an
+// override list, not a gazetteer.
+const KNOWN_CITY_NAMES = [
+  'athens', 'αθηνα', 'αθήνα',
+  'thessaloniki', 'θεσσαλονικη', 'θεσσαλονίκη',
+  'patra', 'patras', 'πατρα', 'πάτρα',
+  'heraklion', 'ηρακλειο', 'ηράκλειο',
+  'larissa', 'λαρισα', 'λάρισα',
+  'volos', 'βολος', 'βόλος',
+  'ioannina', 'ιωαννινα', 'ιωάννινα',
+  'kavala', 'καβαλα', 'καβάλα',
+  'rhodes', 'ροδος', 'ρόδος',
+  'chania', 'χανια', 'χανιά',
+  'chalkida', 'χαλκιδα', 'χαλκίδα',
+  'karystos', 'καρυστος', 'κάρυστος',
+];
+
+function mentionsOtherCity(query: string): boolean {
+  const q = query.toLowerCase();
+  return KNOWN_CITY_NAMES.some((city) => q.includes(city));
+}
+
+/**
+ * A Latin 'x' typed by a driver almost never means the letter X -- it's
+ * shorthand for the Greek "χ" sound, which informal/ELOT transliteration
+ * renders as "ch" (or "cht" before a vowel cluster like -ούρη). Mapbox's own
+ * fuzzy matching doesn't bridge that gap: "sax" (meant as Σαχτούρη ->
+ * "Sachtouri") finds nothing within any bbox, so the old code fell through
+ * to the unrestricted country-wide tier and surfaced an unrelated Athens
+ * venue 50km+ away. Generating both spellings and merging results fixes the
+ * match without needing a full transliteration engine at query time.
+ */
+function phoneticVariants(query: string): string[] {
+  const variants = new Set<string>([query]);
+  if (/x/i.test(query)) {
+    variants.add(query.replace(/x/gi, (m) => (m === 'X' ? 'CH' : 'ch')));
+    variants.add(query.replace(/x/gi, (m) => (m === 'X' ? 'CHT' : 'cht')));
+  }
+  return Array.from(variants);
 }
 
 // Autocomplete-style multi-result search for the live search dropdown, biased
@@ -159,26 +208,54 @@ export async function searchPlaces(
   language = 'el',
   types?: string
 ): Promise<PlaceSuggestion[]> {
-  if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
+  const trimmed = query.trim();
+  if (!MAPBOX_TOKEN || trimmed.length < 2) return [];
 
   // `origin` tells the API to compute and sort by real distance from the user,
   // so shorter-distance results surface first regardless of brand popularity.
-  const base =
-    `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}` +
+  const buildUrl = (q: string, bbox?: string) =>
+    `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(q)}&access_token=${MAPBOX_TOKEN}` +
     `&session_token=${sessionToken}&limit=${limit}&country=gr&language=${language}` +
     `&proximity=${proximity[0]},${proximity[1]}` +
     `&origin=${proximity[0]},${proximity[1]}` +
-    (types ? `&types=${encodeURIComponent(types)}` : '');
+    (types ? `&types=${encodeURIComponent(types)}` : '') +
+    (bbox ? `&bbox=${bbox}` : '');
+
+  const variants = phoneticVariants(trimmed);
+
+  // Queries every phonetic variant at a given bbox tier in parallel, merges
+  // by mapbox_id (dedupe), and ranks strictly by real distance -- so "sax"
+  // and its "sach"/"sacht" variants compete on the same footing and the
+  // nearest actual match wins regardless of which spelling found it.
+  const runTier = async (bbox?: string): Promise<PlaceSuggestion[]> => {
+    const perVariant = await Promise.all(variants.map((v) => fetchSuggestions(buildUrl(v, bbox), v)));
+    const merged = new Map<string, PlaceSuggestion>();
+    for (const list of perVariant) {
+      for (const item of list) if (!merged.has(item.id)) merged.set(item.id, item);
+    }
+    return Array.from(merged.values()).sort(
+      (a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity)
+    );
+  };
 
   // Three-tier fallback, all within Greece (country=gr stays throughout):
   //   1. Strict 15km bbox  — everyday local searches
   //   2. Wider 35km bbox   — same query with no strict-radius hit (sparse area)
   //   3. Country-only      — user typed a city name or explicit far destination
-  const local = await fetchSuggestions(`${base}&bbox=${bboxAround(proximity, LOCAL_SEARCH_RADIUS_KM)}`, query);
-  if (local.length > 0) return local;
-  const wider = await fetchSuggestions(`${base}&bbox=${bboxAround(proximity, WIDE_SEARCH_RADIUS_KM)}`, query);
-  if (wider.length > 0) return wider;
-  return fetchSuggestions(base, query);
+  let results = await runTier(bboxAround(proximity, LOCAL_SEARCH_RADIUS_KM));
+  if (results.length === 0) results = await runTier(bboxAround(proximity, WIDE_SEARCH_RADIUS_KM));
+  if (results.length === 0) results = await runTier();
+
+  if (mentionsOtherCity(trimmed)) return results.slice(0, limit);
+
+  // Hard cutoff: even the unrestricted country-wide tier never surfaces a
+  // result more than HARD_RADIUS_KM away unless the query explicitly named
+  // another city. Results with no distance value pass through untouched
+  // (Search Box API always returns one when `proximity` is set, but never
+  // silently drop a match just because that field happened to be missing).
+  return results
+    .filter((r) => r.distanceMeters === undefined || r.distanceMeters <= HARD_RADIUS_KM * 1000)
+    .slice(0, limit);
 }
 
 // Resolves a suggestion's actual coordinates -- must be called with the same
@@ -403,19 +480,38 @@ interface MapboxMapProps {
   operatingArea?: OperatingArea | null;
 }
 
+// Maps our internal language codes to the ISO codes Mapbox's vector tiles
+// use for name_<lang> fields (Greek is handled separately below -- its own
+// native script needs no name_<lang> lookup). 'tr' and 'pl' aren't in
+// Mapbox's documented name_<lang> set for Streets v12, so ['get', 'name_tr']
+// / ['get', 'name_pl'] safely resolve to null and the coalesce chain moves
+// on -- this entry exists so the fix applies automatically if Mapbox ever
+// adds them, without another code change.
+const MAPBOX_LANG_CODE: Record<string, string> = { en: 'en', tr: 'tr', pl: 'pl' };
+
 /**
  * Apply native-vs-Latin label expressions to every symbol layer.
- * Greek users get native names (Ελληνικά); all other locales prefer
- * the English transliteration that Mapbox ships on most features
- * (`name_en`), falling back to the native name when absent.
+ * Greek users get native names (Ελληνικά); all other locales try
+ * `name_<lang>` first, then the English transliteration Mapbox ships on
+ * most features (`name_en`), then the native name as a last resort.
+ *
  * Safe to call before style is loaded — the caller is responsible for
- * gating on isStyleLoaded().
+ * gating on isStyleLoaded() / re-triggering on 'idle'.
+ *
+ * Known limitation: many minor/provincial streets (e.g. Θεοχάρους Κότσικα)
+ * only have Mapbox's native `name` field populated at all -- no name_en or
+ * name_<lang> exists in the tile data for them, so the coalesce correctly
+ * falls all the way through to Greek. That's a Mapbox data gap, not a bug
+ * in this expression: style layers can't run arbitrary transliteration
+ * (that's what src/lib/transliterate.ts is for, applied to app-rendered
+ * text like the nav banner -- it can't reach into vector-tile labels).
  */
 function applyMapLanguage(map: mapboxgl.Map, language: string): void {
+  const mbLang = MAPBOX_LANG_CODE[language];
   const nameExpr =
     language === 'gr'
       ? ['get', 'name']
-      : ['coalesce', ['get', 'name_en'], ['get', 'name']];
+      : ['coalesce', ['get', `name_${mbLang}`], ['get', 'name_en'], ['get', 'name']];
   map.getStyle().layers.forEach((layer) => {
     if (layer.type !== 'symbol') return;
     const layout = (layer as mapboxgl.SymbolLayer).layout;
@@ -570,8 +666,15 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       onCenterChangeRef.current?.(c.lng, c.lat);
     });
 
-    // Apply tile labels in the app's language as soon as the style is ready.
-    map.on('style.load', () => applyMapLanguage(map, languageRef.current));
+    // Apply tile labels in the app's language as soon as the style is ready,
+    // then once more on the next idle frame. style.load fires once the style
+    // JSON is parsed, but some symbol layers (sprites/glyphs still resolving)
+    // aren't reliably writable yet at that instant -- idle guarantees every
+    // layer has settled before the language is (re)applied.
+    map.on('style.load', () => {
+      applyMapLanguage(map, languageRef.current);
+      map.once('idle', () => applyMapLanguage(map, languageRef.current));
+    });
 
     mapRef.current = map;
 
@@ -582,11 +685,19 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-apply tile label language whenever the user switches language in the app.
+  // Re-apply tile label language whenever the user switches language in the
+  // app. A switch landing mid-load used to silently no-op here (isStyleLoaded
+  // false, no retry) and the map was left showing whatever language was
+  // active when style.load last fired -- deferring to the next 'idle' event
+  // instead means it always takes effect, just slightly delayed.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    applyMapLanguage(map, language);
+    if (!map) return;
+    if (map.isStyleLoaded()) {
+      applyMapLanguage(map, language);
+    } else {
+      map.once('idle', () => applyMapLanguage(map, language));
+    }
   }, [language]);
 
   // Live position for real accounts. One shared watch for the whole session
