@@ -460,8 +460,6 @@ interface MapboxMapProps {
   routeProfile?: 'driving' | 'walking';
   /** True while turn-by-turn driving navigation is actively running -- tilts the camera to a 3D chase view and follows the driver's heading, Google-Maps-style. Left level for the walking leg (nobody wants a tilted phone for a 2-minute walk). */
   isNavigating?: boolean;
-  /** Confirm-spot button shown above the temporary yellow "selection" pin. */
-  onConfirmSelection?: () => void;
   /** Increment to imperatively re-trigger a fresh GPS fix + camera fly-to (wired to MapTab's "My Location" button). */
   locateRequestId?: number;
   /** Where the next flyToRequestId bump should smoothly fly/zoom the camera to (street-level zoom). */
@@ -552,7 +550,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   walkingRouteCoordinates,
   routeProfile = 'driving',
   isNavigating = false,
-  onConfirmSelection,
   locateRequestId,
   flyToTarget,
   flyToRequestId,
@@ -611,8 +608,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onCenterChangeRef.current = onCenterChange;
   const onUserLocationChangeRef = useRef(onUserLocationChange);
   onUserLocationChangeRef.current = onUserLocationChange;
-  const onConfirmSelectionRef = useRef(onConfirmSelection);
-  onConfirmSelectionRef.current = onConfirmSelection;
   const onLocateFailedRef = useRef(onLocateFailed);
   onLocateFailedRef.current = onLocateFailed;
   const onZoneClickRef = useRef(onZoneClick);
@@ -623,8 +618,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   isNavigatingRef.current = isNavigating;
   const routeProfileRef = useRef(routeProfile);
   routeProfileRef.current = routeProfile;
-  const confirmLabelRef = useRef(t('map.confirmSpot'));
-  confirmLabelRef.current = t('map.confirmSpot');
   const availableSpotLabelRef = useRef(t('map.availableSpot'));
   availableSpotLabelRef.current = t('map.availableSpot');
 
@@ -897,26 +890,20 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       }
 
       if (pin.type === 'selection') {
-        // Temporary "drop pin" marker for the Map Selection Mode flow: a
-        // yellow pin with a Confirm button anchored right above it. Mapbox
-        // repositions the whole element together on every pan/zoom, so the
-        // button never drifts away from its pin.
-        const wrapper = document.createElement('div');
-        wrapper.className = 'flex flex-col items-center gap-1.5';
-        wrapper.innerHTML = `
-          <button type="button" class="confirm-spot-btn inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap hover:bg-primary/90 transition-colors">
-            ${confirmLabelRef.current}
-          </button>
+        // Temporary "drop pin" marker for the Map Selection Mode flow. No
+        // floating Confirm button here anymore -- it duplicated the bottom
+        // action bar's own Confirm button (MapTab's "actions" row), so a
+        // driver saw two separate "confirm" affordances on screen for one
+        // action. Confirming now happens only from that bar.
+        const el = document.createElement('div');
+        el.className = 'mapbox-pin-wrapper';
+        el.innerHTML = `
           <svg width="30" height="38" viewBox="0 0 34 44" xmlns="http://www.w3.org/2000/svg">
             <path d="M17 0C7.6 0 0 7.6 0 17c0 12.75 17 27 17 27s17-14.25 17-27C34 7.6 26.4 0 17 0z" fill="#f59e0b" stroke="white" stroke-width="2"/>
             <circle cx="17" cy="17" r="6" fill="white"/>
           </svg>
         `;
-        wrapper.querySelector('.confirm-spot-btn')?.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          onConfirmSelectionRef.current?.();
-        });
-        markersRef.current[pin.id] = new mapboxgl.Marker({ element: wrapper, anchor: 'bottom' })
+        markersRef.current[pin.id] = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
           .setLngLat([pin.lng, pin.lat])
           .addTo(map);
         return;

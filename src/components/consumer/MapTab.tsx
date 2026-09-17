@@ -1448,7 +1448,6 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfiden
               : []),
           ]}
           onMapClick={handleMapTap}
-          onConfirmSelection={handleConfirmSelection}
           zones={zones}
           onLocateFailed={() => {
             // A refusal is the common case and has a fix the driver can
@@ -1740,7 +1739,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfiden
           <Button
             onClick={handleConfirmSelection}
             disabled={busyAction !== null || !selectedSpot}
-            className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary hover:bg-primary/90"
+            className="h-14 rounded-full px-6 shadow-xl gap-2 font-semibold bg-primary/90 backdrop-blur-xl backdrop-saturate-150 border-t border-white/30 hover:bg-primary/80 active:scale-[0.98] transition-transform duration-100"
           >
             {busyAction === 'spotted' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
             {t('map.confirmSpot')}

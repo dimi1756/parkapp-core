@@ -59,7 +59,7 @@ const Toast = React.forwardRef<
         aria-hidden="true"
         className={cn(
           "absolute inset-x-0 bottom-0 h-1",
-          variant === "destructive" ? "bg-white/60" : "bg-teal-400 dark:bg-teal-300"
+          variant === "destructive" ? "bg-white/60" : "bg-primary"
         )}
         style={{ animation: `toast-progress ${TOAST_DURATION_MS}ms linear forwards` }}
       />
