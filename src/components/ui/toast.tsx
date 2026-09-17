@@ -7,6 +7,12 @@ import { cn } from "@/lib/utils";
 
 const ToastProvider = ToastPrimitives.Provider;
 
+// Single source of truth for how long a toast stays open before
+// auto-dismissing. Passed to ToastProvider's `duration` prop (the actual
+// timer) AND used as the progress bar's animation-duration below, so the
+// two can never drift out of sync with each other.
+export const TOAST_DURATION_MS = 5000;
+
 const ToastViewport = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Viewport>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Viewport>
@@ -40,8 +46,25 @@ const toastVariants = cva(
 const Toast = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Root>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Root> & VariantProps<typeof toastVariants>
->(({ className, variant, ...props }, ref) => {
-  return <ToastPrimitives.Root ref={ref} className={cn(toastVariants({ variant }), className)} {...props} />;
+>(({ className, variant, children, ...props }, ref) => {
+  return (
+    <ToastPrimitives.Root ref={ref} className={cn(toastVariants({ variant }), className)} {...props}>
+      {children}
+      {/* Progress bar: shrinks right-to-left over TOAST_DURATION_MS, the
+          same duration ToastProvider uses for the real auto-dismiss timer
+          (see toaster.tsx) -- a visual countdown, not a second timer. A
+          fresh toast always gets a fresh element (Toaster keys each one by
+          id), so the animation restarts correctly for every new toast. */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-x-0 bottom-0 h-1",
+          variant === "destructive" ? "bg-white/60" : "bg-teal-400 dark:bg-teal-300"
+        )}
+        style={{ animation: `toast-progress ${TOAST_DURATION_MS}ms linear forwards` }}
+      />
+    </ToastPrimitives.Root>
+  );
 });
 Toast.displayName = ToastPrimitives.Root.displayName;
 

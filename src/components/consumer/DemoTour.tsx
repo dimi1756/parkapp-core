@@ -85,7 +85,11 @@ export const dismissTour = (id: TourId) => {
   localStorage.setItem(doneKey(id), '1');
 };
 
-const SPOT_PADDING = 8;
+const SPOT_PADDING = 12;
+// Minimum breathing room the spotlight cutout keeps from the visible
+// screen/app-frame edges, regardless of how close the underlying target's
+// own rect happens to sit to them.
+const SIDE_MARGIN = 16;
 
 interface DemoTourProps {
   tourId: TourId;
@@ -181,11 +185,6 @@ export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
   const step = steps[stepIndex];
   const isLast = stepIndex === steps.length - 1;
 
-  const spotTop = rect.top - SPOT_PADDING;
-  const spotLeft = rect.left - SPOT_PADDING;
-  const spotWidth = rect.width + SPOT_PADDING * 2;
-  const spotHeight = rect.height + SPOT_PADDING * 2;
-
   // Use the app frame's bounding rect (the max-w-md centered container) for
   // horizontal clamping so the card never bleeds outside the visible app area
   // on a desktop browser. Falls back to the full viewport for admin/full-width.
@@ -194,6 +193,24 @@ export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
     left: 0,
     width: window.innerWidth,
   };
+
+  const spotTop = rect.top - SPOT_PADDING;
+  const spotHeight = rect.height + SPOT_PADDING * 2;
+
+  // Some targets (e.g. the map's bottom action row, left-0 right-0 by
+  // design for its own layout) already span edge-to-edge on their own --
+  // adding SPOT_PADDING to their rect alone would push the cutout even
+  // closer to the true screen edges instead of away from them. Clamping
+  // to the frame's bounds minus a fixed side margin guarantees the
+  // spotlight keeps equal breathing room from the left/right edges no
+  // matter how wide the underlying target's own rect is.
+  const frameLeft = frameRect.left;
+  const frameRight = frameRect.left + frameRect.width;
+  const rawSpotLeft = rect.left - SPOT_PADDING;
+  const rawSpotRight = rect.left + rect.width + SPOT_PADDING;
+  const spotLeft = Math.max(rawSpotLeft, frameLeft + SIDE_MARGIN);
+  const spotRight = Math.min(rawSpotRight, frameRight - SIDE_MARGIN);
+  const spotWidth = Math.max(0, spotRight - spotLeft);
 
   // The visible window, in the same coordinate space as getBoundingClientRect
   // and position:fixed -- the layout viewport.
@@ -249,7 +266,7 @@ export const DemoTour = ({ tourId, onClose, onStepChange }: DemoTourProps) => {
       {/* Spotlight: the box-shadow dims everything except the target. It is
           pointer-events-none so the reviewer can still tap the real UI. */}
       <div
-        className="absolute pointer-events-none rounded-2xl transition-all duration-300"
+        className="absolute pointer-events-none rounded-[24px] transition-all duration-300"
         style={{
           top: spotTop,
           left: spotLeft,

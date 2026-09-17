@@ -103,6 +103,10 @@ export default {
           "85%": { opacity: "1" },
           "100%": { transform: "translate3d(var(--confetti-drift, 0px), 108vh, 0) rotate(680deg)", opacity: "0" },
         },
+        "toast-progress": {
+          "0%": { width: "100%" },
+          "100%": { width: "0%" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
