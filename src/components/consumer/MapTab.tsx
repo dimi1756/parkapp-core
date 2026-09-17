@@ -22,6 +22,7 @@ import { SearchResultsList } from './SearchResultsList';
 import { SmartSearchLoader } from './SmartSearchLoader';
 import { buildPredictions, candidatePoints, type PredictedStreet } from '@/lib/prediction';
 import { SPOT_VISIBLE_TTL_MS } from '@/lib/spotLifecycle';
+import { transliterateGreek } from '@/lib/transliterate';
 import { isPremiumActive, FREE_DAILY_SEARCHES, PREMIUM_DAILY_SEARCHES } from '@/lib/membership';
 import {
   Search,
@@ -1528,13 +1529,15 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           Mapbox controls underneath -- only the actual card/input is clickable. */}
       <div className="absolute top-0 left-0 right-0 z-20 p-4 pt-[calc(1.5rem+env(safe-area-inset-top))] pointer-events-none">
         {isNavigating && currentStep ? (
-          <div className="glass-card p-4 shadow-2xl bg-primary text-primary-foreground rounded-2xl flex items-center gap-3 pointer-events-auto animate-fade-in">
+          <div className="glass-card p-4 shadow-2xl bg-primary/85 backdrop-blur-xl backdrop-saturate-150 border-t border-white/25 text-primary-foreground rounded-2xl flex items-center gap-3 pointer-events-auto animate-fade-in">
             <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
               <ManeuverIcon type={currentStep.maneuverType} modifier={currentStep.maneuverModifier} className="h-7 w-7" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-bold text-base leading-tight">{formatDistance(currentStep.distanceMeters)}</p>
-              <p className="text-sm text-primary-foreground/85 truncate">{currentStep.instruction}</p>
+              <p className="font-bold text-base leading-tight tracking-tight">{formatDistance(currentStep.distanceMeters)}</p>
+              <p className="text-sm text-primary-foreground/85 truncate">
+                {language !== 'gr' ? transliterateGreek(currentStep.instruction) : currentStep.instruction}
+              </p>
             </div>
           </div>
         ) : (
@@ -1551,7 +1554,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               onBlur={() => setTimeout(() => setSuggestions([]), 150)}
               disabled={routeState === 'searching'}
               placeholder={t('map.searchPlaceholder')}
-              className="w-full h-14 pl-5 pr-16 text-base rounded-3xl shadow-xl bg-background/70 backdrop-blur-xl border border-white/40 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full h-14 pl-5 pr-16 text-base rounded-3xl shadow-xl bg-background/70 backdrop-blur-xl backdrop-saturate-150 border border-white/40 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-transform duration-100"
             />
             <Button
               onClick={handleSearch}
@@ -1604,10 +1607,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             setSelectedFacilityId(null);
           }}
           aria-pressed={showFacilities}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold shadow-lg shrink-0 transition-colors ${
+          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold shadow-lg shrink-0 transition-all duration-100 active:scale-[0.97] ${
             showFacilities
               ? 'bg-primary text-primary-foreground'
-              : 'bg-background/95 text-muted-foreground border border-border'
+              : 'bg-background/70 backdrop-blur-md backdrop-saturate-150 text-muted-foreground border border-white/30 dark:border-white/10'
           }`}
         >
           <Building2 className="h-3.5 w-3.5" />
@@ -1751,7 +1754,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
             onClick={handleToggleSelectionMode}
             disabled={busyAction !== null}
             variant="outline"
-            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-lg bg-background/95 backdrop-blur-sm border-primary/30 gap-1.5"
+            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-lg bg-background/70 backdrop-blur-xl backdrop-saturate-150 border-white/30 dark:border-white/10 gap-1.5 active:scale-[0.98] transition-transform duration-100"
           >
             <Eye className="h-4 w-4 shrink-0" />
             <span className="text-sm truncate">{t('map.sawFreeSpace')}</span>
@@ -1761,7 +1764,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           <Button
             onClick={handleDeclare}
             disabled={busyAction !== null}
-            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-xl gap-1.5 font-semibold bg-primary hover:bg-primary/90"
+            className="h-14 flex-1 min-w-0 rounded-full px-3 shadow-xl gap-1.5 font-semibold bg-primary/90 backdrop-blur-xl backdrop-saturate-150 border-t border-white/30 hover:bg-primary/80 active:scale-[0.98] transition-transform duration-100"
           >
             {busyAction === 'declare' ? (
               <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
@@ -1844,7 +1847,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
           <div className="glass-card p-4 animate-fade-in space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{activeDestination.name}</p>
+                <p className="font-semibold text-sm truncate tracking-tight">
+                  {language !== 'gr' ? transliterateGreek(activeDestination.name) : activeDestination.name}
+                </p>
                 {remaining && (
                   <p className="text-xs text-muted-foreground">
                     {t(routeProfile === 'walking' ? 'map.navDistanceEtaWalk' : 'map.navDistanceEta', {
@@ -1898,7 +1903,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
               <Button
                 onClick={handleSpotConfirmedFree}
                 disabled={busyAction !== null}
-                className="w-full h-14 text-base rounded-2xl gap-2 bg-success hover:bg-success/90 text-success-foreground shadow-lg"
+                className="w-full h-14 text-base rounded-2xl gap-2 bg-success/85 backdrop-blur-sm backdrop-saturate-150 border-t border-white/25 hover:bg-success/75 text-success-foreground shadow-lg active:scale-[0.98] transition-transform duration-100"
               >
                 {busyAction === 'claim' ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
                 {t('map.arrivedParked')}
@@ -1909,7 +1914,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
                 onClick={handleFindNextSpot}
                 disabled={busyAction !== null}
                 variant="destructive"
-                className="w-full h-14 text-base rounded-2xl gap-2 shadow-lg"
+                className="w-full h-14 text-base rounded-2xl gap-2 shadow-lg active:scale-[0.98] transition-transform duration-100"
               >
                 <X className="h-5 w-5" />
                 {t('map.spotNotFound')}
@@ -1920,7 +1925,7 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers }: MapTabProps) =
                 onClick={() => { setShowSpotPrompt(false); clearRoute(); }}
                 disabled={busyAction !== null}
                 variant="outline"
-                className="w-full h-12 text-base rounded-2xl bg-background/60 backdrop-blur-md"
+                className="w-full h-12 text-base rounded-2xl bg-background/60 backdrop-blur-xl backdrop-saturate-150 border-white/20 dark:border-white/10 active:scale-[0.98] transition-transform duration-100"
               >
                 {t('map.cancelNav')}
               </Button>
