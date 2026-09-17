@@ -585,6 +585,17 @@ const en = {
   'favorites.googleMaps': 'Google Maps',
   'favorites.appleMaps': 'Apple Maps',
   'favorites.waze': 'Waze',
+  'favorites.openWith': 'Open with…',
+  'favorites.cancel': 'Cancel',
+
+  // Eco Dashboard
+  'eco.title': 'Eco Dashboard',
+  'eco.subtitle': 'Your environmental impact',
+  'eco.timeSaved': 'Time Saved',
+  'eco.timeSavedValue': '2h 10m',
+  'eco.co2Reduced': 'CO₂ Reduced',
+  'eco.co2ReducedValue': '4.5 kg',
+  'eco.comingSoon': 'Live data coming soon',
 } as const;
 
 const gr: Record<keyof typeof en, string> = {
@@ -1112,7 +1123,7 @@ const gr: Record<keyof typeof en, string> = {
   'demo.street.aeolou': 'Οδός Αιόλου',
 
   // Digital Glovebox
-  'glovebox.title': 'Ψηφιακό Ντοσιέ',
+  'glovebox.title': 'Ηλεκτρονικό Ντουλαπάκι',
   'glovebox.subtitle': 'Προαιρετικό — αποθηκεύστε τα έγγραφα οχήματος',
   'glovebox.carSize': 'Μέγεθος Αυτοκινήτου',
   'glovebox.carSizePlaceholder': 'Επιλέξτε μέγεθος',
@@ -1146,6 +1157,17 @@ const gr: Record<keyof typeof en, string> = {
   'favorites.googleMaps': 'Google Maps',
   'favorites.appleMaps': 'Apple Maps',
   'favorites.waze': 'Waze',
+  'favorites.openWith': 'Άνοιγμα με…',
+  'favorites.cancel': 'Ακύρωση',
+
+  // Eco Dashboard
+  'eco.title': 'Eco Dashboard',
+  'eco.subtitle': 'Η περιβαλλοντική σου επίδραση',
+  'eco.timeSaved': 'Χρόνος Εξοικονόμησης',
+  'eco.timeSavedValue': '2ω 10λ',
+  'eco.co2Reduced': 'Μείωση CO₂',
+  'eco.co2ReducedValue': '4,5 kg',
+  'eco.comingSoon': 'Ζωντανά δεδομένα σύντομα',
 };
 
 const tr: Record<keyof typeof en, string> = {
@@ -1707,6 +1729,17 @@ const tr: Record<keyof typeof en, string> = {
   'favorites.googleMaps': 'Google Maps',
   'favorites.appleMaps': 'Apple Maps',
   'favorites.waze': 'Waze',
+  'favorites.openWith': 'Aç ile…',
+  'favorites.cancel': 'İptal',
+
+  // Eco Dashboard
+  'eco.title': 'Eco Dashboard',
+  'eco.subtitle': 'Çevresel etkiniz',
+  'eco.timeSaved': 'Kazanılan Zaman',
+  'eco.timeSavedValue': '2s 10d',
+  'eco.co2Reduced': 'CO₂ Azaltımı',
+  'eco.co2ReducedValue': '4,5 kg',
+  'eco.comingSoon': 'Canlı veriler yakında',
 };
 
 const pl: Record<keyof typeof en, string> = {
@@ -2304,6 +2337,17 @@ const pl: Record<keyof typeof en, string> = {
   'favorites.googleMaps': 'Google Maps',
   'favorites.appleMaps': 'Apple Maps',
   'favorites.waze': 'Waze',
+  'favorites.openWith': 'Otwórz przez…',
+  'favorites.cancel': 'Anuluj',
+
+  // Eco Dashboard
+  'eco.title': 'Eco Dashboard',
+  'eco.subtitle': 'Twój wpływ na środowisko',
+  'eco.timeSaved': 'Zaoszczędzony Czas',
+  'eco.timeSavedValue': '2g 10m',
+  'eco.co2Reduced': 'Redukcja CO₂',
+  'eco.co2ReducedValue': '4,5 kg',
+  'eco.comingSoon': 'Dane na żywo wkrótce',
 };
 
 export type StringKey = keyof typeof en;

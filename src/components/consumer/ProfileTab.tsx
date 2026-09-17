@@ -22,6 +22,7 @@ import { MyReportsCard } from './MyReportsCard';
 import { CustomizationCard } from './CustomizationCard';
 import { GloveboxCard } from './GloveboxCard';
 import { FavoriteLocationsCard } from './FavoriteLocationsCard';
+import { EcoDashboardCard } from './EcoDashboardCard';
 
 const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR', pl: 'PL' };
@@ -206,6 +207,9 @@ export const ProfileTab = () => {
             the account actions, which is where iOS puts Display & Brightness
             relative to the rest of Settings. */}
         <CustomizationCard />
+
+        {/* Eco Dashboard */}
+        <EcoDashboardCard />
 
         {/* Digital Glovebox */}
         <GloveboxCard />
