@@ -98,13 +98,14 @@ export interface PlaceSuggestion {
  * street, because a brand match outweighs a few hundred kilometres. A bbox
  * is a filter rather than a preference, so those simply stop coming back.
  *
- * 30km is wide enough to cover a town and everything a driver might plausibly
- * drive to from it, and narrow enough to keep another city's results out.
+ * 15km strict + 35km wider fallback covers the city and the immediate region
+ * while keeping another city (Athens is ~80km from Chalkida) out entirely.
  */
-const LOCAL_SEARCH_RADIUS_KM = 8;
+const LOCAL_SEARCH_RADIUS_KM = 15;
+const WIDE_SEARCH_RADIUS_KM = 35;
 
-function localBbox([lng, lat]: [number, number]): string {
-  const dLat = LOCAL_SEARCH_RADIUS_KM / 111.32;
+function bboxAround([lng, lat]: [number, number], radiusKm: number): string {
+  const dLat = radiusKm / 111.32;
   // Longitude degrees shrink toward the poles; without this the box would be
   // far too narrow in Greece and too wide near the equator.
   const dLng = dLat / Math.max(Math.cos((lat * Math.PI) / 180), 0.01);
@@ -160,18 +161,23 @@ export async function searchPlaces(
 ): Promise<PlaceSuggestion[]> {
   if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
 
+  // `origin` tells the API to compute and sort by real distance from the user,
+  // so shorter-distance results surface first regardless of brand popularity.
   const base =
     `${SEARCH_BOX_BASE}/suggest?q=${encodeURIComponent(query)}&access_token=${MAPBOX_TOKEN}` +
     `&session_token=${sessionToken}&limit=${limit}&country=gr&language=${language}` +
     `&proximity=${proximity[0]},${proximity[1]}` +
+    `&origin=${proximity[0]},${proximity[1]}` +
     (types ? `&types=${encodeURIComponent(types)}` : '');
 
-  // Local first. If nothing in the box matches, fall back to the unbounded
-  // search so someone deliberately looking up another city still gets it --
-  // the bbox is there to reorder everyday searches, not to trap the driver
-  // inside a 30km circle.
-  const local = await fetchSuggestions(`${base}&bbox=${localBbox(proximity)}`, query);
+  // Three-tier fallback, all within Greece (country=gr stays throughout):
+  //   1. Strict 15km bbox  — everyday local searches
+  //   2. Wider 35km bbox   — same query with no strict-radius hit (sparse area)
+  //   3. Country-only      — user typed a city name or explicit far destination
+  const local = await fetchSuggestions(`${base}&bbox=${bboxAround(proximity, LOCAL_SEARCH_RADIUS_KM)}`, query);
   if (local.length > 0) return local;
+  const wider = await fetchSuggestions(`${base}&bbox=${bboxAround(proximity, WIDE_SEARCH_RADIUS_KM)}`, query);
+  if (wider.length > 0) return wider;
   return fetchSuggestions(base, query);
 }
 
@@ -397,6 +403,27 @@ interface MapboxMapProps {
   operatingArea?: OperatingArea | null;
 }
 
+/**
+ * Apply native-vs-Latin label expressions to every symbol layer.
+ * Greek users get native names (Ελληνικά); all other locales prefer
+ * the English transliteration that Mapbox ships on most features
+ * (`name_en`), falling back to the native name when absent.
+ * Safe to call before style is loaded — the caller is responsible for
+ * gating on isStyleLoaded().
+ */
+function applyMapLanguage(map: mapboxgl.Map, language: string): void {
+  const nameExpr =
+    language === 'gr'
+      ? ['get', 'name']
+      : ['coalesce', ['get', 'name_en'], ['get', 'name']];
+  map.getStyle().layers.forEach((layer) => {
+    if (layer.type !== 'symbol') return;
+    const layout = (layer as mapboxgl.SymbolLayer).layout;
+    if (!layout?.['text-field']) return;
+    map.setLayoutProperty(layer.id, 'text-field', nameExpr);
+  });
+}
+
 export const MapboxMap: React.FC<MapboxMapProps> = ({
   center,
   userLocation,
@@ -420,7 +447,11 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   followUser = false,
   operatingArea,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  // Ref keeps the language available inside one-time event listeners without
+  // requiring the whole map to be recreated when the user switches language.
+  const languageRef = useRef(language);
+  languageRef.current = language;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
@@ -539,6 +570,9 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       onCenterChangeRef.current?.(c.lng, c.lat);
     });
 
+    // Apply tile labels in the app's language as soon as the style is ready.
+    map.on('style.load', () => applyMapLanguage(map, languageRef.current));
+
     mapRef.current = map;
 
     return () => {
@@ -547,6 +581,13 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-apply tile label language whenever the user switches language in the app.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    applyMapLanguage(map, language);
+  }, [language]);
 
   // Live position for real accounts. One shared watch for the whole session
   // (see src/lib/geolocation.ts) means the permission prompt happens once
