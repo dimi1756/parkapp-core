@@ -4,7 +4,7 @@ import { useAuth, maskPlate } from '@/contexts/AuthContext';
 import { useLanguage, type Language } from '@/contexts/LanguageContext';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { isPremiumActive } from '@/lib/membership';
-import { User, Moon, Bell, Shield, LogOut, ChevronRight, Crown, Building2, Gem, TrendingUp, Loader2 } from 'lucide-react';
+import { User, Moon, Bell, Shield, LogOut, ChevronRight, Crown, Building2, Gem, TrendingUp, Loader2, BookOpen } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,11 @@ import { EcoDashboardCard } from './EcoDashboardCard';
 const NOTIFICATIONS_KEY = 'parkapp_notifications_enabled';
 const LANGUAGE_LABELS: Record<Language, string> = { en: 'EN', gr: 'GR', tr: 'TR', pl: 'PL' };
 
-export const ProfileTab = () => {
+interface ProfileTabProps {
+  onOpenAppTour?: () => void;
+}
+
+export const ProfileTab = ({ onOpenAppTour }: ProfileTabProps) => {
   const { darkMode, toggleDarkMode, setAdminMode } = useApp();
   const { profile, signOut, updateProfileDetails } = useAuth();
   const { language, setLanguage, t } = useLanguage();
@@ -247,6 +251,18 @@ export const ProfileTab = () => {
             <div className="flex items-center gap-3">
               <User className="h-5 w-5 text-muted-foreground" />
               <span className="font-medium">{t('profile.editProfile')}</span>
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          </button>
+
+          {/* App Tour */}
+          <button
+            onClick={onOpenAppTour}
+            className="w-full p-4 flex items-center justify-between text-left hover:bg-secondary/50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <BookOpen className="h-5 w-5 text-muted-foreground" />
+              <span className="font-medium">{t('appTour.openTour')}</span>
             </div>
             <ChevronRight className="h-5 w-5 text-muted-foreground" />
           </button>

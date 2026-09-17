@@ -7,6 +7,7 @@ import { PlansTab } from './PlansTab';
 import { ProfileTab } from './ProfileTab';
 import { LeaderboardTab } from './LeaderboardTab';
 import { DemoTour, shouldShowTour, dismissTour, type TourId } from './DemoTour';
+import { AppTourModal, hasSeenAppTour, markAppTourSeen } from './AppTourModal';
 import { Map, Gift, CreditCard, User, Trophy } from 'lucide-react';
 
 type TabType = 'map' | 'offers' | 'plans' | 'profile' | 'leaderboard';
@@ -17,6 +18,7 @@ export const ConsumerApp = () => {
   const [activeTab, setActiveTab] = useState<TabType>('map');
   const [activeTour, setActiveTour] = useState<TourId | null>(null);
   const prevTabRef = useRef<TabType | null>(null);
+  const [appTourOpen, setAppTourOpen] = useState(() => !hasSeenAppTour());
 
   // Demo-only: each tab greets the reviewer with its own short tour the
   // first time they open it in this page session. Tour flags are cleared by
@@ -56,7 +58,7 @@ export const ConsumerApp = () => {
       case 'leaderboard':
         return <LeaderboardTab />;
       case 'profile':
-        return <ProfileTab />;
+        return <ProfileTab onOpenAppTour={() => setAppTourOpen(true)} />;
       default:
         return <MapTab onNavigateToPlans={() => setActiveTab('plans')} onNavigateToOffers={() => setActiveTab('offers')} />;
     }
@@ -109,6 +111,11 @@ export const ConsumerApp = () => {
       {activeTour === activeTab && activeTour && (
         <DemoTour tourId={activeTour} onClose={() => setActiveTour(null)} />
       )}
+
+      <AppTourModal
+        open={appTourOpen}
+        onClose={() => { markAppTourSeen(); setAppTourOpen(false); }}
+      />
     </div>
   );
 };
