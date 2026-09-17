@@ -1130,7 +1130,7 @@ const gr: Record<keyof typeof en, string> = {
   'glovebox.drivingLicense': 'Λήξη Άδειας Οδήγησης',
   'glovebox.kteo': 'Λήξη ΚΤΕΟ',
   'glovebox.carInsurance': 'Λήξη Ασφάλειας Αυτοκινήτου',
-  'glovebox.roadTax': 'Λήξη Τέλους Κυκλοφορίας',
+  'glovebox.roadTax': 'Λήξη Τελών Κυκλοφορίας',
   'glovebox.save': 'Αποθήκευση',
   'glovebox.saved': 'Αποθηκεύτηκε',
   'glovebox.saveFailed': 'Αδυναμία αποθήκευσης',
