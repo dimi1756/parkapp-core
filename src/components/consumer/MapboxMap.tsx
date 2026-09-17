@@ -485,6 +485,18 @@ interface MapboxMapProps {
    * all three confidence levels on screen at once to point at.
    */
   showcasePins?: boolean;
+  /**
+   * Coordinates of the driver's own pin to show a pulsing highlight ring
+   * around -- purely visual sync with that pin's linked toast (see
+   * MapTab): the ring appears the instant the pin is reported and
+   * disappears the instant the toast closes, whatever the reason (timeout,
+   * manual dismiss, or the driver cancelling the pin itself). The
+   * underlying pin/spot is completely unaffected -- it keeps its real TTL,
+   * visible to the whole community, exactly as before this existed. Null
+   * while there is nothing to highlight.
+   */
+  reportHighlightLng?: number | null;
+  reportHighlightLat?: number | null;
 }
 
 // Maps our internal language codes to the ISO codes Mapbox's vector tiles
@@ -550,6 +562,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   followUser = false,
   operatingArea,
   showcasePins = false,
+  reportHighlightLng = null,
+  reportHighlightLat = null,
 }) => {
   const { t, language } = useLanguage();
   // Ref keeps the language available inside one-time event listeners without
@@ -561,6 +575,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const showcaseMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const reportHighlightMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   // Live compass heading of the camera, mirrored into React state purely so
   // the orientation button's needle can rotate with it. Rounded to whole
@@ -1014,6 +1029,39 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         .classList.toggle('mapbox-pin-fading', Boolean(pin.fading));
     });
   }, [pins, showcasePins]);
+
+  // Visual-only sync with the just-reported-pin toast (see MapTab): a
+  // pulsing ring at the driver's own newly-reported pin, disappearing the
+  // instant its linked toast closes -- timeout, manual dismiss, or the
+  // driver cancelling the pin. This never touches the pin/spot itself,
+  // which keeps its real TTL and stays visible to the whole community
+  // exactly as it did before this ring existed -- it's a "you just did
+  // this" cue on the reporting driver's own screen, nothing more.
+  useEffect(() => {
+    reportHighlightMarkerRef.current?.remove();
+    reportHighlightMarkerRef.current = null;
+
+    const map = mapRef.current;
+    if (!map || reportHighlightLng == null || reportHighlightLat == null) return;
+
+    const el = document.createElement('div');
+    el.style.position = 'relative';
+    el.style.width = '44px';
+    el.style.height = '44px';
+    el.innerHTML = `
+      <div class="absolute inset-0 rounded-full bg-teal-400/50 animate-pulse-ring"></div>
+      <div class="absolute inset-0 m-auto w-2.5 h-2.5 rounded-full bg-teal-400 ring-2 ring-white"></div>
+    `;
+
+    reportHighlightMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([reportHighlightLng, reportHighlightLat])
+      .addTo(map);
+
+    return () => {
+      reportHighlightMarkerRef.current?.remove();
+      reportHighlightMarkerRef.current = null;
+    };
+  }, [reportHighlightLng, reportHighlightLat]);
 
   // Tour showcase: the map tour's "Spot confidence colours" step walks
   // through the green/amber/red legend, but a live map rarely has all three
