@@ -54,11 +54,17 @@ const Toast = React.forwardRef<
           same duration ToastProvider uses for the real auto-dismiss timer
           (see toaster.tsx) -- a visual countdown, not a second timer. A
           fresh toast always gets a fresh element (Toaster keys each one by
-          id), so the animation restarts correctly for every new toast. */}
+          id), so the animation restarts correctly for every new toast.
+          transform: scaleX() rather than animating width -- scaleX is a
+          compositor-only property (no layout reflow every frame the way
+          animating width would be), consistent with the rest of the app's
+          motion. transform-origin: left keeps the left edge pinned so the
+          scale-down reads as the right edge receding, not the bar
+          shrinking from both sides toward the center. */}
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-x-0 bottom-0 h-1",
+          "absolute inset-x-0 bottom-0 h-1 origin-left",
           variant === "destructive" ? "bg-white/60" : "bg-primary"
         )}
         style={{ animation: `toast-progress ${TOAST_DURATION_MS}ms linear forwards` }}

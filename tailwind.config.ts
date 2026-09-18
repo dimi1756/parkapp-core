@@ -104,8 +104,8 @@ export default {
           "100%": { transform: "translate3d(var(--confetti-drift, 0px), 108vh, 0) rotate(680deg)", opacity: "0" },
         },
         "toast-progress": {
-          "0%": { width: "100%" },
-          "100%": { width: "0%" },
+          "0%": { transform: "scaleX(1)" },
+          "100%": { transform: "scaleX(0)" },
         },
       },
       animation: {
