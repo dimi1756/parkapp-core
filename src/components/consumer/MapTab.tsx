@@ -275,21 +275,22 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfiden
   // (matched by owner + proximity) shows up in nearbySpots.
   const [optimisticSpot, setOptimisticSpot] = useState<{ lng: number; lat: number } | null>(null);
 
-  // Coordinates + linked toast id for the driver's own pin that was JUST
-  // reported -- drives the map's pulsing highlight ring around it (visual
-  // only; the underlying pin/spot keeps its real TTL and stays visible to
-  // the whole community regardless of this). Survives the optimistic ->
-  // real pin handoff above since it's tracked by coordinates, not by id.
-  const [justReportedPin, setJustReportedPin] = useState<{ lng: number; lat: number; toastId: string } | null>(null);
+  // Toast id for the driver's own pin that was JUST reported -- lets
+  // cancelling the pin (handleDeleteOwnPin below) close its linked toast
+  // immediately instead of leaving it to count down on its own after the
+  // pin it refers to is gone. Purely a dismiss link; the underlying
+  // pin/spot itself keeps its real TTL and stays visible to the whole
+  // community regardless of this.
+  const [justReportedToastId, setJustReportedToastId] = useState<string | null>(null);
 
-  // Clears the highlight the instant its linked toast closes, whatever the
-  // reason (auto-timeout or the driver manually dismissing/swiping it) --
-  // both flow through the same `open` flag, so this one check covers both.
+  // Clears the link the instant its toast closes, whatever the reason
+  // (auto-timeout or the driver manually dismissing/swiping it) -- both
+  // flow through the same `open` flag, so this one check covers both.
   useEffect(() => {
-    if (!justReportedPin) return;
-    const linked = toasts.find((t) => t.id === justReportedPin.toastId);
-    if (!linked || linked.open === false) setJustReportedPin(null);
-  }, [toasts, justReportedPin]);
+    if (!justReportedToastId) return;
+    const linked = toasts.find((t) => t.id === justReportedToastId);
+    if (!linked || linked.open === false) setJustReportedToastId(null);
+  }, [toasts, justReportedToastId]);
 
   // Bottom card opened by tapping a live "mine"/"reported" spot pin --
   // holds the id so the card's live distance/ETA can recompute against the
@@ -1090,10 +1091,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfiden
           title: t('map.demoDeclareTitle', { n: data.pointsAwarded }),
           description: t('map.demoDeclareDesc'),
         });
-        setJustReportedPin({ lng, lat, toastId });
+        setJustReportedToastId(toastId);
       } else {
         const { id: toastId } = toast({ title: t('map.thanksPoints', { n: data.pointsAwarded }), description: t('map.thanksPointsDesc') });
-        setJustReportedPin({ lng, lat, toastId });
+        setJustReportedToastId(toastId);
       }
     }
 
@@ -1180,10 +1181,10 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfiden
           title: t('map.demoReportTitle', { n: data.pointsAwarded }),
           description: t('map.demoReportDesc'),
         });
-        setJustReportedPin({ lng: selectedSpot.lng, lat: selectedSpot.lat, toastId });
+        setJustReportedToastId(toastId);
       } else {
         const { id: toastId } = toast({ title: t('map.reportedPoints', { n: data.pointsAwarded }), description: t('map.reportedPointsDesc') });
-        setJustReportedPin({ lng: selectedSpot.lng, lat: selectedSpot.lat, toastId });
+        setJustReportedToastId(toastId);
       }
     }
     setSelectionMode(false);
@@ -1249,9 +1250,9 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfiden
     // Symmetric with the toast->pin sync above: cancelling your own pin
     // via its X closes its linked toast immediately too, instead of
     // leaving it to keep counting down after the pin it refers to is gone.
-    if (justReportedPin) {
-      dismiss(justReportedPin.toastId);
-      setJustReportedPin(null);
+    if (justReportedToastId) {
+      dismiss(justReportedToastId);
+      setJustReportedToastId(null);
     }
     const { cancelled, error } = await cancelOwnSpot(pinId);
     if (error || !cancelled) {
@@ -1468,8 +1469,6 @@ export const MapTab = ({ onNavigateToPlans, onNavigateToOffers, showSpotConfiden
           routeProfile={routeProfile}
           isNavigating={isNavigating && routeProfile === 'driving'}
           showcasePins={showSpotConfidenceDemo}
-          reportHighlightLng={justReportedPin?.lng ?? null}
-          reportHighlightLat={justReportedPin?.lat ?? null}
         />
       ) : (
         <div ref={imageContainerRef} className="absolute inset-0" onClick={handleStaticMapClick}>
