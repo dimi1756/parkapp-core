@@ -525,6 +525,29 @@ function applyMapLanguage(map: mapboxgl.Map, language: string): void {
   });
 }
 
+/**
+ * Hides road-shield / route-ref badge symbol layers for any feature with
+ * no `ref` value. Mapbox's Streets style draws these badges next to a
+ * road's route number regardless of whether the tile's feature actually
+ * has one -- at overview zoom (e.g. scanning all of southern Evia) that
+ * shows up as blank white/coloured rectangles scattered across the map
+ * with nothing drawn inside them, since there's no number to render.
+ *
+ * Only needs to run once per style load -- which layers exist and what
+ * they filter on doesn't change when the app-language label switches
+ * (that's applyMapLanguage's job, not this one's) -- so it's wired into
+ * the same style.load/idle pair below rather than the language-switch
+ * effect.
+ */
+function hideEmptyRoadShields(map: mapboxgl.Map): void {
+  map.getStyle().layers.forEach((layer) => {
+    if (layer.type !== 'symbol' || !/shield/i.test(layer.id)) return;
+    const existing = map.getFilter(layer.id);
+    const requireRef = ['has', 'ref'] as mapboxgl.FilterSpecification;
+    map.setFilter(layer.id, existing ? (['all', existing, requireRef] as mapboxgl.FilterSpecification) : requireRef);
+  });
+}
+
 export const MapboxMap: React.FC<MapboxMapProps> = ({
   center,
   userLocation,
@@ -675,7 +698,11 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     // layer has settled before the language is (re)applied.
     map.on('style.load', () => {
       applyMapLanguage(map, languageRef.current);
-      map.once('idle', () => applyMapLanguage(map, languageRef.current));
+      hideEmptyRoadShields(map);
+      map.once('idle', () => {
+        applyMapLanguage(map, languageRef.current);
+        hideEmptyRoadShields(map);
+      });
     });
 
     mapRef.current = map;

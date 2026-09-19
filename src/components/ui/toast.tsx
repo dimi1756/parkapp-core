@@ -47,27 +47,46 @@ const Toast = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Root>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Root> & VariantProps<typeof toastVariants>
 >(({ className, variant, children, ...props }, ref) => {
+  // Progress bar: shrinks right-to-left over TOAST_DURATION_MS, the same
+  // duration ToastProvider uses for the real auto-dismiss timer (see
+  // toaster.tsx) -- a visual countdown, not a second timer.
+  //
+  // Driven by rAF writing `transform` directly, not a CSS `animation`.
+  // iOS Low Power Mode forces `prefers-reduced-motion: reduce`, and any
+  // CSS transition/animation is fair game for the browser to freeze under
+  // that media feature -- a JS-driven inline style write is not a CSS
+  // animation and isn't touched by it, so the bar keeps moving regardless
+  // of the device's power/motion settings. scaleX (not width) still keeps
+  // this compositor-only -- rAF changes the transform value, it doesn't
+  // make the write itself trigger layout. transform-origin: left keeps
+  // the left edge pinned so the shrink reads as the right edge receding.
+  const barRef = React.useRef<HTMLSpanElement>(null);
+
+  React.useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const start = performance.now();
+    let frame: number;
+    const tick = (now: number) => {
+      const remaining = Math.max(0, 1 - (now - start) / TOAST_DURATION_MS);
+      el.style.transform = `scaleX(${remaining})`;
+      if (remaining > 0) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   return (
     <ToastPrimitives.Root ref={ref} className={cn(toastVariants({ variant }), className)} {...props}>
       {children}
-      {/* Progress bar: shrinks right-to-left over TOAST_DURATION_MS, the
-          same duration ToastProvider uses for the real auto-dismiss timer
-          (see toaster.tsx) -- a visual countdown, not a second timer. A
-          fresh toast always gets a fresh element (Toaster keys each one by
-          id), so the animation restarts correctly for every new toast.
-          transform: scaleX() rather than animating width -- scaleX is a
-          compositor-only property (no layout reflow every frame the way
-          animating width would be), consistent with the rest of the app's
-          motion. transform-origin: left keeps the left edge pinned so the
-          scale-down reads as the right edge receding, not the bar
-          shrinking from both sides toward the center. */}
       <span
+        ref={barRef}
         aria-hidden="true"
         className={cn(
           "absolute inset-x-0 bottom-0 h-1 origin-left",
           variant === "destructive" ? "bg-white/70" : "bg-primary"
         )}
-        style={{ animation: `toast-progress ${TOAST_DURATION_MS}ms linear forwards` }}
+        style={{ transform: "scaleX(1)" }}
       />
     </ToastPrimitives.Root>
   );
